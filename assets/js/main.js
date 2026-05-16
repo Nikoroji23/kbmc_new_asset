@@ -40,27 +40,55 @@ document.addEventListener('DOMContentLoaded', function() {
                 notifDropdown.classList.remove('show');
             }
         });
+    }
 
-        // Mark as read on click
-        document.querySelectorAll('.notif-item.unread').forEach(item => {
-            item.addEventListener('click', () => {
-                const notifId = item.dataset.id;
-                if (notifId) {
-                    fetch('ajax/mark_notification_read.php?id=' + notifId)
-                        .then(() => {
-                            item.classList.remove('unread');
+    // ============================================================
+    // NOTIFICATION ITEM CLICK HANDLER (Header Dropdown)
+    // ============================================================
+    document.querySelectorAll('.notif-item').forEach(item => {
+        item.addEventListener('click', function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+
+            const notifId = this.dataset.id;
+            const notifUrl = this.dataset.url;
+
+            if (notifId) {
+                // Mark as read via AJAX
+                fetch('mark_notification_read.php?id=' + notifId)
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.success) {
+                            // Remove unread styling
+                            this.classList.remove('unread');
+
+                            // Update badge count
                             const badge = document.querySelector('.notif-badge');
                             if (badge) {
                                 const count = parseInt(badge.textContent) - 1;
-                                if (count <= 0) badge.remove();
-                                else badge.textContent = count;
+                                if (count <= 0) {
+                                    badge.remove();
+                                } else {
+                                    badge.textContent = count;
+                                }
                             }
-                        })
-                        .catch(err => console.error('Notification error:', err));
-                }
-            });
+
+                            // Navigate to the relevant page
+                            if (notifUrl && notifUrl !== '#') {
+                                window.location.href = notifUrl;
+                            }
+                        }
+                    })
+                    .catch(err => {
+                        console.error('Notification error:', err);
+                        // Still navigate even if marking as read fails
+                        if (notifUrl && notifUrl !== '#') {
+                            window.location.href = notifUrl;
+                        }
+                    });
+            }
         });
-    }
+    });
 
     // ============================================================
     // AUTO-HIDE FLASH ALERT
@@ -242,6 +270,44 @@ window.exportToPDF = function(title, headers, rows, filename) {
     } catch (error) {
         console.error('PDF Export Error:', error);
         alert('PDF export failed: ' + error.message);
+    }
+};
+
+// ============================================================
+// NOTIFICATION CLICK HANDLER (Global - for notifications.php page)
+// ============================================================
+window.handleNotificationClick = function(element) {
+    const notifId = element.dataset.id;
+    const notifUrl = element.dataset.url;
+
+    if (notifId) {
+        fetch('mark_notification_read.php?id=' + notifId)
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    element.classList.remove('unread');
+                    element.style.background = 'transparent';
+
+                    const badge = document.querySelector('.notif-badge');
+                    if (badge) {
+                        const count = parseInt(badge.textContent) - 1;
+                        if (count <= 0) badge.remove();
+                        else badge.textContent = count;
+                    }
+
+                    // Navigate to the relevant page
+                    if (notifUrl && notifUrl !== '#') {
+                        window.location.href = notifUrl;
+                    }
+                }
+            })
+            .catch(err => {
+                console.error('Notification error:', err);
+                // Still navigate even if marking as read fails
+                if (notifUrl && notifUrl !== '#') {
+                    window.location.href = notifUrl;
+                }
+            });
     }
 };
 

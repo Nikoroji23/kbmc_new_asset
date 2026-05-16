@@ -90,11 +90,13 @@ $pageTitle = $pageTitle ?? 'KBMC Asset Management';
                 <?php endif; ?>
             </a>
 
+            <?php if (hasRole('admin') || hasRole('it_staff')): ?>
             <div class="nav-section">Reports</div>
             <a href="reports.php" class="nav-item <?php echo basename($_SERVER['PHP_SELF']) == 'reports.php' ? 'active' : ''; ?>">
                 <i class="fas fa-chart-bar"></i>
                 <span>Reports & Analytics</span>
             </a>
+            <?php endif; ?>
 
             <?php if (hasRole('admin')): ?>
             <div class="nav-section">Administration</div>
@@ -156,7 +158,9 @@ $pageTitle = $pageTitle ?? 'KBMC Asset Management';
                             <div class="notif-empty">No notifications</div>
                             <?php else: ?>
                             <?php foreach ($notifications as $notif): ?>
-                            <div class="notif-item <?php echo $notif['is_read'] ? '' : 'unread'; ?>" data-id="<?php echo $notif['id']; ?>">
+                            <div class="notif-item <?php echo $notif['is_read'] ? '' : 'unread'; ?>" 
+                                 data-id="<?php echo $notif['id']; ?>" 
+                                 data-url="requests.php">
                                 <div class="notif-icon">
                                     <i class="fas fa-<?php
                                         echo match($notif['type']) {

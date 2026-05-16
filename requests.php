@@ -15,11 +15,11 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['submit_request'])) {
         $stmt = $pdo->prepare("INSERT INTO device_requests (requester_id, device_type_id, request_reason, urgency, status) VALUES (?, ?, ?, ?, 'pending')");
         $stmt->execute([$_SESSION['user_id'], $device_type_id, $request_reason, $urgency]);
 
-        // Notify admins
-        $admins = $pdo->query("SELECT id FROM users WHERE role = 'admin'")->fetchAll();
+        // Notify admins and IT staff
+        $staff = $pdo->query("SELECT id FROM users WHERE role IN ('admin', 'it_staff') AND status = 'active'")->fetchAll();
         $typeName = $device_type_id ? $pdo->query("SELECT type_name FROM device_types WHERE id = $device_type_id")->fetchColumn() : 'Any';
-        foreach ($admins as $admin) {
-            addNotification($admin['id'], 'request_approved', 'New Device Request', "New request for $typeName from " . $_SESSION['full_name'], $pdo->lastInsertId());
+        foreach ($staff as $s) {
+            addNotification($s['id'], 'request_approved', 'New Device Request', "New request for $typeName from " . $_SESSION['full_name'], $pdo->lastInsertId());
         }
 
         setFlashMessage('success', 'Your device request has been submitted.');

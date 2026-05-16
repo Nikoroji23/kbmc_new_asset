@@ -1,8 +1,13 @@
 <?php
+/**
+ * KBMC Asset Management - Manage Users
+ * Includes: User Management + Recovery Requests tabs
+ */
 $pageTitle = 'Manage Users';
 require_once 'includes/header.php';
 requireAdmin();
 
+// Handle Add User
 if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['add_user'])) {
     $employee_id = trim($_POST['employee_id'] ?? '');
     $full_name = trim($_POST['full_name'] ?? '');
@@ -26,6 +31,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['add_user'])) {
     }
 }
 
+// Handle User Toggle (Activate/Deactivate)
 if (isset($_GET['toggle']) && isset($_GET['id'])) {
     $userId = $_GET['id'];
     $current = $pdo->query("SELECT status FROM users WHERE id = $userId")->fetchColumn();
@@ -36,6 +42,7 @@ if (isset($_GET['toggle']) && isset($_GET['id'])) {
     exit();
 }
 
+// Handle User Delete
 if (isset($_GET['delete']) && isset($_GET['id'])) {
     $userId = $_GET['id'];
     try {
@@ -48,7 +55,53 @@ if (isset($_GET['delete']) && isset($_GET['id'])) {
     exit();
 }
 
+// Handle Recovery Request Approval/Rejection
+if (isset($_GET['recovery_action']) && isset($_GET['recovery_id'])) {
+    $recoveryId = $_GET['recovery_id'];
+    $action = $_GET['recovery_action'];
+    $newStatus = $action == 'approve' ? 'approved' : 'rejected';
+
+    try {
+        // Get the user_id from recovery request
+        $stmt = $pdo->prepare("SELECT user_id FROM account_recovery_requests WHERE id = ?");
+        $stmt->execute([$recoveryId]);
+        $userId = $stmt->fetchColumn();
+
+        if ($userId) {
+            // Update recovery request status
+            $pdo->prepare("UPDATE account_recovery_requests SET status = ?, resolved_at = NOW(), resolved_by = ? WHERE id = ?")
+                ->execute([$newStatus, $_SESSION['user_id'], $recoveryId]);
+
+            // If approved, activate the user account and reset failed logins
+            if ($action == 'approve') {
+                $pdo->prepare("UPDATE users SET status = 'active', failed_logins = 0, locked_until = NULL WHERE id = ?")
+                    ->execute([$userId]);
+
+                // Notify user
+                addNotification($userId, 'request_approved', 'Account Recovered', 'Your account has been reactivated. You can now log in.', $recoveryId);
+
+                setFlashMessage('success', 'Account recovery approved. User can now log in.');
+            } else {
+                // Notify user of rejection
+                addNotification($userId, 'request_rejected', 'Account Recovery Rejected', 'Your account recovery request was rejected. Contact admin for more info.', $recoveryId);
+                setFlashMessage('warning', 'Account recovery request rejected.');
+            }
+        }
+
+        header('Location: users.php#recovery');
+        exit();
+    } catch (PDOException $e) {
+        setFlashMessage('error', 'Error processing recovery: ' . $e->getMessage());
+        header('Location: users.php#recovery');
+        exit();
+    }
+}
+
+// Get all users
 $users = $pdo->query("SELECT * FROM users ORDER BY created_at DESC")->fetchAll();
+
+// Get pending recovery requests
+$recoveryRequests = getPendingRecoveryRequests();
 ?>
 
 <div class="page-header">
@@ -56,62 +109,147 @@ $users = $pdo->query("SELECT * FROM users ORDER BY created_at DESC")->fetchAll()
     <button class="btn btn-primary" data-modal="addUserModal"><i class="fas fa-plus"></i> Add User</button>
 </div>
 
-<div class="card">
-    <div class="card-body">
-        <div class="data-table-wrapper">
-            <table class="data-table">
-                <thead>
-                    <tr>
-                        <th>ID</th>
-                        <th>Name</th>
-                        <th>Email</th>
-                        <th>Role</th>
-                        <th>Department</th>
-                        <th>Position</th>
-                        <th>Status</th>
-                        <th>Joined</th>
-                        <th>Actions</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <?php if (empty($users)): ?>
-                    <tr><td colspan="9" class="empty-state" style="padding: 40px;"><h4>No users found</h4></td></tr>
-                    <?php else: ?>
-                    <?php foreach ($users as $u): ?>
-                    <tr>
-                        <td><?php echo sanitize($u['employee_id'] ?: 'N/A'); ?></td>
-                        <td><strong><?php echo sanitize($u['full_name']); ?></strong></td>
-                        <td><?php echo sanitize($u['email']); ?></td>
-                        <td><?php echo $role_names[$u['role']] ?? $u['role']; ?></td>
-                        <td><?php echo sanitize($u['department']); ?></td>
-                        <td><?php echo sanitize($u['position']); ?></td>
-                        <td>
-                            <span class="status-badge" style="background: <?php echo $u['status'] == 'active' ? '#27AE6020' : '#E74C3C20'; ?>; color: <?php echo $u['status'] == 'active' ? '#27AE60' : '#E74C3C'; ?>; border: 1px solid <?php echo $u['status'] == 'active' ? '#27AE60' : '#E74C3C'; ?>;">
-                                <?php echo ucfirst($u['status']); ?>
-                            </span>
-                        </td>
-                        <td><?php echo formatDate($u['created_at']); ?></td>
-                        <td style="display:flex;gap:6px;flex-wrap:wrap;">
-                            <a href="users.php?toggle=1&id=<?php echo $u['id']; ?>"
-                                class="btn btn-sm <?php echo $u['status'] == 'active' ? 'btn-danger' : 'btn-success'; ?>"
-                                onclick="return confirm('<?php echo $u['status'] == 'active' ? 'Deactivate' : 'Activate'; ?> this user?')">
-                                <?php echo $u['status'] == 'active' ? '<i class="fas fa-ban"></i> Deactivate' : '<i class="fas fa-check"></i> Activate'; ?>
-                            </a>
-                            <a href="users.php?delete=1&id=<?php echo $u['id']; ?>"
-                                class="btn btn-sm btn-danger"
-                                onclick="return confirm('Are you sure you want to permanently delete <?php echo sanitize($u['full_name']); ?>? This cannot be undone.')">
-                                <i class="fas fa-trash"></i> Delete
-                            </a>
-                        </td>
-                    </tr>
-                    <?php endforeach; ?>
-                    <?php endif; ?>
-                </tbody>
-            </table>
+<!-- Tabs Navigation -->
+<div class="tabs">
+    <button class="tab-btn active" onclick="switchTab('users-tab', this)">
+        <i class="fas fa-users"></i> All Users
+    </button>
+    <button class="tab-btn" onclick="switchTab('recovery-tab', this)">
+        <i class="fas fa-user-shield"></i> Recovery Requests
+        <?php if (count($recoveryRequests) > 0): ?>
+        <span class="nav-badge" style="margin-left: 8px;"><?php echo count($recoveryRequests); ?></span>
+        <?php endif; ?>
+    </button>
+</div>
+
+<!-- Users Tab -->
+<div id="users-tab" class="tab-content active">
+    <div class="card">
+        <div class="card-body">
+            <div class="data-table-wrapper">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Name</th>
+                            <th>Email</th>
+                            <th>Role</th>
+                            <th>Department</th>
+                            <th>Position</th>
+                            <th>Status</th>
+                            <th>Joined</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php if (empty($users)): ?>
+                        <tr><td colspan="9" class="empty-state" style="padding: 40px;"><h4>No users found</h4></td></tr>
+                        <?php else: ?>
+                        <?php foreach ($users as $u): ?>
+                        <tr>
+                            <td><?php echo sanitize($u['employee_id'] ?: 'N/A'); ?></td>
+                            <td><strong><?php echo sanitize($u['full_name']); ?></strong></td>
+                            <td><?php echo sanitize($u['email']); ?></td>
+                            <td><?php echo $role_names[$u['role']] ?? $u['role']; ?></td>
+                            <td><?php echo sanitize($u['department']); ?></td>
+                            <td><?php echo sanitize($u['position']); ?></td>
+                            <td>
+                                <span class="status-badge" style="background: <?php echo $u['status'] == 'active' ? '#27AE6020' : '#E74C3C20'; ?>; color: <?php echo $u['status'] == 'active' ? '#27AE60' : '#E74C3C'; ?>; border: 1px solid <?php echo $u['status'] == 'active' ? '#27AE60' : '#E74C3C'; ?>;">
+                                    <?php echo ucfirst($u['status']); ?>
+                                </span>
+                            </td>
+                            <td><?php echo formatDate($u['created_at']); ?></td>
+                            <td style="display:flex;gap:6px;flex-wrap:wrap;">
+                                <a href="users.php?toggle=1&id=<?php echo $u['id']; ?>"
+                                    class="btn btn-sm <?php echo $u['status'] == 'active' ? 'btn-danger' : 'btn-success'; ?>"
+                                    onclick="return confirm('<?php echo $u['status'] == 'active' ? 'Deactivate' : 'Activate'; ?> this user?')">
+                                    <?php echo $u['status'] == 'active' ? '<i class="fas fa-ban"></i> Deactivate' : '<i class="fas fa-check"></i> Activate'; ?>
+                                </a>
+                                <a href="users.php?delete=1&id=<?php echo $u['id']; ?>"
+                                    class="btn btn-sm btn-danger"
+                                    onclick="return confirm('Are you sure you want to permanently delete <?php echo sanitize($u['full_name']); ?>? This cannot be undone.')">
+                                    <i class="fas fa-trash"></i> Delete
+                                </a>
+                            </td>
+                        </tr>
+                        <?php endforeach; ?>
+                        <?php endif; ?>
+                    </tbody>
+                </table>
+            </div>
         </div>
     </div>
 </div>
 
+<!-- Recovery Requests Tab -->
+<div id="recovery-tab" class="tab-content">
+    <div class="card">
+        <div class="card-header">
+            <h3><i class="fas fa-user-shield"></i> Account Recovery Requests</h3>
+        </div>
+        <div class="card-body">
+            <?php if (empty($recoveryRequests)): ?>
+            <div class="empty-state">
+                <i class="fas fa-check-circle" style="font-size: 40px; color: #27AE60;"></i>
+                <h4>No pending recovery requests</h4>
+                <p>All accounts are active or recovery requests have been processed.</p>
+            </div>
+            <?php else: ?>
+            <div class="data-table-wrapper">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Request ID</th>
+                            <th>User</th>
+                            <th>Email</th>
+                            <th>Department</th>
+                            <th>Reason</th>
+                            <th>Requested</th>
+                            <th>Status</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php foreach ($recoveryRequests as $req): ?>
+                        <tr>
+                            <td><strong>#<?php echo $req['id']; ?></strong></td>
+                            <td><?php echo sanitize($req['full_name']); ?></td>
+                            <td><?php echo sanitize($req['email']); ?></td>
+                            <td><?php echo sanitize($req['department'] ?: 'N/A'); ?></td>
+                            <td><?php echo sanitize(substr($req['request_reason'], 0, 50)) . (strlen($req['request_reason']) > 50 ? '...' : ''); ?></td>
+                            <td><?php echo formatDate($req['requested_at'], 'M d, Y h:i A'); ?></td>
+                            <td>
+                                <span class="status-badge" style="background: #F39C1220; color: #F39C12; border: 1px solid #F39C12;">
+                                    Pending
+                                </span>
+                            </td>
+                            <td>
+                                <div class="action-btns">
+                                    <a href="users.php?recovery_action=approve&recovery_id=<?php echo $req['id']; ?>" 
+                                       class="action-btn assign" 
+                                       title="Approve Recovery"
+                                       onclick="return confirm('Approve account recovery for <?php echo sanitize($req['full_name']); ?>? This will reactivate their account.')">
+                                        <i class="fas fa-check"></i>
+                                    </a>
+                                    <a href="users.php?recovery_action=reject&recovery_id=<?php echo $req['id']; ?>" 
+                                       class="action-btn delete" 
+                                       title="Reject Recovery"
+                                       onclick="return confirm('Reject account recovery for <?php echo sanitize($req['full_name']); ?>?')">
+                                        <i class="fas fa-times"></i>
+                                    </a>
+                                </div>
+                            </td>
+                        </tr>
+                        <?php endforeach; ?>
+                    </tbody>
+                </table>
+            </div>
+            <?php endif; ?>
+        </div>
+    </div>
+</div>
+
+<!-- Add User Modal -->
 <div class="modal-overlay" id="addUserModal">
     <div class="modal-box">
         <div class="modal-header">
@@ -189,6 +327,40 @@ $users = $pdo->query("SELECT * FROM users ORDER BY created_at DESC")->fetchAll()
 <?php require_once 'includes/footer.php'; ?>
 
 <script>
+// Tab Switching Function
+function switchTab(tabId, btn) {
+    // Hide all tabs
+    document.querySelectorAll('.tab-content').forEach(tab => {
+        tab.classList.remove('active');
+    });
+    // Remove active from all buttons
+    document.querySelectorAll('.tab-btn').forEach(b => {
+        b.classList.remove('active');
+    });
+    // Show selected tab
+    document.getElementById(tabId).classList.add('active');
+    // Activate button
+    btn.classList.add('active');
+
+    // Update URL hash for direct linking
+    if (tabId === 'recovery-tab') {
+        window.location.hash = 'recovery';
+    } else {
+        history.pushState('', document.title, window.location.pathname + window.location.search);
+    }
+}
+
+// Check URL hash on page load
+window.addEventListener('DOMContentLoaded', function() {
+    if (window.location.hash === '#recovery') {
+        const recoveryBtn = document.querySelectorAll('.tab-btn')[1];
+        if (recoveryBtn) {
+            switchTab('recovery-tab', recoveryBtn);
+        }
+    }
+});
+
+// Phone picker scripts (keep existing)
 const phoneCountries=[
     {flag:"🇵🇭",name:"Philippines",code:"+63",maxLen:10,placeholder:"9XX XXX XXXX"},
     {flag:"🇺🇸",name:"United States",code:"+1",maxLen:10,placeholder:"XXX XXX XXXX"},

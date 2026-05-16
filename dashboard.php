@@ -35,6 +35,15 @@ $recentLogs = $stmt->fetchAll();
 
 // Pending requests
 $pendingReqCount = $pdo->query("SELECT COUNT(*) FROM device_requests WHERE status = 'pending'")->fetchColumn();
+
+// Pending recovery requests (admin only)
+$pendingRecoveryCount = 0;
+$recentRecoveryRequests = [];
+if (hasRole('admin')) {
+    $pendingRecoveryCount = $pdo->query("SELECT COUNT(*) FROM account_recovery_requests WHERE status = 'pending'")->fetchColumn();
+    $stmt = $pdo->query("SELECT ar.*, u.full_name, u.email, u.department FROM account_recovery_requests ar JOIN users u ON ar.user_id = u.id WHERE ar.status = 'pending' ORDER BY ar.requested_at DESC LIMIT 5");
+    $recentRecoveryRequests = $stmt->fetchAll();
+}
 ?>
 
 <!-- Stats Grid -->
@@ -214,9 +223,11 @@ $pendingReqCount = $pdo->query("SELECT COUNT(*) FROM device_requests WHERE statu
         <a href="requests.php?action=new" class="btn btn-warning">
             <i class="fas fa-hand-paper"></i> Request Device
         </a>
+        <?php if (hasRole('admin') || hasRole('it_staff')): ?>
         <a href="reports.php" class="btn btn-outline">
             <i class="fas fa-download"></i> Generate Report
         </a>
+        <?php endif; ?>
         <?php if ($pendingReqCount > 0 && (hasRole('admin') || hasRole('it_staff'))): ?>
         <a href="requests.php" class="btn btn-danger">
             <i class="fas fa-bell"></i> <?php echo $pendingReqCount; ?> Pending Request<?php echo $pendingReqCount > 1 ? 's' : ''; ?>
@@ -224,6 +235,59 @@ $pendingReqCount = $pdo->query("SELECT COUNT(*) FROM device_requests WHERE statu
         <?php endif; ?>
     </div>
 </div>
+
+<?php if (hasRole('admin') && $pendingRecoveryCount > 0): ?>
+<!-- Recovery Requests Alert Card -->
+<div class="card" style="border-left: 4px solid #E74C3C;">
+    <div class="card-header" style="background: #FDEDEC;">
+        <h3 style="color: #E74C3C;"><i class="fas fa-user-shield"></i> Account Recovery Requests</h3>
+        <a href="users.php#recovery" class="btn btn-sm btn-danger">View All</a>
+    </div>
+    <div class="card-body" style="padding: 0;">
+        <div class="data-table-wrapper">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>User</th>
+                        <th>Email</th>
+                        <th>Department</th>
+                        <th>Reason</th>
+                        <th>Requested</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <?php foreach ($recentRecoveryRequests as $req): ?>
+                    <tr>
+                        <td><strong><?php echo sanitize($req['full_name']); ?></strong></td>
+                        <td><?php echo sanitize($req['email']); ?></td>
+                        <td><?php echo sanitize($req['department'] ?: 'N/A'); ?></td>
+                        <td><?php echo sanitize(substr($req['request_reason'], 0, 40)) . (strlen($req['request_reason']) > 40 ? '...' : ''); ?></td>
+                        <td><?php echo formatDate($req['requested_at']); ?></td>
+                        <td>
+                            <div class="action-btns">
+                                <a href="users.php?recovery_action=approve&recovery_id=<?php echo $req['id']; ?>" 
+                                   class="action-btn assign" 
+                                   title="Approve"
+                                   onclick="return confirm('Approve recovery for <?php echo sanitize($req['full_name']); ?>?')">
+                                    <i class="fas fa-check"></i>
+                                </a>
+                                <a href="users.php?recovery_action=reject&recovery_id=<?php echo $req['id']; ?>" 
+                                   class="action-btn delete" 
+                                   title="Reject"
+                                   onclick="return confirm('Reject recovery for <?php echo sanitize($req['full_name']); ?>?')">
+                                    <i class="fas fa-times"></i>
+                                </a>
+                            </div>
+                        </td>
+                    </tr>
+                    <?php endforeach; ?>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+<?php endif; ?>
 
 <!-- Recent Activity Log -->
 <div class="card">
