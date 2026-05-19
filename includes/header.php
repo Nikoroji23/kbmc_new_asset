@@ -90,6 +90,29 @@ $pageTitle = $pageTitle ?? 'KBMC Asset Management';
                 <?php endif; ?>
             </a>
 
+            <div class="nav-section">Tools & Search</div>
+            <a href="device_search.php" class="nav-item <?php echo basename($_SERVER['PHP_SELF']) == 'device_search.php' ? 'active' : ''; ?>">
+                <i class="fas fa-search"></i>
+                <span>Search Devices</span>
+            </a>
+            <a href="user_asset_dashboard.php" class="nav-item <?php echo basename($_SERVER['PHP_SELF']) == 'user_asset_dashboard.php' ? 'active' : ''; ?>">
+                <i class="fas fa-laptop-house"></i>
+                <span>My Devices</span>
+            </a>
+
+            <?php if (hasRole('admin') || hasRole('it_staff')): ?>
+            <a href="maintenance_reminders.php" class="nav-item <?php echo basename($_SERVER['PHP_SELF']) == 'maintenance_reminders.php' ? 'active' : ''; ?>">
+                <i class="fas fa-calendar-check"></i>
+                <span>Maintenance</span>
+                <?php
+                $upcomingMaint = $pdo->query("SELECT COUNT(*) FROM maintenance_schedules WHERE next_due_date <= DATE_ADD(NOW(), INTERVAL 7 DAY)")->fetchColumn();
+                if ($upcomingMaint > 0):
+                ?>
+                <span class="nav-badge"><?php echo $upcomingMaint; ?></span>
+                <?php endif; ?>
+            </a>
+            <?php endif; ?>
+
             <?php if (hasRole('admin') || hasRole('it_staff')): ?>
             <div class="nav-section">Reports</div>
             <a href="reports.php" class="nav-item <?php echo basename($_SERVER['PHP_SELF']) == 'reports.php' ? 'active' : ''; ?>">

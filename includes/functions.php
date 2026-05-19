@@ -326,3 +326,269 @@ function getPendingRecoveryRequests() {
         ORDER BY ar.requested_at DESC
     ")->fetchAll();
 }
+
+// ============================================================
+// EMAIL NOTIFICATIONS & MAINTENANCE REMINDERS
+// ============================================================
+
+function queueEmailNotification($userId, $recipientEmail, $notificationType, $subject, $body, $relatedDeviceId = null, $relatedRepairId = null) {
+    global $pdo;
+    $stmt = $pdo->prepare("INSERT INTO email_notifications (user_id, recipient_email, notification_type, subject, body, related_device_id, related_repair_id, status) VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')");
+    $stmt->execute([$userId, $recipientEmail, $notificationType, $subject, $body, $relatedDeviceId, $relatedRepairId]);
+    return $pdo->lastInsertId();
+}
+
+function sendPendingEmailNotifications() {
+    global $pdo;
+    $stmt = $pdo->prepare("SELECT * FROM email_notifications WHERE status = 'pending' AND retry_count < 3 ORDER BY created_at ASC LIMIT 10");
+    $stmt->execute();
+    $notifications = $stmt->fetchAll();
+    
+    foreach ($notifications as $notif) {
+        if (isEmailConfigured()) {
+            $result = sendEmail($notif['recipient_email'], $notif['subject'], $notif['body']);
+            if ($result['success']) {
+                $pdo->prepare("UPDATE email_notifications SET status = 'sent', sent_at = NOW() WHERE id = ?")->execute([$notif['id']]);
+            } else {
+                $pdo->prepare("UPDATE email_notifications SET status = 'failed', failure_reason = ?, retry_count = retry_count + 1 WHERE id = ?")->execute([$result['message'], $notif['id']]);
+            }
+        }
+    }
+}
+
+function createMaintenanceSchedule($deviceId, $maintenanceType, $description, $scheduledDate, $assignedTo = null) {
+    global $pdo;
+    $stmt = $pdo->prepare("INSERT INTO maintenance_schedules (device_id, maintenance_type, description, scheduled_date, next_due_date, assigned_to) VALUES (?, ?, ?, ?, ?, ?)");
+    $stmt->execute([$deviceId, $maintenanceType, $description, $scheduledDate, $scheduledDate, $assignedTo]);
+    return $pdo->lastInsertId();
+}
+
+function getUpcomingMaintenanceReminders($daysAhead = 7) {
+    global $pdo;
+    $futureDate = date('Y-m-d', strtotime("+$daysAhead days"));
+    $stmt = $pdo->prepare("
+        SELECT ms.*, d.asset_tag, d.model, u.email, u.full_name
+        FROM maintenance_schedules ms
+        JOIN devices d ON ms.device_id = d.id
+        LEFT JOIN users u ON ms.assigned_to = u.id
+        WHERE ms.next_due_date <= ? AND ms.next_due_date > NOW()
+        ORDER BY ms.next_due_date ASC
+    ");
+    $stmt->execute([$futureDate]);
+    return $stmt->fetchAll();
+}
+
+function markMaintenanceCompleted($maintenanceId) {
+    global $pdo;
+    $pdo->prepare("UPDATE maintenance_schedules SET last_performed_date = NOW(), next_due_date = DATE_ADD(NOW(), INTERVAL 6 MONTH) WHERE id = ?")->execute([$maintenanceId]);
+}
+
+// ============================================================
+// SERIAL NUMBER SEARCH
+// ============================================================
+
+function searchDeviceBySerialNumber($serialNumber) {
+    global $pdo;
+    $stmt = $pdo->prepare("
+        SELECT d.*, dt.type_name, u.full_name as created_by_name
+        FROM devices d
+        JOIN device_types dt ON d.device_type_id = dt.id
+        LEFT JOIN users u ON d.created_by = u.id
+        WHERE d.serial_number LIKE ? OR d.asset_tag LIKE ?
+        LIMIT 1
+    ");
+    $search = "%$serialNumber%";
+    $stmt->execute([$search, $search]);
+    return $stmt->fetch();
+}
+
+function searchDevicesBySerialOrAsset($searchTerm) {
+    global $pdo;
+    $stmt = $pdo->prepare("
+        SELECT d.*, dt.type_name
+        FROM devices d
+        JOIN device_types dt ON d.device_type_id = dt.id
+        WHERE d.serial_number LIKE ? OR d.asset_tag LIKE ? OR d.brand LIKE ? OR d.model LIKE ?
+        ORDER BY d.updated_at DESC
+        LIMIT 20
+    ");
+    $search = "%$searchTerm%";
+    $stmt->execute([$search, $search, $search, $search]);
+    return $stmt->fetchAll();
+}
+
+// ============================================================
+// STATUS COLOR & DISPLAY
+// ============================================================
+
+function getStatusColor($status) {
+    global $pdo;
+    $stmt = $pdo->prepare("SELECT color_code, icon_class, display_label FROM device_status_colors WHERE status = ?");
+    $stmt->execute([$status]);
+    $result = $stmt->fetch();
+    if (!$result) {
+        return ['color_code' => '#95a5a6', 'icon_class' => 'fas fa-question', 'display_label' => ucfirst(str_replace('_', ' ', $status))];
+    }
+    return $result;
+}
+
+function getStatusBadgeHtml($status) {
+    $statusInfo = getStatusColor($status);
+    return '<span class="status-badge" style="background-color: ' . $statusInfo['color_code'] . '20; color: ' . $statusInfo['color_code'] . '; border: 1px solid ' . $statusInfo['color_code'] . '; padding: 5px 10px; border-radius: 4px; font-size: 12px; display: inline-flex; align-items: center; gap: 5px;">
+        <i class="' . $statusInfo['icon_class'] . '"></i> ' . $statusInfo['display_label'] . '
+    </span>';
+}
+
+// ============================================================
+// USER ASSET DASHBOARD
+// ============================================================
+
+function getEmployeeAssignedDevices($employeeId) {
+    global $pdo;
+    $stmt = $pdo->prepare("
+        SELECT d.*, dt.type_name, da.assigned_date, da.purpose, 
+               (SELECT COUNT(*) FROM device_repairs WHERE device_id = d.id AND repair_status IN ('pending', 'under_repair')) as pending_repairs,
+               (SELECT COUNT(*) FROM maintenance_schedules WHERE device_id = d.id AND next_due_date <= DATE_ADD(NOW(), INTERVAL 7 DAY)) as upcoming_maintenance
+        FROM device_assignments da
+        JOIN devices d ON da.device_id = d.id
+        JOIN device_types dt ON d.device_type_id = dt.id
+        WHERE da.employee_id = ? AND da.status = 'active' AND d.status = 'deployed'
+        ORDER BY da.assigned_date DESC
+    ");
+    $stmt->execute([$employeeId]);
+    return $stmt->fetchAll();
+}
+
+function getEmployeeDeviceStats($employeeId) {
+    global $pdo;
+    $stmt = $pdo->prepare("
+        SELECT 
+            COUNT(DISTINCT da.device_id) as total_devices,
+            SUM(CASE WHEN d.status = 'deployed' THEN 1 ELSE 0 END) as active_devices,
+            SUM(CASE WHEN d.status = 'under_repair' THEN 1 ELSE 0 END) as devices_under_repair,
+            SUM(CASE WHEN dr.repair_status IN ('pending', 'under_repair') THEN 1 ELSE 0 END) as pending_repairs
+        FROM device_assignments da
+        LEFT JOIN devices d ON da.device_id = d.id
+        LEFT JOIN device_repairs dr ON d.id = dr.device_id AND dr.repair_status IN ('pending', 'under_repair')
+        WHERE da.employee_id = ? AND da.status = 'active'
+    ");
+    $stmt->execute([$employeeId]);
+    return $stmt->fetch();
+}
+
+function getDeviceAssignmentHistory($deviceId) {
+    global $pdo;
+    $stmt = $pdo->prepare("
+        SELECT da.*, u.full_name, u.employee_id
+        FROM device_assignments da
+        JOIN users u ON da.employee_id = u.id
+        WHERE da.device_id = ?
+        ORDER BY da.assigned_date DESC
+        LIMIT 5
+    ");
+    $stmt->execute([$deviceId]);
+    return $stmt->fetchAll();
+}
+
+// ============================================================
+// REPAIR COMPLETION & NOTIFICATION
+// ============================================================
+
+function markRepairAsCompleted($repairId, $completionNotes = '') {
+    global $pdo;
+    
+    // Get repair details
+    $stmt = $pdo->prepare("
+        SELECT dr.*, d.asset_tag, d.model, u.email, u.full_name as reporter_name, u.id as reported_by_id
+        FROM device_repairs dr
+        JOIN devices d ON dr.device_id = d.id
+        JOIN users u ON dr.reported_by = u.id
+        WHERE dr.id = ?
+    ");
+    $stmt->execute([$repairId]);
+    $repair = $stmt->fetch();
+    
+    if (!$repair) {
+        return ['success' => false, 'message' => 'Repair not found'];
+    }
+    
+    // Update repair status
+    $pdo->prepare("
+        UPDATE device_repairs 
+        SET repair_status = 'completed', completed_date = NOW(), repair_notes = ?
+        WHERE id = ?
+    ")->execute([$completionNotes, $repairId]);
+    
+    // Update device status back to deployed if it was under repair
+    $pdo->prepare("UPDATE devices SET status = 'deployed' WHERE id = ? AND status = 'under_repair'")->execute([$repair['device_id']]);
+    
+    // Create system notification for employee
+    addNotification(
+        $repair['reported_by_id'],
+        'repair_completed',
+        'Device Repair Completed',
+        'Your repair request for ' . $repair['asset_tag'] . ' has been completed. The device is now ready for use.',
+        $repairId
+    );
+    
+    // Send email to employee
+    $subject = 'Device Repair Completed - ' . $repair['asset_tag'];
+    $emailBody = emailTemplate(
+        'Your Device Repair is Complete',
+        "<p>Hello <strong>" . sanitize($repair['reporter_name']) . "</strong>,</p>
+        <p>We're pleased to inform you that your device repair request has been completed.</p>
+        <ul style='margin-left: 20px;'>
+            <li><strong>Device:</strong> " . sanitize($repair['asset_tag']) . " (" . sanitize($repair['model']) . ")</li>
+            <li><strong>Original Issue:</strong> " . sanitize(substr($repair['issue_description'], 0, 100)) . "...</li>
+            <li><strong>Repair Completed:</strong> " . date('M d, Y h:i A') . "</li>
+            <li><strong>Status:</strong> Ready for pickup/use</li>
+        </ul>
+        " . (!empty($completionNotes) ? "<p><strong>Repair Notes:</strong><br>" . sanitize($completionNotes) . "</p>" : "") . "
+        <p>If you have any questions about the repair, please contact the IT department.</p>",
+        'View Device Details',
+        (defined('BASE_URL') ? rtrim(BASE_URL, '/') : 'http://' . $_SERVER['HTTP_HOST'] . dirname($_SERVER['PHP_SELF'])) . '/view_device.php?id=' . $repair['device_id']
+    );
+    
+    queueEmailNotification(
+        $repair['reported_by_id'],
+        $repair['email'],
+        'repair_completed',
+        $subject,
+        $emailBody,
+        $repair['device_id'],
+        $repairId
+    );
+    
+    return ['success' => true, 'message' => 'Repair marked as completed. Employee has been notified.'];
+}
+
+function getPendingRepairs() {
+    global $pdo;
+    $stmt = $pdo->prepare("
+        SELECT dr.*, d.asset_tag, d.model, u.full_name as reporter_name, u.email, 
+               DATEDIFF(NOW(), dr.started_date) as days_in_repair
+        FROM device_repairs dr
+        JOIN devices d ON dr.device_id = d.id
+        JOIN users u ON dr.reported_by = u.id
+        WHERE dr.repair_status IN ('pending', 'under_repair')
+        ORDER BY dr.severity DESC, dr.started_date ASC
+    ");
+    $stmt->execute();
+    return $stmt->fetchAll();
+}
+
+function getCompletedRepairs($limit = 10) {
+    global $pdo;
+    $stmt = $pdo->prepare("
+        SELECT dr.*, d.asset_tag, d.model, u.full_name as reporter_name,
+               DATEDIFF(dr.completed_date, dr.started_date) as days_to_repair
+        FROM device_repairs dr
+        JOIN devices d ON dr.device_id = d.id
+        JOIN users u ON dr.reported_by = u.id
+        WHERE dr.repair_status = 'completed'
+        ORDER BY dr.completed_date DESC
+        LIMIT ?
+    ");
+    $stmt->execute([$limit]);
+    return $stmt->fetchAll();
+}
