@@ -119,7 +119,7 @@ if (hasRole('admin') || hasRole('it_staff')) {
         FROM device_requests dr LEFT JOIN device_types dt ON dr.device_type_id = dt.id 
         JOIN users u ON dr.requester_id = u.id LEFT JOIN users ab ON dr.approved_by = ab.id ORDER BY dr.created_at DESC");
 } else {
-    $stmt = $pdo->prepare("SELECT dr.*, dt.type_name, u.full_name as requester_name, ab.full_name as approved_by_name 
+    $stmt = $pdo->prepare("SELECT dr.*, dt.type_name, u.full_name as requester_name, u.department, ab.full_name as approved_by_name 
         FROM device_requests dr LEFT JOIN device_types dt ON dr.device_type_id = dt.id 
         JOIN users u ON dr.requester_id = u.id LEFT JOIN users ab ON dr.approved_by = ab.id 
         WHERE dr.requester_id = ? ORDER BY dr.created_at DESC");
@@ -190,7 +190,7 @@ $requests = $stmt->fetchAll();
                     <tr>
                         <td>#<?php echo $r['id']; ?></td>
                         <td><?php echo sanitize($r['requester_name']); ?></td>
-                        <td><?php echo sanitize($r['department']); ?></td>
+                        <td><?php echo sanitize($r['department'] ?? '-'); ?></td>
                         <td><?php echo sanitize($r['type_name'] ?? 'Any'); ?></td>
                         <td><?php echo sanitize(substr($r['request_reason'], 0, 50)) . (strlen($r['request_reason']) > 50 ? '...' : ''); ?></td>
                         <td>

@@ -32,6 +32,9 @@ if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
 
+// Base URL used for email links and public access. Change this to your live site URL.
+define('BASE_URL', 'http://localhost/kbmc_new_asset');
+
 $base_url = '/kbmc_asset_management/';
 
 $brand_colors = [

@@ -29,11 +29,15 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             $stmt = $pdo->prepare("INSERT INTO password_resets (user_id, token, expires_at) VALUES (?, ?, ?)");
             $stmt->execute([$user['id'], $token, $expires]);
 
-            $protocol = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
-            $host = $_SERVER['HTTP_HOST'];
-            $basePath = dirname($_SERVER['PHP_SELF']);
-            $basePath = $basePath === '/' ? '' : $basePath;
-            $resetLink = $protocol . '://' . $host . $basePath . '/reset_password.php?token=' . $token;
+            if (defined('BASE_URL') && BASE_URL !== '') {
+                $resetLink = rtrim(BASE_URL, '/') . '/reset_password.php?token=' . $token;
+            } else {
+                $protocol = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
+                $host = $_SERVER['HTTP_HOST'];
+                $basePath = dirname($_SERVER['PHP_SELF']);
+                $basePath = $basePath === '/' ? '' : $basePath;
+                $resetLink = $protocol . '://' . $host . $basePath . '/reset_password.php?token=' . $token;
+            }
 
             // Send email with password reset link
             $emailBody = emailTemplate(
