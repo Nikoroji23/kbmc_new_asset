@@ -83,6 +83,39 @@ function addNotification($userId, $type, $title, $message, $relatedId = null) {
     return $pdo->lastInsertId();
 }
 
+function createPasswordResetToken($userId) {
+    global $pdo;
+    $token = bin2hex(random_bytes(32));
+    $expires = date('Y-m-d H:i:s', strtotime('+24 hours'));
+    $pdo->prepare("DELETE FROM password_resets WHERE user_id = ?")->execute([$userId]);
+    $stmt = $pdo->prepare("INSERT INTO password_resets (user_id, token, expires_at) VALUES (?, ?, ?)");
+    $stmt->execute([$userId, $token, $expires]);
+    return $token;
+}
+
+function getPasswordResetLink($token) {
+    if (defined('BASE_URL') && BASE_URL !== '') {
+        return rtrim(BASE_URL, '/') . '/reset_password.php?token=' . $token;
+    }
+    $protocol = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
+    $host = $_SERVER['HTTP_HOST'] ?? 'localhost';
+    $basePath = dirname($_SERVER['PHP_SELF']);
+    $basePath = $basePath === '/' ? '' : $basePath;
+    return $protocol . '://' . $host . $basePath . '/reset_password.php?token=' . $token;
+}
+
+function sendPasswordResetEmail($userEmail, $fullName, $resetLink) {
+    $emailBody = emailTemplate(
+        'Password Reset Link',
+        "<p>Hello <strong>" . sanitize($fullName) . "</strong>,</p>
+        <p>Your account recovery request was approved. Please use the link below to reset your password and regain access to the system.</p>
+        <p style='margin: 20px 0;'><strong>Note:</strong> This link expires in <strong>24 hours</strong>.</p>",
+        'Reset Password',
+        $resetLink
+    );
+    return sendEmail($userEmail, 'Account Recovery Approved - Reset Your Password', $emailBody);
+}
+
 function logAudit($userId, $action, $tableName = null, $recordId = null, $oldValues = null, $newValues = null) {
     global $pdo;
     $ipAddress = $_SERVER['REMOTE_ADDR'] ?? null;

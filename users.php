@@ -77,10 +77,18 @@ if (isset($_GET['recovery_action']) && isset($_GET['recovery_id'])) {
                 $pdo->prepare("UPDATE users SET status = 'active', failed_logins = 0, locked_until = NULL WHERE id = ?")
                     ->execute([$userId]);
 
-                // Notify user
+                // Notify user via system notification
                 addNotification($userId, 'request_approved', 'Account Recovered', 'Your account has been reactivated. You can now log in.', $recoveryId);
 
-                setFlashMessage('success', 'Account recovery approved. User can now log in.');
+                // Send password reset email to user when recovery is approved
+                $user = getUserInfo($userId);
+                if ($user && !empty($user['email']) && isEmailConfigured()) {
+                    $token = createPasswordResetToken($userId);
+                    $resetLink = getPasswordResetLink($token);
+                    sendPasswordResetEmail($user['email'], $user['full_name'], $resetLink);
+                }
+
+                setFlashMessage('success', 'Account recovery approved. User can now log in and a reset email has been sent if email is configured.');
             } else {
                 // Notify user of rejection
                 addNotification($userId, 'request_rejected', 'Account Recovery Rejected', 'Your account recovery request was rejected. Contact admin for more info.', $recoveryId);

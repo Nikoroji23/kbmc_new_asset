@@ -3,12 +3,9 @@
 // The app includes includes/functions.php, which expects includes/email_config.php.
 
 $primaryEmailConfig = __DIR__ . '/PHPMailer/email_config.php';
-$alternateEmailConfig = __DIR__ . '/PHP MAILER/email_config.php';
 
 if (file_exists($primaryEmailConfig)) {
     require_once $primaryEmailConfig;
-} elseif (file_exists($alternateEmailConfig)) {
-    require_once $alternateEmailConfig;
 } else {
     // Fallback if no email config file exists.
     $email_settings = [
