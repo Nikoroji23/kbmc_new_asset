@@ -76,13 +76,7 @@ if (hasRole('admin')) {
             <span>Under Repair</span>
         </div>
     </div>
-    <div class="stat-card">
-        <div class="stat-icon purple"><i class="fas fa-users"></i></div>
-        <div class="stat-info">
-            <h3><?php echo $activeAssignments; ?></h3>
-            <span>Active Assignments</span>
-        </div>
-    </div>
+    
     <div class="stat-card">
         <div class="stat-icon gray"><i class="fas fa-trash-alt"></i></div>
         <div class="stat-info">
