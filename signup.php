@@ -61,24 +61,55 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['signup'])) {
                 // Log the registration
                 logAudit($newUserId, 'Employee Registration', 'users', $newUserId);
 
-                // Send welcome email
-                if (isEmailConfigured()) {
-                    $emailBody = emailTemplate(
-                        'Welcome to KBMC Asset Management',
-                        "<p>Hello <strong>" . sanitize($full_name) . "</strong>,</p>
-                        <p>Welcome to the KBMC Asset Management System! Your account has been successfully created.</p>
-                        <div style='background: #f8f9fa; padding: 15px; border-radius: 8px; margin: 20px 0;'>
-                            <p><strong>Your Account Details:</strong></p>
-                            <p><i class='fas fa-id-card'></i> <strong>Employee ID:</strong> " . sanitize($employee_id) . "</p>
-                            <p><i class='fas fa-user'></i> <strong>Name:</strong> " . sanitize($full_name) . "</p>
-                            <p><i class='fas fa-building'></i> <strong>Department:</strong> " . sanitize($department) . "</p>
-                            <p><i class='fas fa-briefcase'></i> <strong>Position:</strong> " . sanitize($position ?: 'Not specified') . "</p>
-                        </div>
-                        <p>You can now log in to the system with your email and password.</p>",
-                        'Go to System',
-                        'http://' . $_SERVER['HTTP_HOST'] . dirname($_SERVER['PHP_SELF']) . '/login.php'
-                    );
-                    sendEmail($email, 'Welcome to KBMC Asset Management', $emailBody);
+                // Log account creation for admin records
+                $pdo->prepare("INSERT INTO account_creations (user_id, employee_id, full_name, email, department, position, phone, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())")
+                    ->execute([$newUserId, $employee_id, $full_name, $email, $department, $position, $phone, 'self_registration']);
+
+                // Send email to IT staff about new account creation
+                $itStaff = $pdo->query("SELECT id, email, full_name FROM users WHERE role = 'it_staff' AND status = 'active'")->fetchAll();
+                if (!empty($itStaff) && isEmailConfigured()) {
+                    foreach ($itStaff as $staff) {
+                        $emailBody = emailTemplate(
+                            'New Employee Account Created',
+                            "<p>Hello <strong>" . sanitize($staff['full_name']) . "</strong>,</p>
+                            <p>A new employee account has been registered in the KBMC Asset Management System.</p>
+                            <div style='background: #f8f9fa; padding: 15px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #3498db;'>
+                                <p><strong>Account Details:</strong></p>
+                                <p><i class='fas fa-id-card'></i> <strong>Employee ID:</strong> " . sanitize($employee_id) . "</p>
+                                <p><i class='fas fa-user'></i> <strong>Name:</strong> " . sanitize($full_name) . "</p>
+                                <p><i class='fas fa-envelope'></i> <strong>Email:</strong> " . sanitize($email) . "</p>
+                                <p><i class='fas fa-building'></i> <strong>Department:</strong> " . sanitize($department) . "</p>
+                                <p><i class='fas fa-briefcase'></i> <strong>Position:</strong> " . sanitize($position ?: 'Not specified') . "</p>
+                                <p><i class='fas fa-phone'></i> <strong>Phone:</strong> " . sanitize($phone ?: 'Not provided') . "</p>
+                                <p><i class='fas fa-calendar'></i> <strong>Registration Date:</strong> " . date('F d, Y h:i A') . "</p>
+                            </div>
+                            <p>Please ensure this account is properly configured in the system.</p>",
+                            'View Admin Records',
+                            'http://' . $_SERVER['HTTP_HOST'] . dirname($_SERVER['PHP_SELF']) . '/admin_accounts.php'
+                        );
+                        sendEmail($staff['email'], 'New Employee Account Registered - ' . sanitize($full_name), $emailBody);
+                    }
+                }
+
+                // Also notify admins
+                $admins = $pdo->query("SELECT id, email, full_name FROM users WHERE role = 'admin' AND status = 'active'")->fetchAll();
+                if (!empty($admins) && isEmailConfigured()) {
+                    foreach ($admins as $admin) {
+                        $emailBody = emailTemplate(
+                            'New Employee Account Registration',
+                            "<p>Hello <strong>" . sanitize($admin['full_name']) . "</strong>,</p>
+                            <p>A new employee account has been created in the system. Please review the account creation records for archival purposes.</p>
+                            <div style='background: #f0f7ff; padding: 15px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #3498db;'>
+                                <p><strong>Employee Information:</strong></p>
+                                <p><strong>Name:</strong> " . sanitize($full_name) . " (" . sanitize($employee_id) . ")</p>
+                                <p><strong>Email:</strong> " . sanitize($email) . "</p>
+                                <p><strong>Department:</strong> " . sanitize($department) . "</p>
+                            </div>",
+                            'View Account Records',
+                            'http://' . $_SERVER['HTTP_HOST'] . dirname($_SERVER['PHP_SELF']) . '/admin_accounts.php'
+                        );
+                        sendEmail($admin['email'], 'New Account Registration Notice', $emailBody);
+                    }
                 }
 
                 $success = true;
@@ -170,7 +201,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['signup'])) {
                             <option value="">-- Select Department --</option>
                             <option value="Sales">Sales</option>
                             <option value="Marketing">Marketing</option>
-                            <option value="IT">Information Technology</option>
+                            <option value="Logistics">Logistics</option>
                             <option value="HR">Human Resources</option>
                             <option value="Finance">Finance</option>
                             <option value="Operations">Operations</option>
@@ -186,8 +217,10 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['signup'])) {
 
                 <div class="form-group">
                     <label for="phone">Phone Number</label>
-                    <input type="tel" name="phone" id="phone" class="form-control" placeholder="Enter your phone number"
+                    <input type="tel" name="phone" id="phone" class="form-control" placeholder="Enter your 11-digit phone number"
+                           pattern="[0-9]{11}" maxlength="11" title="Please enter exactly 11 digits"
                            value="<?php echo isset($_POST['phone']) ? htmlspecialchars($_POST['phone']) : ''; ?>">
+                    <small style="color: #999;">Must be 11 digits (e.g., 09123456789)</small>
                 </div>
 
                 <button type="submit" name="signup" class="btn btn-primary btn-lg">
