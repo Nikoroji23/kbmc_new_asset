@@ -136,6 +136,13 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                 </a>
             </div>
 
+            <div style="text-align: center; margin-top: 15px; padding-top: 15px; border-top: 1px solid #eee;">
+                <p style="font-size: 13px; color: #666; margin: 0 0 8px 0;">Don't have an account?</p>
+                <a href="signup.php" class="btn btn-outline" style="width: 100%; justify-content: center;">
+                    <i class="fas fa-user-plus"></i> Create Employee Account
+                </a>
+            </div>
+
             <div class="login-footer">
                 <p><strong>Default Login Credentials:</strong></p>
                 <p><strong>Admin:</strong> admin@kbmc.com / password</p>

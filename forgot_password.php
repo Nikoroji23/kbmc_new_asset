@@ -23,8 +23,6 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
 
         if ($user) {
             $token = bin2hex(random_bytes(32));
-            // FIX: Use 24 hours instead of 1 hour to avoid timezone issues
-            // Also use DATE_ADD with UTC to ensure consistency
             $expires = date('Y-m-d H:i:s', strtotime('+24 hours'));
 
             $pdo->prepare("DELETE FROM password_resets WHERE user_id = ?")->execute([$user['id']]);
@@ -37,7 +35,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             $basePath = $basePath === '/' ? '' : $basePath;
             $resetLink = $protocol . '://' . $host . $basePath . '/reset_password.php?token=' . $token;
 
-            // Try to send email using PHPMailer
+            // Send email with password reset link
             $emailBody = emailTemplate(
                 'Password Reset Request',
                 "<p>Hello <strong>" . sanitize($user['full_name']) . "</strong>,</p>
@@ -53,13 +51,13 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             logAudit($user['id'], 'Password Reset Request', 'users', $user['id']);
 
             if ($emailSent) {
-                $message = 'A password reset link has been sent to <strong>' . sanitize($email) . '</strong>. Please check your inbox (and spam folder).';
+                $message = 'A password reset link has been sent to <strong>' . sanitize($email) . '</strong>. Please check your inbox (and spam folder) within the next 24 hours.';
             } else {
-                $message = 'Email could not be sent. Your reset link is shown below for manual use.<br><small>Error: ' . sanitize($emailResult['message']) . '</small>';
+                $error = 'Unable to send reset email. Please try again later or contact support.';
             }
         } else {
             // Don't reveal if email exists
-            $message = 'If this email exists in our system, instructions have been sent.';
+            $message = 'If this email exists in our system, a password reset link will be sent.';
         }
     }
 }
@@ -79,19 +77,11 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         .forgot-logo img { width: 100%; height: 100%; object-fit: contain; }
         .forgot-box h3 { font-size: 22px; color: #2c3e50; margin-bottom: 8px; }
         .forgot-box p { font-size: 14px; color: #888; margin-bottom: 25px; }
-        .reset-link-box { background: #f8f9fa; border: 2px dashed var(--kbmc-red); border-radius: 8px; padding: 15px; margin: 20px 0; text-align: left; }
-        .reset-link-box label { font-size: 12px; font-weight: 600; color: var(--kbmc-red); display: block; margin-bottom: 8px; }
-        .reset-link-box a { color: #3498db; font-size: 12px; text-decoration: none; word-break: break-all; }
-        .copy-btn { background: var(--kbmc-red); color: white; border: none; padding: 6px 14px; border-radius: 4px; font-size: 12px; cursor: pointer; margin-top: 10px; }
-        .copy-btn:hover { background: var(--kbmc-red-dark); }
         .back-link { display: inline-flex; align-items: center; gap: 8px; color: #666; text-decoration: none; font-size: 14px; margin-top: 20px; transition: color 0.3s; }
         .back-link:hover { color: var(--kbmc-red); }
         .forgot-form .form-group { text-align: left; margin-bottom: 20px; }
         .forgot-form .form-group label { display: block; font-size: 13px; font-weight: 600; color: #2c3e50; margin-bottom: 8px; }
         .forgot-form .btn { width: 100%; justify-content: center; padding: 13px; font-size: 15px; }
-        .setup-notice { background: #e8f4fd; border-left: 4px solid #3498db; padding: 12px 15px; text-align: left; margin-bottom: 20px; border-radius: 0 8px 8px 0; font-size: 12px; color: #2c3e50; }
-        .setup-notice strong { color: #3498db; }
-        .setup-notice code { background: #f0f0f0; padding: 2px 5px; border-radius: 3px; font-family: monospace; }
     </style>
 </head>
 <body>
@@ -103,14 +93,6 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             <h3>Forgot Password?</h3>
             <p>Enter your email address and we'll send you a password reset link.</p>
 
-            <?php if (!$emailSent && !empty($message) && $resetLink): ?>
-            <div class="setup-notice">
-                <i class="fas fa-info-circle"></i> <strong>Email not configured yet.</strong><br>
-                To enable email sending, edit <code>includes/email_config.php</code> and add your Gmail credentials.<br>
-                For now, copy the link below and paste it in your browser.
-            </div>
-            <?php endif; ?>
-
             <?php if ($error): ?>
             <div class="alert alert-error" style="margin-bottom: 20px; text-align: left;">
                 <i class="fas fa-times-circle"></i> <?php echo $error; ?>
@@ -118,28 +100,12 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             <?php endif; ?>
 
             <?php if ($message): ?>
-            <div class="alert alert-<?php echo $emailSent ? 'success' : 'warning'; ?>" style="margin-bottom: 20px; text-align: left;">
-                <i class="fas fa-<?php echo $emailSent ? 'check-circle' : 'info-circle'; ?>"></i> <?php echo $message; ?>
+            <div class="alert alert-success" style="margin-bottom: 20px; text-align: left;">
+                <i class="fas fa-check-circle"></i> <?php echo $message; ?>
             </div>
             <?php endif; ?>
 
-            <?php if ($resetLink): ?>
-            <div class="reset-link-box">
-                <label><i class="fas fa-link"></i> Your Password Reset Link:</label>
-                <a href="<?php echo $resetLink; ?>" id="resetLink"><?php echo $resetLink; ?></a>
-                <div style="margin-top: 10px;">
-                    <button type="button" class="copy-btn" onclick="copyLink()">
-                        <i class="fas fa-copy"></i> Copy Link
-                    </button>
-                    <span id="copyMsg" style="font-size: 12px; color: #27ae60; margin-left: 10px; display: none;">
-                        <i class="fas fa-check"></i> Copied!
-                    </span>
-                </div>
-                <p style="font-size: 11px; color: #999; margin-top: 10px; margin-bottom: 0;">
-                    <i class="fas fa-clock"></i> This link expires in 24 hours.
-                </p>
-            </div>
-            <?php else: ?>
+            <?php if (!$emailSent && empty($error)): ?>
             <form method="POST" class="forgot-form">
                 <div class="form-group">
                     <label for="email">Email Address</label>
@@ -160,14 +126,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     </div>
 
     <script>
-        function copyLink() {
-            const link = document.getElementById('resetLink').href;
-            navigator.clipboard.writeText(link).then(() => {
-                const msg = document.getElementById('copyMsg');
-                msg.style.display = 'inline';
-                setTimeout(() => msg.style.display = 'none', 2000);
-            });
-        }
+        // Email-only password reset (no manual link display)
     </script>
 </body>
 </html>

@@ -324,3 +324,174 @@ window.toggleSidebar = function() {
         wrapper.style.marginLeft = '280px';
     }
 };
+
+// ============================================================
+// REAL-TIME NOTIFICATION POPUP SYSTEM
+// ============================================================
+let lastNotificationCheck = null;
+
+window.showNotificationToast = function(title, message, type = 'info') {
+    const toastContainer = document.getElementById('toastContainer');
+    if (!toastContainer) {
+        console.warn('Toast container not found');
+        return;
+    }
+
+    const toast = document.createElement('div');
+    const toastId = 'toast-' + Date.now();
+    toast.id = toastId;
+    
+    const bgColor = type === 'device_request' ? '#e8f5e9' : 
+                   type === 'approved' ? '#c8e6c9' : 
+                   type === 'rejected' ? '#ffcdd2' : '#e3f2fd';
+    const borderColor = type === 'device_request' ? '#4caf50' : 
+                       type === 'approved' ? '#4caf50' : 
+                       type === 'rejected' ? '#f44336' : '#2196f3';
+    const icon = type === 'device_request' ? 'hand-paper' : 
+                type === 'approved' ? 'check-circle' : 
+                type === 'rejected' ? 'times-circle' : 'info-circle';
+    
+    toast.innerHTML = `
+        <div style="
+            background: ${bgColor};
+            border-left: 4px solid ${borderColor};
+            padding: 16px 20px;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            display: flex;
+            align-items: flex-start;
+            gap: 12px;
+            margin-bottom: 10px;
+            animation: slideIn 0.3s ease-out;
+            max-width: 400px;
+        ">
+            <i class="fas fa-${icon}" style="
+                color: ${borderColor};
+                font-size: 20px;
+                margin-top: 2px;
+                flex-shrink: 0;
+            "></i>
+            <div style="flex: 1;">
+                <div style="font-weight: 600; color: #333; margin-bottom: 4px; font-size: 14px;">
+                    ${title}
+                </div>
+                <div style="color: #666; font-size: 13px; line-height: 1.4;">
+                    ${message}
+                </div>
+            </div>
+            <button onclick="document.getElementById('${toastId}').remove()" style="
+                background: none;
+                border: none;
+                color: #999;
+                cursor: pointer;
+                font-size: 18px;
+                padding: 0;
+                margin: -2px -4px 0 0;
+                flex-shrink: 0;
+            ">×</button>
+        </div>
+    `;
+    
+    toastContainer.appendChild(toast);
+    
+    // Auto-remove after 6 seconds
+    setTimeout(() => {
+        if (document.getElementById(toastId)) {
+            toast.style.animation = 'slideOut 0.3s ease-in';
+            setTimeout(() => toast.remove(), 300);
+        }
+    }, 6000);
+};
+
+window.pollForNotifications = function() {
+    // Only poll if not on login/logout pages
+    if (document.body.classList.contains('login-page') || 
+        document.body.classList.contains('logout-page')) {
+        return;
+    }
+
+    fetch('get_new_notifications.php')
+        .then(response => response.json())
+        .then(data => {
+            if (data.notifications && data.notifications.length > 0) {
+                data.notifications.forEach(notif => {
+                    // Determine type for styling
+                    let toastType = 'info';
+                    if (notif.type === 'device_request') toastType = 'device_request';
+                    else if (notif.type === 'request_approved') toastType = 'approved';
+                    else if (notif.type === 'request_rejected') toastType = 'rejected';
+                    
+                    window.showNotificationToast(notif.title, notif.message, toastType);
+                });
+
+                // Update notification badge
+                if (data.unread_count > 0) {
+                    const badge = document.querySelector('.notif-badge');
+                    if (badge) {
+                        badge.textContent = data.unread_count;
+                    } else {
+                        const notifBell = document.getElementById('notifToggle');
+                        if (notifBell && !notifBell.querySelector('.notif-badge')) {
+                            const newBadge = document.createElement('span');
+                            newBadge.className = 'notif-badge';
+                            newBadge.textContent = data.unread_count;
+                            notifBell.appendChild(newBadge);
+                        }
+                    }
+                }
+            }
+        })
+        .catch(err => console.log('Notification poll error:', err));
+};
+
+// Start polling for notifications every 10 seconds
+document.addEventListener('DOMContentLoaded', function() {
+    // Check for notifications on page load
+    window.pollForNotifications();
+    
+    // Poll every 10 seconds
+    setInterval(window.pollForNotifications, 10000);
+});
+
+// ============================================================
+// TOAST CONTAINER SETUP (if not exists)
+// ============================================================
+if (!document.getElementById('toastContainer')) {
+    const toastContainer = document.createElement('div');
+    toastContainer.id = 'toastContainer';
+    toastContainer.style.cssText = `
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        z-index: 9999;
+        max-width: 500px;
+    `;
+    document.body.appendChild(toastContainer);
+}
+
+// Add CSS animations
+const style = document.createElement('style');
+style.textContent = `
+    @keyframes slideIn {
+        from {
+            opacity: 0;
+            transform: translateX(400px);
+        }
+        to {
+            opacity: 1;
+            transform: translateX(0);
+        }
+    }
+    
+    @keyframes slideOut {
+        from {
+            opacity: 1;
+            transform: translateX(0);
+        }
+        to {
+            opacity: 0;
+            transform: translateX(400px);
+        }
+    }
+`;
+document.head.appendChild(style);

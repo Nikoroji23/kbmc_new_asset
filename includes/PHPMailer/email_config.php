@@ -19,19 +19,19 @@
 
 // Prevent redeclaration errors
 if (!class_exists('PHPMailer\PHPMailer\PHPMailer', false)) {
-    $phpmailer_path = __DIR__ . '/PHPMailer.php';
+    $phpmailer_path = __DIR__ . '/src/PHPMailer.php';
     if (file_exists($phpmailer_path)) {
         require_once $phpmailer_path;
     }
 }
 if (!class_exists('PHPMailer\PHPMailer\SMTP', false)) {
-    $smtp_path = __DIR__ . '/SMTP.php';
+    $smtp_path = __DIR__ . '/src/SMTP.php';
     if (file_exists($smtp_path)) {
         require_once $smtp_path;
     }
 }
 if (!class_exists('PHPMailer\PHPMailer\Exception', false)) {
-    $exception_path = __DIR__ . '/Exception.php';
+    $exception_path = __DIR__ . '/src/Exception.php';
     if (file_exists($exception_path)) {
         require_once $exception_path;
     }
@@ -45,14 +45,14 @@ use PHPMailer\PHPMailer\Exception;
 // CONFIGURE YOUR EMAIL HERE
 // ============================================
 $email_settings = [
-    'from_email'    => 'admin@kbmc.com',      // <-- CHANGE THIS
+    'from_email'    => 'alfonsoaninias0527@gmail.com',      // <-- CHANGE THIS
     'from_name'     => 'KBMC Asset Management',
     'smtp_host'     => 'smtp.gmail.com',
     'smtp_port'     => 587,
     'smtp_secure'   => 'tls',
     'smtp_auth'     => true,
-    'smtp_user'     => 'admin@kbmc.com',      // <-- CHANGE THIS
-    'smtp_pass'     => 'password',                          // <-- CHANGE THIS: 16-char App Password
+    'smtp_user'     => 'alfonsoaninias0527@gmail.com',      // <-- CHANGE THIS
+    'smtp_pass'     => 'rmyl hwxj htgb uhbb',                          // <-- CHANGE THIS: 16-char App Password
 ];
 
 /**

@@ -14,39 +14,102 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['submit_request'])) {
     try {
         $stmt = $pdo->prepare("INSERT INTO device_requests (requester_id, device_type_id, request_reason, urgency, status) VALUES (?, ?, ?, ?, 'pending')");
         $stmt->execute([$_SESSION['user_id'], $device_type_id, $request_reason, $urgency]);
+        $requestId = $pdo->lastInsertId();
 
-        // Notify admins and IT staff
-        $staff = $pdo->query("SELECT id FROM users WHERE role IN ('admin', 'it_staff') AND status = 'active'")->fetchAll();
+        // Get device type name
         $typeName = $device_type_id ? $pdo->query("SELECT type_name FROM device_types WHERE id = $device_type_id")->fetchColumn() : 'Any';
+        
+        // Notify admins and IT staff (system notification + email)
+        $staff = $pdo->query("SELECT id, email, full_name FROM users WHERE role IN ('admin', 'it_staff') AND status = 'active'")->fetchAll();
+        
         foreach ($staff as $s) {
-            addNotification($s['id'], 'request_approved', 'New Device Request', "New request for $typeName from " . $_SESSION['full_name'], $pdo->lastInsertId());
+            // System notification (popup in dashboard)
+            addNotification($s['id'], 'device_request', 'New Device Request', 
+                "New request for $typeName from " . $_SESSION['full_name'] . " (Urgency: " . ucfirst($urgency) . ")", $requestId);
+            
+            // Email notification
+            if (isEmailConfigured()) {
+                $requesterEmail = $_SESSION['email'] ?? 'N/A';
+                $emailBody = emailTemplate(
+                    'New Device Request Submitted',
+                    "<p>Hello <strong>" . sanitize($s['full_name']) . "</strong>,</p>
+                    <p>A new device request has been submitted and requires your attention.</p>
+                    <div style='background: #f8f9fa; padding: 15px; border-radius: 8px; margin: 20px 0;'>
+                        <p><strong>Request Details:</strong></p>
+                        <p><i class='fas fa-user'></i> <strong>Requester:</strong> " . sanitize($_SESSION['full_name']) . "</p>
+                        <p><i class='fas fa-envelope'></i> <strong>Email:</strong> " . sanitize($requesterEmail) . "</p>
+                        <p><i class='fas fa-laptop'></i> <strong>Device Type:</strong> " . sanitize($typeName) . "</p>
+                        <p><i class='fas fa-exclamation-triangle'></i> <strong>Urgency:</strong> <span style='color: " . ($urgency === 'critical' ? '#e74c3c' : ($urgency === 'high' ? '#f39c12' : '#3498db')) . "; font-weight: bold;'>" . ucfirst($urgency) . "</span></p>
+                        <p><i class='fas fa-align-left'></i> <strong>Reason:</strong> " . sanitize($request_reason) . "</p>
+                    </div>",
+                    'Review Request',
+                    'http://' . $_SERVER['HTTP_HOST'] . dirname($_SERVER['PHP_SELF']) . '/requests.php'
+                );
+                
+                sendEmail($s['email'], 'New Device Request - ' . sanitize($typeName), $emailBody);
+            }
         }
 
-        setFlashMessage('success', 'Your device request has been submitted.');
+        setFlashMessage('success', 'Your device request has been submitted. IT staff will be notified.');
         header('Location: requests.php');
         exit();
     } catch (PDOException $e) {
-        setFlashMessage('error', 'Error submitting request.');
+        setFlashMessage('error', 'Error submitting request: ' . $e->getMessage());
     }
 }
 
 // Approve/Reject request (admin/it_staff)
-if (hasRole('admin') || hasRole('it_staff')) {
-    if (isset($_GET['action']) && isset($_GET['id'])) {
-        $reqId = $_GET['id'];
-        $newStatus = $_GET['action'] == 'approve' ? 'approved' : 'rejected';
-        $pdo->prepare("UPDATE device_requests SET status = ?, approved_by = ?, approved_date = CURDATE() WHERE id = ?")->execute([$newStatus, $_SESSION['user_id'], $reqId]);
+if ((hasRole('admin') || hasRole('it_staff')) && isset($_GET['action']) && isset($_GET['id'])) {
+    $reqId = $_GET['id'];
+    $newStatus = $_GET['action'] == 'approve' ? 'approved' : 'rejected';
+    $pdo->prepare("UPDATE device_requests SET status = ?, approved_by = ?, approved_date = CURDATE() WHERE id = ?")->execute([$newStatus, $_SESSION['user_id'], $reqId]);
 
-        // Notify requester
-        $requester = $pdo->query("SELECT requester_id FROM device_requests WHERE id = $reqId")->fetchColumn();
-        addNotification($requester, $newStatus == 'approved' ? 'request_approved' : 'request_rejected',
-            $newStatus == 'approved' ? 'Request Approved' : 'Request Rejected',
-            "Your device request has been $newStatus.", $reqId);
-
-        setFlashMessage('success', 'Request ' . $newStatus . '.');
-        header('Location: requests.php');
-        exit();
+    // Get request and requester details
+    $reqStmt = $pdo->prepare("SELECT dr.*, dt.type_name, u.email, u.full_name FROM device_requests dr 
+        LEFT JOIN device_types dt ON dr.device_type_id = dt.id 
+        LEFT JOIN users u ON dr.requester_id = u.id WHERE dr.id = ?");
+    $reqStmt->execute([$reqId]);
+    $request = $reqStmt->fetch();
+    
+    if ($request) {
+        // System notification (popup in dashboard)
+        addNotification($request['requester_id'], $newStatus == 'approved' ? 'request_approved' : 'request_rejected',
+            $newStatus == 'approved' ? 'Request Approved ✓' : 'Request Rejected ✗',
+            "Your device request for " . ($request['type_name'] ?? 'Any Device') . " has been " . $newStatus . ".", $reqId);
+        
+        // Email notification to requester
+        if (isEmailConfigured() && $request['email']) {
+            $statusIcon = $newStatus === 'approved' ? '✓' : '✗';
+            $statusColor = $newStatus === 'approved' ? '#27ae60' : '#e74c3c';
+            $approverName = $pdo->query("SELECT full_name FROM users WHERE id = " . $_SESSION['user_id'])->fetchColumn();
+            
+            $emailBody = emailTemplate(
+                $newStatus === 'approved' ? 'Device Request Approved' : 'Device Request Rejected',
+                "<p>Hello <strong>" . sanitize($request['full_name']) . "</strong>,</p>
+                <p style='font-size: 16px; color: " . $statusColor . "; font-weight: bold;'>" . ($newStatus === 'approved' ? "🎉 Your device request has been APPROVED!" : "Your device request has been REJECTED.") . "</p>
+                <div style='background: #f8f9fa; padding: 15px; border-radius: 8px; margin: 20px 0; border-left: 4px solid " . $statusColor . ";'>
+                    <p><strong>Request Details:</strong></p>
+                    <p><i class='fas fa-laptop'></i> <strong>Device Type:</strong> " . sanitize($request['type_name'] ?? 'Any Device') . "</p>
+                    <p><i class='fas fa-align-left'></i> <strong>Your Reason:</strong> " . sanitize($request['request_reason']) . "</p>
+                    <p><i class='fas fa-user'></i> <strong>Processed By:</strong> " . sanitize($approverName) . "</p>
+                    <p><i class='fas fa-calendar'></i> <strong>Date:</strong> " . date('F d, Y') . "</p>
+                </div>" .
+                ($newStatus === 'approved' ? 
+                    "<p>Your device has been approved and will be available soon. You'll receive another notification once it's ready for pickup.</p>" :
+                    "<p>If you believe this decision is incorrect, please contact the IT department for more information.</p>") .
+                "",
+                $newStatus === 'approved' ? 'View Request' : 'Contact IT',
+                'http://' . $_SERVER['HTTP_HOST'] . dirname($_SERVER['PHP_SELF']) . '/requests.php'
+            );
+            
+            $subject = ($newStatus === 'approved' ? '✓ Device Request Approved' : '✗ Device Request Rejected');
+            sendEmail($request['email'], $subject, $emailBody);
+        }
     }
+
+    setFlashMessage('success', 'Request ' . $newStatus . '. Notification sent to requester.');
+    header('Location: requests.php');
+    exit();
 }
 
 $types = $pdo->query("SELECT * FROM device_types ORDER BY type_name")->fetchAll();

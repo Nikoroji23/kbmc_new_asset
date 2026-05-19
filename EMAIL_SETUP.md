@@ -55,7 +55,12 @@ By default, the system shows the reset link on screen. This works immediately wi
 2. Or download ZIP from https://github.com/PHPMailer/PHPMailer/releases
    Extract to: includes/PHPMailer/
 
-3. Update includes/email_config.php to use PHPMailer instead of mail()
+3. Create or update includes/email_config.php to load the PHPMailer config file and expose sendEmail().
+   - If your PHPMailer files are in `includes/PHPMailer/`, use that path.
+   - If they are in `includes/PHP MAILER/`, use that path instead.
+   - This wrapper ensures the forgot password page can send reset links by email.
+
+4. Update `includes/PHPMailer/email_config.php` with your Gmail credentials.
 
 #### Method 3: Mailtrap (For Testing - No Real Emails)
 
