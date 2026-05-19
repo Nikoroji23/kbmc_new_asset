@@ -75,6 +75,52 @@ try {
         
         if (move_uploaded_file($_FILES['attachment']['tmp_name'], $filepath)) {
             $incidentFile = $filepath;
+
+            // If it's an image, attempt to create a small thumbnail for inline email
+            $incidentThumbData = null;
+            $incidentThumbMime = null;
+            $finfoType = mime_content_type($filepath);
+            if (strpos($finfoType, 'image/') === 0 && function_exists('getimagesize')) {
+                $thumbDir = $uploadDir . 'thumbs/';
+                if (!is_dir($thumbDir)) {
+                    mkdir($thumbDir, 0755, true);
+                }
+                $thumbPath = $thumbDir . 'thumb_' . $filename;
+                list($origW, $origH) = getimagesize($filepath);
+                $maxW = 300; $maxH = 200;
+                $ratio = min($maxW / $origW, $maxH / $origH, 1);
+                $newW = (int)($origW * $ratio);
+                $newH = (int)($origH * $ratio);
+
+                $srcImg = null;
+                switch ($finfoType) {
+                    case 'image/jpeg': $srcImg = imagecreatefromjpeg($filepath); break;
+                    case 'image/png': $srcImg = imagecreatefrompng($filepath); break;
+                    case 'image/gif': $srcImg = imagecreatefromgif($filepath); break;
+                }
+
+                if ($srcImg) {
+                    $thumbImg = imagecreatetruecolor($newW, $newH);
+                    // Preserve transparency for PNG/GIF
+                    if ($finfoType === 'image/png' || $finfoType === 'image/gif') {
+                        imagecolortransparent($thumbImg, imagecolorallocatealpha($thumbImg, 0, 0, 0, 127));
+                        imagealphablending($thumbImg, false);
+                        imagesavealpha($thumbImg, true);
+                    }
+                    imagecopyresampled($thumbImg, $srcImg, 0,0,0,0, $newW, $newH, $origW, $origH);
+                    // Save as JPEG to reduce size
+                    imagejpeg($thumbImg, $thumbPath, 75);
+                    imagedestroy($thumbImg);
+                    imagedestroy($srcImg);
+
+                    // Embed thumbnail as base64 for inline email
+                    $thumbRaw = file_get_contents($thumbPath);
+                    if ($thumbRaw !== false) {
+                        $incidentThumbData = base64_encode($thumbRaw);
+                        $incidentThumbMime = 'image/jpeg';
+                    }
+                }
+            }
         }
     }
     
@@ -98,18 +144,31 @@ try {
     // Send notification to IT staff
     $itStaff = $pdo->query("SELECT id, email FROM users WHERE role IN ('admin', 'it_staff')")->fetchAll();
     foreach ($itStaff as $staff) {
+        // Build link to device and optional attachment
+        $base = defined('BASE_URL') ? rtrim(BASE_URL, '/') : 'http://' . $_SERVER['HTTP_HOST'] . dirname($_SERVER['PHP_SELF']);
+        $deviceLink = $base . '/view_device.php?id=' . $deviceId;
+        $attachmentLink = '';
+        if (!empty($incidentFile)) {
+            $attachmentLink = "\n<p><strong>Attachment:</strong> <a href=\"" . $base . '/' . $incidentFile . "\" target=\"_blank\">View evidence</a></p>";
+        }
+
         $notifBody = emailTemplate(
             'Device Repair Request',
             "<p>A device repair has been reported by " . $_SESSION['full_name'] . ".</p>
             <p><strong>Device:</strong> " . htmlspecialchars($assignment['asset_tag']) . "</p>
             <p><strong>Issue:</strong> " . htmlspecialchars($issueDescription) . "</p>
-            <p><strong>Severity:</strong> " . strtoupper($severity) . "</p>",
+            <p><strong>Severity:</strong> " . strtoupper($severity) . "</p>" . $attachmentLink,
             'View Details',
-            (defined('BASE_URL') ? rtrim(BASE_URL, '/') : 'http://' . $_SERVER['HTTP_HOST'] . dirname($_SERVER['PHP_SELF'])) . '/view_device.php?id=' . $deviceId
+            $deviceLink
         );
-        
+
         queueEmailNotification($staff['id'], $staff['email'], 'repair_pending', 'Device Repair Request - ' . $assignment['asset_tag'], $notifBody, $deviceId, $repairId);
         addNotification($staff['id'], 'repair_needed', 'Device Repair Needed', $_SESSION['full_name'] . ' reported an issue with device ' . $assignment['asset_tag'], $repairId);
+    }
+
+    // Attempt to send queued emails immediately (if email configured)
+    if (function_exists('sendPendingEmailNotifications')) {
+        sendPendingEmailNotifications();
     }
     
     echo json_encode(['success' => true, 'message' => 'Issue reported successfully. IT team will review it.']);
