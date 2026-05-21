@@ -44,7 +44,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                 'Password Reset Request',
                 "<p>Hello <strong>" . sanitize($user['full_name']) . "</strong>,</p>
                 <p>We received a request to reset your password for the KBMC Asset Management System.</p>
-                <p>If you made this request, click the button below to reset your password. This link will expire in <strong>24 hours</strong>.</p>",
+                <p>If you made this request, click the button below to reset your password. This link will expire in <strong>1 hour</strng>.</p>",
                 'Reset My Password',
                 $resetLink
             );
@@ -55,7 +55,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             logAudit($user['id'], 'Password Reset Request', 'users', $user['id']);
 
             if ($emailSent) {
-                $message = 'A password reset link has been sent to <strong>' . sanitize($email) . '</strong>. Please check your inbox (and spam folder) within the next 24 hours.';
+                $message = 'A password reset link has been sent to <strong>' . sanitize($email) . '</strong>. Please check your inbox (and spam folder) within the next 1 hour.';
             } else {
                 $error = 'Unable to send reset email. Please try again later or contact support.';
             }
@@ -75,17 +75,33 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" rel="stylesheet">
     <link href="assets/css/style.css" rel="stylesheet">
     <style>
-        .forgot-container { min-height: 100vh; display: flex; align-items: center; justify-content: center; background: linear-gradient(135deg, #f5f6fa 0%, #fde8e9 100%); padding: 20px; }
-        .forgot-box { background: white; border-radius: 12px; box-shadow: 0 5px 25px rgba(0,0,0,0.15); width: 100%; max-width: 480px; padding: 40px; text-align: center; }
-        .forgot-logo { width: 60px; height: 60px; margin: 0 auto 20px; }
+        .forgot-container { min-height: 100vh; display: flex; align-items: center; justify-content: center; background: linear-gradient(135deg, #f5f6fa 0%, #fde8e9 100%); padding: 30px; }
+        .forgot-box { background: white; border-radius: 10px; box-shadow: 0 5px 25px rgba(0,0,0,0.15); width: 80%; max-width: 420px; padding: 30px; text-align: center; min-heigt: 300px; }
+        .forgot-logo { width: 60px; height: 60px; margin: 0 auto 30px; }
         .forgot-logo img { width: 100%; height: 100%; object-fit: contain; }
-        .forgot-box h3 { font-size: 22px; color: #2c3e50; margin-bottom: 8px; }
+        .forgot-box h3 { font-size: 28px; color: #2c3e50; margin-bottom: 8px; }
         .forgot-box p { font-size: 14px; color: #888; margin-bottom: 25px; }
         .back-link { display: inline-flex; align-items: center; gap: 8px; color: #666; text-decoration: none; font-size: 14px; margin-top: 20px; transition: color 0.3s; }
         .back-link:hover { color: var(--kbmc-red); }
-        .forgot-form .form-group { text-align: left; margin-bottom: 20px; }
-        .forgot-form .form-group label { display: block; font-size: 13px; font-weight: 600; color: #2c3e50; margin-bottom: 8px; }
+        .forgot-form .form-group { text-align: left; margin-bottom: 30px; }
+        .forgot-form .form-group label { display: block; font-size: 13px; font-weight: 600; color: #2c3e50; margin-bottom: 12px; }
         .forgot-form .btn { width: 100%; justify-content: center; padding: 13px; font-size: 15px; }
+
+        /* Fix alert layout — overrides any flex/grid from style.css */
+        .forgot-box .alert {
+            display: block !important;
+            text-align: left !important;
+            word-break: break-word !important;
+            white-space: normal !important;
+            overflow: visible !important;
+            margin-bottom: 25px;
+            padding: 14px 16px;
+            line-height: 1.6;
+        }
+        .forgot-box .alert i {
+            margin-right: 8px;
+            flex-shrink: 0;
+        }
     </style>
 </head>
 <body>
@@ -98,14 +114,16 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             <p>Enter your email address and we'll send you a password reset link.</p>
 
             <?php if ($error): ?>
-            <div class="alert alert-error" style="margin-bottom: 20px; text-align: left;">
-                <i class="fas fa-times-circle"></i> <?php echo $error; ?>
+            <div class="alert alert-error" style="display:flex !important; align-items:flex-start; gap:10px; text-align:left; margin-bottom:25px; padding:14px 16px; line-height:1.6; word-break:break-word;">
+                <i class="fas fa-times-circle" style="flex-shrink:0; margin-top:2px;"></i>
+                <span><?php echo $error; ?></span>
             </div>
             <?php endif; ?>
 
             <?php if ($message): ?>
-            <div class="alert alert-success" style="margin-bottom: 20px; text-align: left;">
-                <i class="fas fa-check-circle"></i> <?php echo $message; ?>
+            <div class="alert alert-success" style="display:flex !important; align-items:flex-start; gap:10px; text-align:left; margin-bottom:25px; padding:14px 16px; line-height:1.6; word-break:break-word;">
+                <i class="fas fa-check-circle" style="flex-shrink:0; margin-top:2px;"></i>
+                <span><?php echo $message; ?></span>
             </div>
             <?php endif; ?>
 

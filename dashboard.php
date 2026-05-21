@@ -86,47 +86,7 @@ if (hasRole('admin')) {
     </div>
 </div>
 
-<!-- Color-Coded Asset Status Dashboard -->
-<div class="card">
-    <div class="card-header">
-        <h3><i class="fas fa-palette"></i> Asset Status Overview (Color-Coded)</h3>
-    </div>
-    <div class="card-body">
-        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 15px;">
-            <?php 
-                $statuses = [
-                    'in_stock' => $inStock,
-                    'deployed' => $deployed,
-                    'under_repair' => $underRepair,
-                    'pending_inspection' => getDeviceCountByStatus('pending_inspection'),
-                    'retired' => getDeviceCountByStatus('retired'),
-                    'disposed' => getDeviceCountByStatus('disposed'),
-                    'rejected' => getDeviceCountByStatus('rejected')
-                ];
-                
-                foreach ($statuses as $status => $count):
-                    $statusInfo = getStatusColor($status);
-                    $percentage = $totalDevices > 0 ? ($count / $totalDevices) * 100 : 0;
-            ?>
-            <div style="padding: 15px; border-radius: 6px; border-left: 4px solid <?php echo $statusInfo['color_code']; ?>; background: <?php echo $statusInfo['color_code']; ?>15;">
-                <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 8px;">
-                    <i class="<?php echo $statusInfo['icon_class']; ?>" style="font-size: 18px; color: <?php echo $statusInfo['color_code']; ?>;"></i>
-                    <span style="font-weight: 600; color: <?php echo $statusInfo['color_code']; ?>;"><?php echo $statusInfo['display_label']; ?></span>
-                </div>
-                <div style="font-size: 24px; font-weight: bold; color: <?php echo $statusInfo['color_code']; ?>; margin-bottom: 5px;">
-                    <?php echo $count; ?>
-                </div>
-                <div style="font-size: 11px; color: #7f8c8d;">
-                    <?php echo number_format($percentage, 1); ?>% of total
-                </div>
-                <div style="margin-top: 8px; height: 4px; background: #ecf0f1; border-radius: 2px; overflow: hidden;">
-                    <div style="height: 100%; width: <?php echo $percentage; ?>%; background: <?php echo $statusInfo['color_code']; ?>;"></div>
-                </div>
-            </div>
-            <?php endforeach; ?>
-        </div>
-    </div>
-</div>
+
 
 <!-- Charts Row -->
 <div class="grid-2">

@@ -1067,3 +1067,52 @@ textarea.form-control { resize: vertical; min-height: 100px; }
     background: #f0f0f0 !important;
     transform: translateX(3px);
 }
+
+/* ============================================================
+   Asset Tag Custom Input — Add Device (NEW)
+   ============================================================ */
+.asset-tag-input-row {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+.asset-tag-input-row .form-control {
+    flex: 1;
+    font-family: 'Courier New', monospace;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    transition: background 0.2s, border-color 0.2s, box-shadow 0.2s;
+}
+.asset-tag-input-row .form-control:disabled {
+    background: #f4f6f8;
+    color: #aab0bb;
+    cursor: not-allowed;
+}
+.asset-tag-input-row .form-control:not(:disabled) {
+    border-color: var(--kbmc-red);
+    box-shadow: 0 0 0 3px rgba(217, 35, 46, 0.12);
+}
+.asset-tag-toggle-btn {
+    flex-shrink: 0;
+    white-space: nowrap;
+    border-color: var(--kbmc-red) !important;
+    color: var(--kbmc-red) !important;
+    font-size: 13px;
+    transition: var(--transition);
+}
+.asset-tag-toggle-btn:hover {
+    background: var(--kbmc-red) !important;
+    color: white !important;
+}
+.asset-tag-mode-badge {
+    display: inline-block;
+    margin-left: 8px;
+    padding: 2px 9px;
+    border-radius: 20px;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    vertical-align: middle;
+    background: #e8f5e9;
+    color: #2e7d32;
+}

@@ -54,7 +54,7 @@ function requireITStaff() {
         exit();
     }
 }
-
+//$pdo -  database access abstraction layer that provides a consistent and secure way
 function getUserInfo($userId) {
     global $pdo;
     $stmt = $pdo->prepare("SELECT * FROM users WHERE id = ?");
@@ -86,7 +86,7 @@ function addNotification($userId, $type, $title, $message, $relatedId = null) {
 function createPasswordResetToken($userId) {
     global $pdo;
     $token = bin2hex(random_bytes(32));
-    $expires = date('Y-m-d H:i:s', strtotime('+24 hours'));
+    $expires = date('Y-m-d H:i:s', strtotime('+1 hour'));
     $pdo->prepare("DELETE FROM password_resets WHERE user_id = ?")->execute([$userId]);
     $stmt = $pdo->prepare("INSERT INTO password_resets (user_id, token, expires_at) VALUES (?, ?, ?)");
     $stmt->execute([$userId, $token, $expires]);
@@ -108,8 +108,8 @@ function sendPasswordResetEmail($userEmail, $fullName, $resetLink) {
     $emailBody = emailTemplate(
         'Password Reset Link',
         "<p>Hello <strong>" . sanitize($fullName) . "</strong>,</p>
-        <p>Your account recovery request was approved. Please use the link below to reset your password and regain access to the system.</p>
-        <p style='margin: 20px 0;'><strong>Note:</strong> This link expires in <strong>24 hours</strong>.</p>",
+        <p>Your account recovery request was approved. Please use the link below to reset your password.</p>
+        <p style='margin: 30px 0;'><strong>Note:</strong> This link expires in <strong>1 hour</strong>.</p>",
         'Reset Password',
         $resetLink
     );

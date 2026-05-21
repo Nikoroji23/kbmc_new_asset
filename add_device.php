@@ -22,12 +22,26 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     $purchase_price = $_POST['purchase_price'] ?? null;
     $location = trim($_POST['location'] ?? 'IT Stock Room');
     $condition_notes = trim($_POST['condition_notes'] ?? '');
+    $custom_asset_tag = trim($_POST['custom_asset_tag'] ?? ''); // NEW
 
     if (empty($device_type_id) || empty($serial_number)) {
         setFlashMessage('error', 'Device type and serial number are required.');
     } else {
         try {
-            $asset_tag = generateAssetTag($device_type_id);
+            // NEW: use custom tag if provided, otherwise auto-generate
+            if (!empty($custom_asset_tag)) {
+                if (!preg_match('/^[A-Za-z0-9\-_]{3,30}$/', $custom_asset_tag)) {
+                    throw new Exception('Invalid asset tag format. Use 3–30 characters: letters, numbers, hyphens, or underscores only.');
+                }
+                $chk = $pdo->prepare("SELECT COUNT(*) FROM devices WHERE asset_tag = ?");
+                $chk->execute([$custom_asset_tag]);
+                if ($chk->fetchColumn() > 0) {
+                    throw new Exception('Asset tag "' . htmlspecialchars($custom_asset_tag) . '" is already in use. Please choose a different one.');
+                }
+                $asset_tag = strtoupper($custom_asset_tag);
+            } else {
+                $asset_tag = generateAssetTag($device_type_id);
+            }
 
             $stmt = $pdo->prepare("INSERT INTO devices 
                 (asset_tag, device_type_id, brand, model, serial_number, ip_address, mac_address, specifications, 
@@ -58,6 +72,8 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             exit();
         } catch (PDOException $e) {
             setFlashMessage('error', 'Error adding device: ' . $e->getMessage());
+        } catch (Exception $e) { // NEW: catches custom tag validation errors
+            setFlashMessage('error', $e->getMessage());
         }
     }
 }
@@ -84,6 +100,32 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                         <?php endforeach; ?>
                     </select>
                 </div>
+
+                <!-- NEW: Asset Tag field with customize toggle -->
+                <div class="form-group">
+                    <label>
+                        Asset Tag
+                        <span class="asset-tag-mode-badge" id="assetTagBadge">Auto-generated</span>
+                    </label>
+                    <div class="asset-tag-input-row">
+                        <input type="text"
+                               name="custom_asset_tag"
+                               id="customAssetTag"
+                               class="form-control"
+                               placeholder="Auto-generated on save"
+                               maxlength="30"
+                               value="<?php echo isset($_POST['custom_asset_tag']) ? sanitize($_POST['custom_asset_tag']) : ''; ?>"
+                               disabled>
+                        <button type="button" class="btn btn-outline asset-tag-toggle-btn" id="assetTagToggle">
+                            <i class="fas fa-edit"></i> Customize
+                        </button>
+                    </div>
+                    <small style="font-size:12px; color:#888; margin-top:4px; display:block;">
+                        Leave blank to auto-generate. Custom: 3–30 chars, letters/numbers/hyphens/underscores only.
+                    </small>
+                </div>
+                <!-- END NEW -->
+
                 <div class="form-group">
                     <label>Brand</label>
                     <input type="text" name="brand" class="form-control" placeholder="e.g., Dell, HP, Lenovo">
@@ -144,3 +186,54 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
 </div>
 
 <?php require_once 'includes/footer.php'; ?>
+
+<!-- NEW: Asset Tag toggle — inline so it runs after its own elements, no timing issues -->
+<script>
+(function () {
+    var input  = document.getElementById('customAssetTag');
+    var btn    = document.getElementById('assetTagToggle');
+    var badge  = document.getElementById('assetTagBadge');
+
+    if (!input || !btn || !badge) return;
+
+    // Restore custom mode on POST-back if a value was submitted
+    var isCustom = input.value.trim().length > 0;
+
+    function applyState() {
+        if (isCustom) {
+            input.disabled    = false;
+            input.placeholder = 'e.g., KBMC-LT-001';
+            btn.innerHTML     = '<i class="fas fa-undo"></i> Use Auto';
+            btn.style.background = 'var(--kbmc-red)';
+            btn.style.color      = '#fff';
+            badge.textContent    = 'Custom';
+            badge.style.background = '#fff3e0';
+            badge.style.color      = '#e65100';
+            input.focus();
+        } else {
+            input.disabled    = true;
+            input.value       = '';
+            input.placeholder = 'Auto-generated on save';
+            btn.innerHTML     = '<i class="fas fa-edit"></i> Customize';
+            btn.style.background = '';
+            btn.style.color      = '';
+            badge.textContent    = 'Auto-generated';
+            badge.style.background = '#e8f5e9';
+            badge.style.color      = '#2e7d32';
+        }
+    }
+
+    btn.addEventListener('click', function () {
+        isCustom = !isCustom;
+        applyState();
+    });
+
+    input.addEventListener('input', function () {
+        var pos  = this.selectionStart;
+        this.value = this.value.toUpperCase().replace(/[^A-Z0-9\-_]/g, '');
+        this.setSelectionRange(pos, pos);
+    });
+
+    applyState();
+})();
+</script>

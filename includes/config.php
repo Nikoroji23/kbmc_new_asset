@@ -28,6 +28,15 @@ try {
         "3. Username/password in config.php matches your XAMPP setup");
 }
 
+// Ensure sessions can be stored in a writable local folder when system tmp is not available.
+$localSessionPath = dirname(__DIR__) . DIRECTORY_SEPARATOR . 'sessions';
+if (!is_dir($localSessionPath)) {
+    mkdir($localSessionPath, 0755, true);
+}
+if (is_writable($localSessionPath)) {
+    session_save_path($localSessionPath);
+}
+
 if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
