@@ -5,143 +5,15 @@
  */
 $pageTitle = 'Manage Users';
 require_once 'includes/header.php';
-requireAdmin();
+requireITStaff();
+$canManageUsers = hasRole('admin');
 
-function isAjaxRequest() {
-    return !empty($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) === 'xmlhttprequest';
-}
-
-function redirectToUsers($hash = '') {
-    $location = 'users.php';
-    if ($hash !== '') {
-        $location .= '#' . $hash;
-    }
-    header('Location: ' . $location);
-    exit();
-}
-
-// Handle Add User
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_user'])) {
-    $employee_id = trim($_POST['employee_id'] ?? '');
-    $full_name = trim($_POST['full_name'] ?? '');
-    $email = trim($_POST['email'] ?? '');
-    $password = $_POST['password'] ?? '';
-    $role = $_POST['role'] ?? 'employee';
-    $department = trim($_POST['department'] ?? '');
-    $position = trim($_POST['position'] ?? '');
-    $phone = trim($_POST['phone_full'] ?? '');
-
-    if ($full_name && filter_var($email, FILTER_VALIDATE_EMAIL) && $password) {
-        try {
-            $stmt = $pdo->prepare("INSERT INTO users (employee_id, full_name, email, password, role, department, position, phone, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active')");
-            $stmt->execute([
-                $employee_id,
-                $full_name,
-                $email,
-                password_hash($password, PASSWORD_BCRYPT),
-                $role,
-                $department,
-                $position,
-                $phone,
-            ]);
-            setFlashMessage('success', "User {$full_name} added successfully.");
-            redirectToUsers();
-        } catch (PDOException $e) {
-            setFlashMessage('error', 'Error adding user: ' . $e->getMessage());
-        }
-    } else {
-        setFlashMessage('error', 'Please provide a valid name, email address, and password.');
-    }
-}
-
-// Handle User Toggle (Activate/Deactivate)
-if (isset($_GET['toggle'], $_GET['id'])) {
-    $userId = (int) $_GET['id'];
-    if ($userId > 0) {
-        $current = $pdo->prepare("SELECT status FROM users WHERE id = ?");
-        $current->execute([$userId]);
-        $status = $current->fetchColumn();
-
-        if ($status !== false) {
-            $newStatus = $status === 'active' ? 'inactive' : 'active';
-            $pdo->prepare("UPDATE users SET status = ? WHERE id = ?")->execute([$newStatus, $userId]);
-            setFlashMessage('success', "User status updated to {$newStatus}.");
-        }
-    }
-    redirectToUsers();
-}
-
-// Handle User Delete
-if (isset($_GET['delete'], $_GET['id'])) {
-    $userId = (int) $_GET['id'];
-    if ($userId > 0) {
-        try {
-            $pdo->prepare("DELETE FROM users WHERE id = ?")->execute([$userId]);
-            setFlashMessage('success', 'User deleted successfully.');
-        } catch (PDOException $e) {
-            setFlashMessage('error', 'Error deleting user: ' . $e->getMessage());
-        }
-    }
-    redirectToUsers();
-}
-
-// Handle Recovery Request Approval/Rejection
-if (isset($_GET['recovery_action'], $_GET['recovery_id'])) {
-    $recoveryId = (int) $_GET['recovery_id'];
-    $action = $_GET['recovery_action'];
-    $newStatus = $action === 'approve' ? 'approved' : 'rejected';
-
-    try {
-        $stmt = $pdo->prepare("SELECT user_id FROM account_recovery_requests WHERE id = ?");
-        $stmt->execute([$recoveryId]);
-        $userId = $stmt->fetchColumn();
-
-        if ($userId) {
-            $pdo->prepare("UPDATE account_recovery_requests SET status = ?, resolved_at = NOW(), resolved_by = ? WHERE id = ?")
-                ->execute([$newStatus, $_SESSION['user_id'], $recoveryId]);
-
-            if ($action === 'approve') {
-                $pdo->prepare("UPDATE users SET status = 'active', failed_logins = 0, locked_until = NULL WHERE id = ?")
-                    ->execute([$userId]);
-                addNotification($userId, 'request_approved', 'Account Recovered', 'Your account has been reactivated. You can now log in.', $recoveryId);
-
-                $user = getUserInfo($userId);
-                if ($user && !empty($user['email']) && isEmailConfigured()) {
-                    $token = createPasswordResetToken($userId);
-                    $resetLink = getPasswordResetLink($token);
-                    sendPasswordResetEmail($user['email'], $user['full_name'], $resetLink);
-                }
-
-                setFlashMessage('success', 'Account recovery approved. User can now log in and a reset email has been sent if email is configured.');
-            } else {
-                addNotification($userId, 'request_rejected', 'Account Recovery Rejected', 'Your account recovery request was rejected. Contact admin for more info.', $recoveryId);
-                setFlashMessage('warning', 'Account recovery request rejected.');
-            }
-        }
-    } catch (PDOException $e) {
-        setFlashMessage('error', 'Error processing recovery: ' . $e->getMessage());
-    }
-
-    redirectToUsers('recovery');
-}
-
-// AJAX: View User Info + Assigned Assets
 if (isset($_GET['view_user']) && isAjaxRequest()) {
     $uid = (int) $_GET['view_user'];
-
-    $stmt = $pdo->prepare("SELECT * FROM users WHERE id = ?");
-    $stmt->execute([$uid]);
-    $user = $stmt->fetch(PDO::FETCH_ASSOC);
-
-    $stmt2 = $pdo->prepare(
-        "SELECT a.asset_tag, a.name, a.category, a.status, aa.assigned_at
-         FROM asset_assignments aa
-         JOIN assets a ON aa.asset_id = a.id
-         WHERE aa.user_id = ? AND aa.status = 'active'
-         ORDER BY aa.assigned_at DESC"
-    );
-    $stmt2->execute([$uid]);
-    $assets = $stmt2->fetchAll(PDO::FETCH_ASSOC);
+    $user = $pdo->prepare("SELECT * FROM users WHERE id = ?");
+    $user->execute([$uid]);
+    $user = $user->fetch(PDO::FETCH_ASSOC);
+    $assets = getAssignedAssets($uid);
 
     if ($user) {
         unset($user['password'], $user['failed_logins'], $user['locked_until']);
@@ -152,14 +24,25 @@ if (isset($_GET['view_user']) && isAjaxRequest()) {
     exit();
 }
 
-// Get all users
+// Get all users and pending recovery requests
 $users = $pdo->query("SELECT id, employee_id, full_name, email, role, department, position, phone, status, created_at FROM users ORDER BY created_at DESC")->fetchAll();
+$recoveryRequests = getPendingRecoveryRequests();
 ?>
 
 <div class="page-header">
     <h1><i class="fas fa-users-cog"></i> Manage Users</h1>
+    <?php if ($canManageUsers): ?>
     <button class="btn btn-primary" data-modal="addUserModal"><i class="fas fa-plus"></i> Add User</button>
+    <?php else: ?>
+    <span style="display:inline-flex;align-items:center;margin-left:20px;background:#3498db;color:#ffffff;padding:8px 12px;border-radius:999px;font-size:14px;font-weight:600;">IT Staff View Only</span>
+    <?php endif; ?>
 </div>
+
+<?php if (!$canManageUsers): ?>
+<div style="margin-bottom:18px;padding:14px 18px;background:#ecf6ff;border:1px solid #b3d8ff;border-radius:8px;color:#225b9d;">
+    <strong>IT Staff</strong> can inspect employee accounts and assigned assets. Administrative actions such as add, activate/deactivate, delete, and recovery approval are reserved for admin only.
+</div>
+<?php endif; ?>
 
 <!-- Tabs Navigation -->
 <div class="tabs">
@@ -211,22 +94,35 @@ $users = $pdo->query("SELECT id, employee_id, full_name, email, role, department
                                 </span>
                             </td>
                             <td><?php echo formatDate($u['created_at']); ?></td>
-                            <td style="display:flex;gap:6px;flex-wrap:wrap;">
+                            <td style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;">
                                 <button class="action-btn view view-user-btn"
                                         data-id="<?php echo $u['id']; ?>"
                                         title="View User & Assets">
                                     <i class="fas fa-eye"></i>
                                 </button>
-                                <a href="users.php?toggle=1&id=<?php echo $u['id']; ?>"
-                                    class="btn btn-sm <?php echo $u['status'] == 'active' ? 'btn-danger' : 'btn-success'; ?>"
-                                    onclick="return confirm('<?php echo $u['status'] == 'active' ? 'Deactivate' : 'Activate'; ?> this user?')">
-                                    <?php echo $u['status'] == 'active' ? '<i class="fas fa-ban"></i> Deactivate' : '<i class="fas fa-check"></i> Activate'; ?>
-                                </a>
-                                <a href="users.php?delete=1&id=<?php echo $u['id']; ?>"
-                                    class="btn btn-sm btn-danger"
-                                    onclick="return confirm('Are you sure you want to permanently delete <?php echo sanitize($u['full_name']); ?>? This cannot be undone.')">
-                                    <i class="fas fa-trash"></i> Delete
-                                </a>
+                                <?php if (!$canManageUsers): ?>
+                                <span style="display:inline-flex;align-items:center;margin-left:6px;padding:4px 9px;background:#3498db;color:#fff;border-radius:12px;font-size:12px;font-weight:600;">View only</span>
+                                <?php endif; ?>
+                                <?php if ($canManageUsers): ?>
+                                <form method="POST" action="user_actions.php" style="display:inline-block;margin:0;">
+                                    <?php echo csrfInputField(); ?>
+                                    <input type="hidden" name="action" value="toggle_user">
+                                    <input type="hidden" name="id" value="<?php echo $u['id']; ?>">
+                                    <button type="submit" class="btn btn-sm <?php echo $u['status'] == 'active' ? 'btn-danger' : 'btn-success'; ?>"
+                                        onclick="return confirm('<?php echo $u['status'] == 'active' ? 'Deactivate' : 'Activate'; ?> this user?')">
+                                        <?php echo $u['status'] == 'active' ? '<i class="fas fa-ban"></i> Deactivate' : '<i class="fas fa-check"></i> Activate'; ?>
+                                    </button>
+                                </form>
+                                <form method="POST" action="user_actions.php" style="display:inline-block;margin:0;">
+                                    <?php echo csrfInputField(); ?>
+                                    <input type="hidden" name="action" value="delete_user">
+                                    <input type="hidden" name="id" value="<?php echo $u['id']; ?>">
+                                    <button type="submit" class="btn btn-sm btn-danger"
+                                        onclick="return confirm('Are you sure you want to permanently delete <?php echo sanitize($u['full_name']); ?>? This cannot be undone.')">
+                                        <i class="fas fa-trash"></i> Delete
+                                    </button>
+                                </form>
+                                <?php endif; ?>
                             </td>
                         </tr>
                         <?php endforeach; ?>
@@ -282,18 +178,28 @@ $users = $pdo->query("SELECT id, employee_id, full_name, email, role, department
                             </td>
                             <td>
                                 <div class="action-btns">
-                                    <a href="users.php?recovery_action=approve&recovery_id=<?php echo $req['id']; ?>" 
-                                       class="action-btn assign" 
-                                       title="Approve Recovery"
-                                       onclick="return confirm('Approve account recovery for <?php echo sanitize($req['full_name']); ?>? This will reactivate their account.')">
-                                        <i class="fas fa-check"></i>
-                                    </a>
-                                    <a href="users.php?recovery_action=reject&recovery_id=<?php echo $req['id']; ?>" 
-                                       class="action-btn delete" 
-                                       title="Reject Recovery"
-                                       onclick="return confirm('Reject account recovery for <?php echo sanitize($req['full_name']); ?>?')">
-                                        <i class="fas fa-times"></i>
-                                    </a>
+                                    <?php if ($canManageUsers): ?>
+                                    <form method="POST" action="user_actions.php" style="display:inline-block;margin:0;">
+                                        <?php echo csrfInputField(); ?>
+                                        <input type="hidden" name="action" value="process_recovery">
+                                        <input type="hidden" name="recovery_id" value="<?php echo $req['id']; ?>">
+                                        <input type="hidden" name="approval_action" value="approve">
+                                        <button type="submit" class="action-btn assign" title="Approve Recovery"
+                                            onclick="return confirm('Approve account recovery for <?php echo sanitize($req['full_name']); ?>? This will reactivate their account.')">
+                                            <i class="fas fa-check"></i>
+                                        </button>
+                                    </form>
+                                    <form method="POST" action="user_actions.php" style="display:inline-block;margin:0;">
+                                        <?php echo csrfInputField(); ?>
+                                        <input type="hidden" name="action" value="process_recovery">
+                                        <input type="hidden" name="recovery_id" value="<?php echo $req['id']; ?>">
+                                        <input type="hidden" name="approval_action" value="reject">
+                                        <button type="submit" class="action-btn delete" title="Reject Recovery"
+                                            onclick="return confirm('Reject account recovery for <?php echo sanitize($req['full_name']); ?>?')">
+                                            <i class="fas fa-times"></i>
+                                        </button>
+                                    </form>
+                                    <?php endif; ?>
                                 </div>
                             </td>
                         </tr>
@@ -313,7 +219,9 @@ $users = $pdo->query("SELECT id, employee_id, full_name, email, role, department
             <h3><i class="fas fa-user-plus"></i> Add New User</h3>
             <button class="modal-close" data-dismiss="modal">&times;</button>
         </div>
-        <form method="POST" id="addUserForm">
+        <form method="POST" action="user_actions.php" id="addUserForm">
+            <?php echo csrfInputField(); ?>
+            <input type="hidden" name="action" value="add_user">
             <div class="modal-body">
                 <div class="form-grid">
                     <div class="form-group">

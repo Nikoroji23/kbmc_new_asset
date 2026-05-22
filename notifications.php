@@ -29,11 +29,13 @@ $notifications = $stmt->fetchAll();
         <?php if (empty($notifications)): ?>
         <div class="empty-state"><i class="fas fa-bell-slash" style="font-size: 40px;"></i><h4>No notifications</h4></div>
         <?php else: ?>
-        <?php foreach ($notifications as $notif): ?>
+        <?php foreach ($notifications as $notif):
+            $notifUrl = getNotificationUrl($notif);
+        ?>
         <div class="activity-item notif-clickable" 
              style="padding: 15px; border-bottom: 1px solid #f5f5f5; background: <?php echo $notif['is_read'] ? 'transparent' : '#FFF5F5'; ?>; border-radius: var(--radius); margin-bottom: 5px; cursor: pointer; transition: all 0.2s;"
              data-id="<?php echo $notif['id']; ?>"
-             data-url="requests.php"
+             data-url="<?php echo sanitize($notifUrl); ?>"
              onclick="handleNotificationClick(this)">
             <div class="activity-icon" style="background: var(--kbmc-red-light); color: var(--kbmc-red);">
                 <i class="fas fa-<?php echo match($notif['type']) { 'device_deployed' => 'laptop', 'device_returned' => 'undo', 'low_stock' => 'exclamation-triangle', 'repair_needed' => 'tools', 'request_approved' => 'check-circle', 'request_rejected' => 'times-circle', 'warranty_expiring' => 'clock', default => 'info-circle' }; ?>"></i>

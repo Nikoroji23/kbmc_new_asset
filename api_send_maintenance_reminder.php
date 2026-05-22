@@ -87,8 +87,10 @@ try {
     
     // Send immediately
     sendPendingEmailNotifications();
-    
-    // Record that reminder was sent
+
+    if (!empty($maintenance['assigned_user_id'])) {
+        addNotification($maintenance['assigned_user_id'], 'maintenance_due', 'Maintenance Reminder', "Maintenance is due for {$maintenance['asset_tag']} on " . date('M d, Y', strtotime($maintenance['next_due_date'])) . ".", $maintenance['device_id']);
+    }
     $pdo->prepare("
         INSERT INTO maintenance_reminders_sent (maintenance_id, email_notification_id, sent_to_user_id)
         VALUES (?, ?, ?)

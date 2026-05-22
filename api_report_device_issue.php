@@ -142,7 +142,7 @@ try {
     logAudit($_SESSION['user_id'], 'Report Device Issue', 'device_repairs', $repairId);
     
     // Send notification to IT staff
-    $itStaff = $pdo->query("SELECT id, email FROM users WHERE role IN ('admin', 'it_staff')")->fetchAll();
+    $itStaff = filterUniqueEmails($pdo->query("SELECT id, email FROM users WHERE role IN ('admin', 'it_staff')")->fetchAll());
     foreach ($itStaff as $staff) {
         // Build link to device and optional attachment
         $base = defined('BASE_URL') ? rtrim(BASE_URL, '/') : 'http://' . $_SERVER['HTTP_HOST'] . dirname($_SERVER['PHP_SELF']);

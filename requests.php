@@ -22,7 +22,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['submit_request'])) {
         // Notify admins and IT staff (system notification + email)
         $staff = $pdo->query("SELECT id, email, full_name FROM users WHERE role IN ('admin', 'it_staff') AND status = 'active'")->fetchAll();
         
-        foreach ($staff as $s) {
+        foreach (filterUniqueEmails($staff) as $s) {
             // System notification (popup in dashboard)
             addNotification($s['id'], 'device_request', 'New Device Request', 
                 "New request for $typeName from " . $_SESSION['full_name'] . " (Urgency: " . ucfirst($urgency) . ")", $requestId);

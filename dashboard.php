@@ -12,6 +12,10 @@ $deployed = getDeviceCountByStatus('deployed');
 $underRepair = getDeviceCountByStatus('under_repair');
 $retired = getDeviceCountByStatus('retired') + getDeviceCountByStatus('disposed');
 $activeAssignments = getActiveAssignmentCount();
+$isAdmin = hasRole('admin');
+$isITStaff = hasRole('it_staff');
+$pendingRepairCount = count(getPendingRepairs());
+$pendingInspectionCount = $pdo->query("SELECT COUNT(*) FROM devices WHERE status = 'pending_inspection'")->fetchColumn();
 
 // Recent devices
 $stmt = $pdo->query("SELECT d.*, dt.type_name FROM devices d JOIN device_types dt ON d.device_type_id = dt.id ORDER BY d.created_at DESC LIMIT 5");
@@ -84,7 +88,46 @@ if (hasRole('admin')) {
             <span>Retired / Disposed</span>
         </div>
     </div>
+    <div class="stat-card">
+        <div class="stat-icon purple"><i class="fas fa-tasks"></i></div>
+        <div class="stat-info">
+            <h3><?php echo $activeAssignments; ?></h3>
+            <span>Active Assignments</span>
+        </div>
+    </div>
 </div>
+
+<?php if ($isITStaff || $isAdmin): ?>
+<div class="card" style="margin-top: 20px;">
+    <div class="card-header">
+        <h3><i class="fas fa-user-check"></i> IT Support Overview</h3>
+    </div>
+    <div class="card-body">
+        <div style="display:flex;flex-wrap:wrap;gap:16px;">
+            <a href="deployments.php" class="support-box" style="flex:1;min-width:220px;background:#f4f8ff;border:1px solid #d0e4ff;border-radius:12px;padding:18px;text-decoration:none;color:#1d3557;">
+                <div style="font-size:24px;font-weight:700;"><?php echo $activeAssignments; ?></div>
+                <div style="margin-top:8px;font-size:13px;font-weight:600;">Assigned Assets</div>
+                <div style="margin-top:6px;color:#627d98;">View active device assignments and employee asset history.</div>
+            </a>
+            <a href="repairs.php" class="support-box" style="flex:1;min-width:220px;background:#fff4e6;border:1px solid #ffe1c6;border-radius:12px;padding:18px;text-decoration:none;color:#7a4a00;">
+                <div style="font-size:24px;font-weight:700;"><?php echo $pendingRepairCount; ?></div>
+                <div style="margin-top:8px;font-size:13px;font-weight:600;">Pending Repairs</div>
+                <div style="margin-top:6px;color:#7a4a00;">Review alerts for devices currently pending repair or under repair.</div>
+            </a>
+            <a href="inspections.php" class="support-box" style="flex:1;min-width:220px;background:#f9f5ff;border:1px solid #e3dbff;border-radius:12px;padding:18px;text-decoration:none;color:#4a2c8f;">
+                <div style="font-size:24px;font-weight:700;"><?php echo $pendingInspectionCount; ?></div>
+                <div style="margin-top:8px;font-size:13px;font-weight:600;">Pending Inspections</div>
+                <div style="margin-top:6px;color:#5c4e99;">See devices awaiting inspection before they enter inventory.</div>
+            </a>
+            <a href="users.php" class="support-box" style="flex:1;min-width:220px;background:#e9f9f2;border:1px solid #c9efd7;border-radius:12px;padding:18px;text-decoration:none;color:#1d6f52;">
+                <div style="font-size:24px;font-weight:700;">User Lookup</div>
+                <div style="margin-top:8px;font-size:13px;font-weight:600;">Search user accounts</div>
+                <div style="margin-top:6px;color:#216e55;">Inspect employee records, view assigned assets, and troubleshoot issues.</div>
+            </a>
+        </div>
+    </div>
+</div>
+<?php endif; ?>
 
 
 
@@ -262,18 +305,26 @@ if (hasRole('admin')) {
                         <td><?php echo formatDate($req['requested_at']); ?></td>
                         <td>
                             <div class="action-btns">
-                                <a href="users.php?recovery_action=approve&recovery_id=<?php echo $req['id']; ?>" 
-                                   class="action-btn assign" 
-                                   title="Approve"
-                                   onclick="return confirm('Approve recovery for <?php echo sanitize($req['full_name']); ?>?')">
-                                    <i class="fas fa-check"></i>
-                                </a>
-                                <a href="users.php?recovery_action=reject&recovery_id=<?php echo $req['id']; ?>" 
-                                   class="action-btn delete" 
-                                   title="Reject"
-                                   onclick="return confirm('Reject recovery for <?php echo sanitize($req['full_name']); ?>?')">
-                                    <i class="fas fa-times"></i>
-                                </a>
+                                <form method="POST" action="user_actions.php" style="display:inline-block;margin:0;">
+                                    <?php echo csrfInputField(); ?>
+                                    <input type="hidden" name="action" value="process_recovery">
+                                    <input type="hidden" name="recovery_id" value="<?php echo $req['id']; ?>">
+                                    <input type="hidden" name="approval_action" value="approve">
+                                    <button type="submit" class="action-btn assign" title="Approve"
+                                        onclick="return confirm('Approve recovery for <?php echo sanitize($req['full_name']); ?>?')">
+                                        <i class="fas fa-check"></i>
+                                    </button>
+                                </form>
+                                <form method="POST" action="user_actions.php" style="display:inline-block;margin:0;">
+                                    <?php echo csrfInputField(); ?>
+                                    <input type="hidden" name="action" value="process_recovery">
+                                    <input type="hidden" name="recovery_id" value="<?php echo $req['id']; ?>">
+                                    <input type="hidden" name="approval_action" value="reject">
+                                    <button type="submit" class="action-btn delete" title="Reject"
+                                        onclick="return confirm('Reject recovery for <?php echo sanitize($req['full_name']); ?>?')">
+                                        <i class="fas fa-times"></i>
+                                    </button>
+                                </form>
                             </div>
                         </td>
                     </tr>

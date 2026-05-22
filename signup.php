@@ -68,7 +68,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['signup'])) {
                 // Send email to IT staff about new account creation
                 $itStaff = $pdo->query("SELECT id, email, full_name FROM users WHERE role = 'it_staff' AND status = 'active'")->fetchAll();
                 if (!empty($itStaff) && isEmailConfigured()) {
-                    foreach ($itStaff as $staff) {
+                    foreach (filterUniqueEmails($itStaff) as $staff) {
                         $emailBody = emailTemplate(
                             'New Employee Account Created',
                             "<p>Hello <strong>" . sanitize($staff['full_name']) . "</strong>,</p>
@@ -94,7 +94,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['signup'])) {
                 // Also notify admins
                 $admins = $pdo->query("SELECT id, email, full_name FROM users WHERE role = 'admin' AND status = 'active'")->fetchAll();
                 if (!empty($admins) && isEmailConfigured()) {
-                    foreach ($admins as $admin) {
+                    foreach (filterUniqueEmails($admins) as $admin) {
                         $emailBody = emailTemplate(
                             'New Employee Account Registration',
                             "<p>Hello <strong>" . sanitize($admin['full_name']) . "</strong>,</p>

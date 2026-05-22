@@ -180,10 +180,12 @@ $pageTitle = $pageTitle ?? 'KBMC Asset Management';
                             <?php if (empty($notifications)): ?>
                             <div class="notif-empty">No notifications</div>
                             <?php else: ?>
-                            <?php foreach ($notifications as $notif): ?>
+                            <?php foreach ($notifications as $notif):
+                                $notifUrl = getNotificationUrl($notif);
+                            ?>
                             <div class="notif-item <?php echo $notif['is_read'] ? '' : 'unread'; ?>" 
                                  data-id="<?php echo $notif['id']; ?>" 
-                                 data-url="requests.php">
+                                 data-url="<?php echo sanitize($notifUrl); ?>">
                                 <div class="notif-icon">
                                     <i class="fas fa-<?php
                                         echo match($notif['type']) {

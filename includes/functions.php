@@ -76,11 +76,52 @@ function getNotifications($userId, $limit = 5) {
     return $stmt->fetchAll();
 }
 
+function filterUniqueEmails(array $recipients) {
+    $seen = [];
+    $unique = [];
+    foreach ($recipients as $recipient) {
+        $email = filter_var($recipient['email'] ?? '', FILTER_VALIDATE_EMAIL);
+        if (!$email || isset($seen[$email])) {
+            continue;
+        }
+        $seen[$email] = true;
+        $recipient['email'] = $email;
+        $unique[] = $recipient;
+    }
+    return $unique;
+}
+
 function addNotification($userId, $type, $title, $message, $relatedId = null) {
     global $pdo;
     $stmt = $pdo->prepare("INSERT INTO notifications (user_id, type, title, message, related_id) VALUES (?, ?, ?, ?, ?)");
     $stmt->execute([$userId, $type, $title, $message, $relatedId]);
     return $pdo->lastInsertId();
+}
+
+function getNotificationUrl(array $notification) {
+    $type = $notification['type'] ?? '';
+    $relatedId = !empty($notification['related_id']) ? intval($notification['related_id']) : null;
+
+    switch ($type) {
+        case 'device_request':
+            return 'requests.php' . ($relatedId ? '?id=' . $relatedId : '');
+        case 'request_approved':
+        case 'request_rejected':
+            return 'requests.php' . ($relatedId ? '?id=' . $relatedId : '');
+        case 'repair_needed':
+        case 'repair_completed':
+            return 'repairs.php' . ($relatedId ? '?repair_id=' . $relatedId : '');
+        case 'device_deployed':
+        case 'device_returned':
+            return $relatedId ? 'view_device.php?id=' . $relatedId : 'deployments.php';
+        case 'low_stock':
+            return 'devices.php';
+        case 'maintenance_assigned':
+        case 'maintenance_due':
+            return 'maintenance_reminders.php';
+        default:
+            return 'notifications.php';
+    }
 }
 
 function createPasswordResetToken($userId) {
@@ -184,6 +225,101 @@ function getFlashMessage() {
         return $flash;
     }
     return null;
+}
+
+function redirect($url) {
+    header('Location: ' . $url);
+    exit();
+}
+
+function generateCsrfToken() {
+    if (empty($_SESSION['csrf_token'])) {
+        $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+    }
+    return $_SESSION['csrf_token'];
+}
+
+function validateCsrfToken($token) {
+    return isset($_SESSION['csrf_token']) && hash_equals($_SESSION['csrf_token'], (string) $token);
+}
+
+function csrfInputField() {
+    return '<input type="hidden" name="csrf_token" value="' . generateCsrfToken() . '">';
+}
+
+function isAjaxRequest() {
+    return !empty($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) === 'xmlhttprequest';
+}
+
+function getAssignedAssets($userId) {
+    global $pdo;
+    $stmt = $pdo->prepare(
+        "SELECT a.asset_tag, a.name, a.category, a.status, aa.assigned_at
+         FROM asset_assignments aa
+         JOIN assets a ON aa.asset_id = a.id
+         WHERE aa.user_id = ? AND aa.status = 'active'
+         ORDER BY aa.assigned_at DESC"
+    );
+    $stmt->execute([$userId]);
+    return $stmt->fetchAll(PDO::FETCH_ASSOC);
+}
+
+function toggleUserStatus($userId) {
+    global $pdo;
+    $stmt = $pdo->prepare("SELECT status FROM users WHERE id = ?");
+    $stmt->execute([$userId]);
+    $status = $stmt->fetchColumn();
+
+    if ($status === false) {
+        return false;
+    }
+
+    $newStatus = $status === 'active' ? 'inactive' : 'active';
+    $stmt = $pdo->prepare("UPDATE users SET status = ? WHERE id = ?");
+    $stmt->execute([$newStatus, $userId]);
+    return $newStatus;
+}
+
+function deleteUserById($userId) {
+    global $pdo;
+    $stmt = $pdo->prepare("DELETE FROM users WHERE id = ?");
+    return $stmt->execute([$userId]);
+}
+
+function processRecoveryRequest($recoveryId, $action, $adminId) {
+    global $pdo;
+    $validActions = ['approve' => 'approved', 'reject' => 'rejected'];
+    if (!isset($validActions[$action])) {
+        return false;
+    }
+
+    $stmt = $pdo->prepare("SELECT user_id FROM account_recovery_requests WHERE id = ?");
+    $stmt->execute([$recoveryId]);
+    $userId = $stmt->fetchColumn();
+
+    if (!$userId) {
+        return false;
+    }
+
+    $pdo->prepare("UPDATE account_recovery_requests SET status = ?, resolved_at = NOW(), resolved_by = ? WHERE id = ?")
+        ->execute([$validActions[$action], $adminId, $recoveryId]);
+
+    if ($action === 'approve') {
+        $pdo->prepare("UPDATE users SET status = 'active', failed_logins = 0, locked_until = NULL WHERE id = ?")
+            ->execute([$userId]);
+        addNotification($userId, 'request_approved', 'Account Recovered', 'Your account has been reactivated. You can now log in.', $recoveryId);
+
+        $user = getUserInfo($userId);
+        if ($user && !empty($user['email']) && isEmailConfigured()) {
+            $token = createPasswordResetToken($userId);
+            $resetLink = getPasswordResetLink($token);
+            sendPasswordResetEmail($user['email'], $user['full_name'], $resetLink);
+        }
+    } else {
+        addNotification($userId, 'request_rejected', 'Account Recovery Rejected', 'Your account recovery request was rejected. Contact admin for more info.', $recoveryId);
+    }
+
+    return true;
 }
 
 function downloadCSV($filename, $headers, $data) {
@@ -333,8 +469,25 @@ function getPendingRecoveryRequests() {
 
 function queueEmailNotification($userId, $recipientEmail, $notificationType, $subject, $body, $relatedDeviceId = null, $relatedRepairId = null) {
     global $pdo;
-    $stmt = $pdo->prepare("INSERT INTO email_notifications (user_id, recipient_email, notification_type, subject, body, related_device_id, related_repair_id, status) VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')");
-    $stmt->execute([$userId, $recipientEmail, $notificationType, $subject, $body, $relatedDeviceId, $relatedRepairId]);
+    $recipientEmail = filter_var($recipientEmail, FILTER_VALIDATE_EMAIL);
+    if (!$recipientEmail) {
+        return false;
+    }
+
+    $stmt = $pdo->prepare(
+        "SELECT id FROM email_notifications WHERE recipient_email = ? AND notification_type = ? " .
+        "AND ((related_device_id = ? OR (related_device_id IS NULL AND ? IS NULL)) " .
+        "AND (related_repair_id = ? OR (related_repair_id IS NULL AND ? IS NULL))) " .
+        "AND status = 'pending'"
+    );
+    $stmt->execute([$recipientEmail, $notificationType, $relatedDeviceId, $relatedDeviceId, $relatedRepairId, $relatedRepairId]);
+    $existingId = $stmt->fetchColumn();
+    if ($existingId) {
+        return $existingId;
+    }
+
+    $insert = $pdo->prepare("INSERT INTO email_notifications (user_id, recipient_email, notification_type, subject, body, related_device_id, related_repair_id, status) VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')");
+    $insert->execute([$userId, $recipientEmail, $notificationType, $subject, $body, $relatedDeviceId, $relatedRepairId]);
     return $pdo->lastInsertId();
 }
 
@@ -360,7 +513,25 @@ function createMaintenanceSchedule($deviceId, $maintenanceType, $description, $s
     global $pdo;
     $stmt = $pdo->prepare("INSERT INTO maintenance_schedules (device_id, maintenance_type, description, scheduled_date, next_due_date, assigned_to) VALUES (?, ?, ?, ?, ?, ?)");
     $stmt->execute([$deviceId, $maintenanceType, $description, $scheduledDate, $scheduledDate, $assignedTo]);
-    return $pdo->lastInsertId();
+    $scheduleId = $pdo->lastInsertId();
+
+    $deviceStmt = $pdo->prepare("SELECT asset_tag FROM devices WHERE id = ?");
+    $deviceStmt->execute([$deviceId]);
+    $device = $deviceStmt->fetch();
+    $assetTag = $device ? $device['asset_tag'] : 'device';
+    $dueDate = date('M d, Y', strtotime($scheduledDate));
+
+    if ($assignedTo) {
+        addNotification($assignedTo, 'maintenance_assigned', 'Maintenance Assigned', "You have been assigned maintenance for {$assetTag} due {$dueDate}.", $deviceId);
+    } else {
+        $staffStmt = $pdo->query("SELECT id FROM users WHERE role IN ('admin','it_staff') AND status = 'active'");
+        $staffMembers = $staffStmt->fetchAll();
+        foreach ($staffMembers as $member) {
+            addNotification($member['id'], 'maintenance_assigned', 'Maintenance Task Pending', "Maintenance for {$assetTag} is scheduled for {$dueDate} and needs IT assignment.", $deviceId);
+        }
+    }
+
+    return $scheduleId;
 }
 
 function getUpcomingMaintenanceReminders($daysAhead = 7) {
