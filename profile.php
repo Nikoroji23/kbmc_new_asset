@@ -9,32 +9,77 @@ $user = getUserInfo($_SESSION['user_id']);
 
 if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     $full_name = trim($_POST['full_name'] ?? '');
+    $email = trim($_POST['email'] ?? '');
+    $employee_id = trim($_POST['employee_id'] ?? '');
     $phone = trim($_POST['phone'] ?? '');
     $current_password = $_POST['current_password'] ?? '';
     $new_password = $_POST['new_password'] ?? '';
 
     try {
+        $updateFields = [];
+        $updateValues = [];
+        
         if ($full_name) {
-            $pdo->prepare("UPDATE users SET full_name = ?, phone = ? WHERE id = ?")->execute([$full_name, $phone, $_SESSION['user_id']]);
+            $updateFields[] = "full_name = ?";
+            $updateValues[] = $full_name;
+        }
+        
+        if ($email && filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            // Check if email is unique (excluding current user)
+            $emailCheck = $pdo->prepare("SELECT id FROM users WHERE email = ? AND id != ?");
+            $emailCheck->execute([$email, $_SESSION['user_id']]);
+            if ($emailCheck->fetch()) {
+                throw new Exception('Email address is already in use.');
+            }
+            $updateFields[] = "email = ?";
+            $updateValues[] = $email;
+        } elseif ($email && !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            throw new Exception('Invalid email address format.');
+        }
+        
+        if ($employee_id) {
+            // Check if employee ID is unique (excluding current user)
+            $empIdCheck = $pdo->prepare("SELECT id FROM users WHERE employee_id = ? AND id != ?");
+            $empIdCheck->execute([$employee_id, $_SESSION['user_id']]);
+            if ($empIdCheck->fetch()) {
+                throw new Exception('Employee ID is already in use.');
+            }
+            $updateFields[] = "employee_id = ?";
+            $updateValues[] = $employee_id;
+        }
+        
+        if ($phone) {
+            $updateFields[] = "phone = ?";
+            $updateValues[] = $phone;
+        }
+        
+        // Update basic profile info
+        if (!empty($updateFields)) {
+            $updateValues[] = $_SESSION['user_id'];
+            $query = "UPDATE users SET " . implode(", ", $updateFields) . " WHERE id = ?";
+            $pdo->prepare($query)->execute($updateValues);
         }
 
+        // Handle password change
         if ($current_password && $new_password) {
             if (password_verify($current_password, $user['password'])) {
                 $pdo->prepare("UPDATE users SET password = ? WHERE id = ?")->execute([password_hash($new_password, PASSWORD_BCRYPT), $_SESSION['user_id']]);
-                setFlashMessage('success', 'Profile updated and password changed.');
+                setFlashMessage('success', 'Profile updated and password changed successfully.');
             } else {
                 setFlashMessage('error', 'Current password is incorrect.');
                 header('Location: profile.php');
                 exit();
             }
-        } else {
+        } elseif (!empty($updateFields)) {
             setFlashMessage('success', 'Profile updated successfully.');
         }
 
         header('Location: profile.php');
         exit();
-    } catch (PDOException $e) {
-        setFlashMessage('error', 'Error updating profile.');
+    } catch (Exception $e) {
+        setFlashMessage('error', $e->getMessage());
+        header('Location: profile.php');
+        exit();
     }
 }
 
@@ -63,11 +108,11 @@ $myDevices = $stmt->fetchAll();
                 <div class="form-grid">
                     <div class="form-group">
                         <label>Employee ID</label>
-                        <input type="text" class="form-control" value="<?php echo sanitize($user['employee_id'] ?: 'N/A'); ?>" disabled>
+                        <input type="text" name="employee_id" class="form-control" value="<?php echo sanitize($user['employee_id'] ?: ''); ?>">
                     </div>
                     <div class="form-group">
                         <label>Email</label>
-                        <input type="text" class="form-control" value="<?php echo sanitize($user['email']); ?>" disabled>
+                        <input type="email" name="email" class="form-control" value="<?php echo sanitize($user['email']); ?>">
                     </div>
                     <div class="form-group">
                         <label>Department</label>
@@ -82,7 +127,7 @@ $myDevices = $stmt->fetchAll();
                         <input type="text" name="full_name" class="form-control" value="<?php echo sanitize($user['full_name']); ?>">
                     </div>
                     <div class="form-group">
-                        <label>Phone</label>
+                        <label>Contact (Phone)</label>
                         <input type="text" name="phone" class="form-control" value="<?php echo sanitize($user['phone'] ?? ''); ?>">
                     </div>
                     <div class="form-group">

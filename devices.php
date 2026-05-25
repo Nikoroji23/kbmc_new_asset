@@ -33,9 +33,12 @@ $devices = $stmt->fetchAll();
 $types = $pdo->query("SELECT * FROM device_types ORDER BY type_name")->fetchAll();
 ?>
 
-<div class="page-header">
+<div class="page-header" style="display: flex; justify-content: space-between; align-items: center;">
     <h1><i class="fas fa-laptop"></i> All Devices</h1>
-    <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+    <div style="display: flex; gap: 10px; flex-wrap: wrap; align-items: center;">
+        <a href="import_assets.php" class="btn" style="background-color: #27ae60; color: white; padding: 8px 16px; border-radius: 4px; text-decoration: none; display: inline-flex; align-items: center; gap: 5px;">
+            <i class="fas fa-file-import"></i> Import Assets
+        </a>
         <button class="btn btn-outline" onclick="exportDevicesCSV()">
             <i class="fas fa-file-csv"></i> Export CSV
         </button>

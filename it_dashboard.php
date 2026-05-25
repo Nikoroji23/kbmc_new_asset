@@ -107,6 +107,9 @@ $recentDeployments = $stmt->fetchAll();
         <h3><i class="fas fa-lightning-bolt"></i> Quick Actions</h3>
     </div>
     <div class="card-body" style="display: flex; gap: 12px; flex-wrap: wrap;">
+        <a href="import_assets.php" class="btn btn-primary" style="flex: 1; min-width: 150px;">
+            <i class="fas fa-file-import"></i> Import Assets
+        </a>
         <a href="add_device.php" class="btn btn-primary" style="flex: 1; min-width: 150px;">
             <i class="fas fa-plus"></i> Add New Device
         </a>
