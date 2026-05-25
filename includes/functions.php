@@ -54,6 +54,18 @@ function requireITStaff() {
         exit();
     }
 }
+
+// Validate a role is one of the allowed values
+function isValidRole($role) {
+    $allowed_roles = ['admin', 'it_staff', 'employee'];
+    return in_array($role, $allowed_roles);
+}
+
+// Get all valid roles
+function getAllowedRoles() {
+    return ['admin', 'it_staff', 'employee'];
+}
+
 //$pdo -  database access abstraction layer that provides a consistent and secure way
 function getUserInfo($userId) {
     global $pdo;
@@ -332,6 +344,216 @@ function downloadCSV($filename, $headers, $data) {
     }
     fclose($output);
     exit;
+}
+
+// ============================================================
+// MASTER KEY & SECURITY FUNCTIONS
+
+// Check if user is a security admin (can approve IT/Admin user creation)
+function isSecurityAdmin($userId = null) {
+    global $pdo;
+    if ($userId === null) {
+        $userId = $_SESSION['user_id'] ?? null;
+    }
+    if (!$userId) return false;
+    
+    $stmt = $pdo->prepare("SELECT is_security_admin FROM users WHERE id = ? AND role = 'admin'");
+    $stmt->execute([$userId]);
+    $result = $stmt->fetch();
+    return $result && $result['is_security_admin'] == 1;
+}
+
+// Generate master security key for an admin
+function generateMasterKey($length = 32) {
+    return bin2hex(random_bytes($length / 2));
+}
+
+// Set master key for security admin
+function setMasterKey($userId, $masterKey) {
+    global $pdo;
+    $hashedKey = password_hash($masterKey, PASSWORD_BCRYPT);
+    $stmt = $pdo->prepare("UPDATE users SET master_key_hash = ?, is_security_admin = 1 WHERE id = ? AND role = 'admin'");
+    return $stmt->execute([$hashedKey, $userId]);
+}
+
+// Verify master key
+function verifyMasterKey($userId, $masterKey) {
+    global $pdo;
+    $stmt = $pdo->prepare("SELECT master_key_hash FROM users WHERE id = ? AND is_security_admin = 1");
+    $stmt->execute([$userId]);
+    $result = $stmt->fetch();
+    
+    if ($result && password_verify($masterKey, $result['master_key_hash'])) {
+        // Log successful verification
+        logSecurityKeyUsage($userId, 'Key Verified', true);
+        $_SESSION['master_key_verified'] = true;
+        $_SESSION['master_key_verified_at'] = time();
+        return true;
+    }
+    
+    // Log failed verification
+    logSecurityKeyUsage($userId, 'Key Verification Failed', false);
+    return false;
+}
+
+// Log master key usage
+function logSecurityKeyUsage($userId, $action, $success = true) {
+    global $pdo;
+    $ipAddress = $_SERVER['REMOTE_ADDR'] ?? null;
+    $stmt = $pdo->prepare("INSERT INTO security_key_logs (user_id, action, success, attempt_ip) VALUES (?, ?, ?, ?)");
+    $stmt->execute([$userId, $action, $success ? 1 : 0, $ipAddress]);
+}
+
+// Check if master key is currently verified (within session timeout)
+function isMasterKeyVerified($timeoutMinutes = 30) {
+    if (empty($_SESSION['master_key_verified']) || empty($_SESSION['master_key_verified_at'])) {
+        return false;
+    }
+    
+    $elapsed = (time() - $_SESSION['master_key_verified_at']) / 60;
+    if ($elapsed > $timeoutMinutes) {
+        unset($_SESSION['master_key_verified']);
+        unset($_SESSION['master_key_verified_at']);
+        return false;
+    }
+    
+    return true;
+}
+
+// Request approval for IT/Admin user creation
+function createUserApprovalRequest($requestedByUserId, $fullName, $email, $requestedRole, $employeeId = '', $department = '', $position = '', $phone = '', $passwordHash = '', $reason = '') {
+    global $pdo;
+    
+    if (!in_array($requestedRole, ['it_staff', 'admin'])) {
+        return false;
+    }
+    
+    try {
+        $stmt = $pdo->prepare("
+            INSERT INTO user_approval_requests 
+            (requested_by, employee_id, full_name, email, requested_role, department, position, phone, password_hash, reason, status) 
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')
+        ");
+        
+        return $stmt->execute([
+            $requestedByUserId,
+            $employeeId,
+            $fullName,
+            $email,
+            $requestedRole,
+            $department,
+            $position,
+            $phone,
+            $passwordHash,
+            $reason
+        ]);
+    } catch (PDOException $e) {
+        return false;
+    }
+}
+
+// Get pending user approval requests
+function getPendingUserApprovals() {
+    global $pdo;
+    $stmt = $pdo->query("
+        SELECT ar.*, u.full_name as requested_by_name 
+        FROM user_approval_requests ar
+        LEFT JOIN users u ON ar.requested_by = u.id
+        WHERE ar.status = 'pending'
+        ORDER BY ar.created_at DESC
+    ");
+    return $stmt->fetchAll();
+}
+
+// Approve user creation request
+function approveUserCreation($approvalId, $approvedByUserId, $masterKey = null) {
+    global $pdo;
+    
+    // Verify master key if required
+    if ($masterKey && !verifyMasterKey($approvedByUserId, $masterKey)) {
+        return ['success' => false, 'message' => 'Invalid master security key'];
+    }
+    
+    try {
+        $stmt = $pdo->prepare("SELECT * FROM user_approval_requests WHERE id = ? AND status = 'pending'");
+        $stmt->execute([$approvalId]);
+        $request = $stmt->fetch();
+        
+        if (!$request) {
+            return ['success' => false, 'message' => 'Request not found or already processed'];
+        }
+        
+        // Create the user
+        $insertStmt = $pdo->prepare("
+            INSERT INTO users (employee_id, full_name, email, password, role, department, position, phone, status) 
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active')
+        ");
+        
+        $insertStmt->execute([
+            $request['employee_id'],
+            $request['full_name'],
+            $request['email'],
+            $request['password_hash'],
+            $request['requested_role'],
+            $request['department'],
+            $request['position'],
+            $request['phone']
+        ]);
+        
+        $newUserId = $pdo->lastInsertId();
+        
+        // Update approval request
+        $updateStmt = $pdo->prepare("
+            UPDATE user_approval_requests 
+            SET status = 'approved', approved_by = ?, approved_at = NOW() 
+            WHERE id = ?
+        ");
+        $updateStmt->execute([$approvedByUserId, $approvalId]);
+        
+        // Log audit
+        logAudit($approvedByUserId, 'Approve User Creation', 'user_approval_requests', $approvalId, null, 
+            "New {$request['requested_role']} user created: {$request['full_name']}");
+        
+        return ['success' => true, 'message' => 'User approved and created successfully', 'userId' => $newUserId];
+    } catch (PDOException $e) {
+        return ['success' => false, 'message' => 'Error: ' . $e->getMessage()];
+    }
+}
+
+// Reject user creation request
+function rejectUserCreation($approvalId, $rejectedByUserId, $rejectionReason = '') {
+    global $pdo;
+    
+    try {
+        $stmt = $pdo->prepare("
+            UPDATE user_approval_requests 
+            SET status = 'rejected', approved_by = ?, approved_at = NOW(), rejection_reason = ? 
+            WHERE id = ? AND status = 'pending'
+        ");
+        
+        $result = $stmt->execute([$rejectedByUserId, $rejectionReason, $approvalId]);
+        
+        if ($result) {
+            logAudit($rejectedByUserId, 'Reject User Creation', 'user_approval_requests', $approvalId);
+        }
+        
+        return $result;
+    } catch (PDOException $e) {
+        return false;
+    }
+}
+
+// Log master key audit
+function logMasterKeyAudit($userId, $action, $details = null) {
+    global $pdo;
+    $ipAddress = $_SERVER['REMOTE_ADDR'] ?? null;
+    $userAgent = $_SERVER['HTTP_USER_AGENT'] ?? null;
+    
+    $stmt = $pdo->prepare("
+        INSERT INTO master_key_audit (user_id, action, details, ip_address, user_agent) 
+        VALUES (?, ?, ?, ?, ?)
+    ");
+    $stmt->execute([$userId, $action, $details, $ipAddress, $userAgent]);
 }
 
 // ============================================================

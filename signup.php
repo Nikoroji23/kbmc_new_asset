@@ -185,7 +185,8 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['signup'])) {
                 <div class="form-grid">
                     <div class="form-group">
                         <label for="password">Password *</label>
-                        <input type="password" name="password" id="password" class="form-control" placeholder="Min 8 characters" required>
+                        <input type="password" name="password" id="password" class="form-control" placeholder="Min 8 characters" required pattern = "^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$" title="Password must be at least 8 characters long and include uppercase letters, lowercase letters, and numbers">
+                        
                         <small style="color: #999;">Min 8 characters, include uppercase, lowercase, and numbers</small>
                     </div>
                     <div class="form-group">
@@ -199,13 +200,16 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['signup'])) {
                         <label for="department">Department *</label>
                         <select name="department" id="department" class="form-control" required>
                             <option value="">-- Select Department --</option>
+                            <option value="IT">IT</option>
                             <option value="Sales">Sales</option>
                             <option value="Marketing">Marketing</option>
                             <option value="Logistics">Logistics</option>
                             <option value="HR">Human Resources</option>
                             <option value="Finance">Finance</option>
-                            <option value="Operations">Operations</option>
-                            <option value="Other">Other</option>
+                            <option value="Supply Chain">Supply Chain</option>
+                            <option value="QC/Technical">QC/Technical</option>
+                            <option value="Warehouse">Warehouse</option>
+                            <option value="Administration">Administration</option>
                         </select>
                     </div>
                     <div class="form-group">

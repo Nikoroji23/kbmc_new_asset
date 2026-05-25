@@ -43,9 +43,10 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                 // Success - reset failed logins
                 resetFailedLogins($user['id']);
 
+                // Set session variables - ensure role is valid
                 $_SESSION['user_id'] = $user['id'];
                 $_SESSION['email'] = $user['email'];
-                $_SESSION['role'] = $user['role'];
+                $_SESSION['role'] = isValidRole($user['role']) ? $user['role'] : 'employee'; // Fallback to employee if invalid
                 $_SESSION['full_name'] = $user['full_name'];
 
                 // Remember Me
@@ -54,7 +55,13 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                 }
 
                 logAudit($user['id'], 'Login', 'users', $user['id']);
-                header('Location: dashboard.php');
+                if ($user['role'] === 'admin') {
+                    header('Location: admin_dashboard.php');
+                } elseif ($user['role'] === 'it_staff') {
+                    header('Location: it_dashboard.php');
+                } else {
+                    header('Location: dashboard.php');
+                }
                 exit();
             } else {
                 // Failed login

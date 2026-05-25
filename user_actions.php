@@ -42,7 +42,7 @@ function handleAddUser() {
     $full_name = trim($_POST['full_name'] ?? '');
     $email = trim($_POST['email'] ?? '');
     $password = $_POST['password'] ?? '';
-    $role = $_POST['role'] ?? 'employee';
+    $role = trim($_POST['role'] ?? 'employee');
     $department = trim($_POST['department'] ?? '');
     $position = trim($_POST['position'] ?? '');
     $phone = trim($_POST['phone_full'] ?? '');
@@ -57,6 +57,13 @@ function handleAddUser() {
         redirect('users.php');
     }
 
+    // Validate role - must be one of the allowed values
+    $allowed_roles = ['admin', 'it_staff', 'employee'];
+    if (!in_array($role, $allowed_roles)) {
+        setFlashMessage('error', 'Invalid role selected.');
+        redirect('users.php');
+    }
+
     $stmt = $pdo->prepare("SELECT COUNT(*) FROM users WHERE email = ?");
     $stmt->execute([$email]);
     if ($stmt->fetchColumn() > 0) {
@@ -65,18 +72,53 @@ function handleAddUser() {
     }
 
     try {
-        $stmt = $pdo->prepare("INSERT INTO users (employee_id, full_name, email, password, role, department, position, phone, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active')");
-        $stmt->execute([
-            $employee_id,
-            $full_name,
-            $email,
-            password_hash($password, PASSWORD_BCRYPT),
-            $role,
-            $department,
-            $position,
-            $phone,
-        ]);
-        setFlashMessage('success', 'User created successfully.');
+        // If role is IT Staff or Admin, create approval request
+        if ($role === 'it_staff' || $role === 'admin') {
+            $passwordHash = password_hash($password, PASSWORD_BCRYPT);
+            $reason = trim($_POST['request_reason'] ?? 'User creation request');
+            
+            $success = createUserApprovalRequest(
+                $_SESSION['user_id'],
+                $full_name,
+                $email,
+                $role,
+                $employee_id,
+                $department,
+                $position,
+                $phone,
+                $passwordHash,
+                $reason
+            );
+            
+            if ($success) {
+                $roleDisplay = $role === 'admin' ? 'Administrator' : 'IT Staff';
+                setFlashMessage('success', "User creation request submitted for $roleDisplay approval. Security admin approval required.");
+                logAudit($_SESSION['user_id'], 'Submit User Approval Request', 'user_approval_requests', null, null, "role=$role, user=$email");
+            } else {
+                setFlashMessage('error', 'Failed to submit approval request.');
+            }
+        } else {
+            // Direct creation for regular employees
+            $stmt = $pdo->prepare("INSERT INTO users (employee_id, full_name, email, password, role, department, position, phone, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active')");
+            $result = $stmt->execute([
+                $employee_id,
+                $full_name,
+                $email,
+                password_hash($password, PASSWORD_BCRYPT),
+                $role,
+                $department,
+                $position,
+                $phone,
+            ]);
+
+            if ($result) {
+                $newUserId = $pdo->lastInsertId();
+                logAudit($_SESSION['user_id'], 'Create User', 'users', $newUserId, null, "role=employee");
+                setFlashMessage('success', "Employee user '$full_name' created successfully.");
+            } else {
+                setFlashMessage('error', 'Failed to create user.');
+            }
+        }
     } catch (PDOException $e) {
         setFlashMessage('error', 'Error adding user: ' . $e->getMessage());
     }

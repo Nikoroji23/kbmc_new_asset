@@ -46,10 +46,22 @@ $pageTitle = $pageTitle ?? 'KBMC Asset Management';
         </div>
 
         <nav class="sidebar-nav">
+            <?php if (hasRole('admin')): ?>
+            <a href="admin_dashboard.php" class="nav-item <?php echo basename($_SERVER['PHP_SELF']) == 'admin_dashboard.php' ? 'active' : ''; ?>">
+                <i class="fas fa-crown"></i>
+                <span>Admin Dashboard</span>
+            </a>
+            <?php elseif (hasRole('it_staff')): ?>
+            <a href="it_dashboard.php" class="nav-item <?php echo basename($_SERVER['PHP_SELF']) == 'it_dashboard.php' ? 'active' : ''; ?>">
+                <i class="fas fa-cogs"></i>
+                <span>IT Dashboard</span>
+            </a>
+            <?php else: ?>
             <a href="dashboard.php" class="nav-item <?php echo basename($_SERVER['PHP_SELF']) == 'dashboard.php' ? 'active' : ''; ?>">
                 <i class="fas fa-home"></i>
                 <span>Dashboard</span>
             </a>
+            <?php endif; ?>
 
             <?php if (hasRole('admin') || hasRole('it_staff')): ?>
             <div class="nav-section">Device Management</div>

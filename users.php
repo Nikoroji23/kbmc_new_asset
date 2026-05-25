@@ -277,6 +277,23 @@ $recoveryRequests = getPendingRecoveryRequests();
                         <input type="hidden" name="phone_full" id="phoneFullInput">
                     </div>
                 </div>
+                
+                <!-- Approval Notice for IT/Admin Roles -->
+                <div id="approvalNotice" style="display: none; margin-top: 15px; padding: 12px 15px; background: #FFF3CD; border: 1px solid #FFC107; border-radius: 6px; border-left: 4px solid #FFC107;">
+                    <strong style="color: #856404;">⚠️ Approval Required</strong>
+                    <p style="margin: 5px 0 0 0; font-size: 12px; color: #856404;">
+                        Creating IT Staff or Administrator accounts requires approval from the Security Admin. 
+                        A request will be submitted for review.
+                    </p>
+                </div>
+                
+                <!-- Request Reason Field -->
+                <div id="reasonField" style="display: none; margin-top: 15px;">
+                    <div class="form-group">
+                        <label>Request Reason / Justification <span class="required">*</span></label>
+                        <textarea name="request_reason" class="form-control" rows="3" placeholder="Explain why this IT/Admin user needs to be created..."></textarea>
+                    </div>
+                </div>
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-light" data-dismiss="modal">Cancel</button>
@@ -332,6 +349,33 @@ window.addEventListener('DOMContentLoaded', function() {
         if (recoveryBtn) {
             switchTab('recovery-tab', recoveryBtn);
         }
+    }
+});
+
+// Handle role selection change
+function handleRoleChange(roleSelect) {
+    const selectedRole = roleSelect.value;
+    const approvalNotice = document.getElementById('approvalNotice');
+    const reasonField = document.getElementById('reasonField');
+    
+    if (selectedRole === 'it_staff' || selectedRole === 'admin') {
+        approvalNotice.style.display = 'block';
+        reasonField.style.display = 'block';
+        reasonField.querySelector('textarea').setAttribute('required', 'required');
+    } else {
+        approvalNotice.style.display = 'none';
+        reasonField.style.display = 'none';
+        reasonField.querySelector('textarea').removeAttribute('required');
+    }
+}
+
+// Add role change listener
+document.addEventListener('DOMContentLoaded', function() {
+    const roleSelect = document.querySelector('select[name="role"]');
+    if (roleSelect) {
+        roleSelect.addEventListener('change', function() {
+            handleRoleChange(this);
+        });
     }
 });
 

@@ -14,8 +14,15 @@ $retired = getDeviceCountByStatus('retired') + getDeviceCountByStatus('disposed'
 $activeAssignments = getActiveAssignmentCount();
 $isAdmin = hasRole('admin');
 $isITStaff = hasRole('it_staff');
-$pendingRepairCount = count(getPendingRepairs());
-$pendingInspectionCount = $pdo->query("SELECT COUNT(*) FROM devices WHERE status = 'pending_inspection'")->fetchColumn();
+$isEmployee = hasRole('employee');
+
+// Get role display name
+$currentRole = $_SESSION['role'] ?? 'unknown';
+$roleDisplay = [
+    'admin' => 'Administrator',
+    'it_staff' => 'IT Staff',
+    'employee' => 'Employee'
+][$currentRole] ?? 'Unknown';
 
 // Recent devices
 $stmt = $pdo->query("SELECT d.*, dt.type_name FROM devices d JOIN device_types dt ON d.device_type_id = dt.id ORDER BY d.created_at DESC LIMIT 5");
@@ -25,30 +32,19 @@ $recentDevices = $stmt->fetchAll();
 $stmt = $pdo->query("SELECT da.*, d.asset_tag, d.model, u.full_name as employee_name FROM device_assignments da JOIN devices d ON da.device_id = d.id JOIN users u ON da.employee_id = u.id ORDER BY da.created_at DESC LIMIT 5");
 $recentAssignments = $stmt->fetchAll();
 
-// Status distribution for chart
-$stmt = $pdo->query("SELECT status, COUNT(*) as count FROM devices GROUP BY status");
-$statusData = $stmt->fetchAll();
-
-// Device type distribution
-$stmt = $pdo->query("SELECT dt.type_name, COUNT(d.id) as count FROM device_types dt LEFT JOIN devices d ON dt.id = d.device_type_id GROUP BY dt.id");
-$typeData = $stmt->fetchAll();
-
-// Recent audit logs
-$stmt = $pdo->query("SELECT al.*, u.full_name FROM audit_logs al LEFT JOIN users u ON al.user_id = u.id ORDER BY al.created_at DESC LIMIT 8");
-$recentLogs = $stmt->fetchAll();
-
 // Pending requests
 $pendingReqCount = $pdo->query("SELECT COUNT(*) FROM device_requests WHERE status = 'pending'")->fetchColumn();
-
-// Pending recovery requests (admin only)
-$pendingRecoveryCount = 0;
-$recentRecoveryRequests = [];
-if (hasRole('admin')) {
-    $pendingRecoveryCount = $pdo->query("SELECT COUNT(*) FROM account_recovery_requests WHERE status = 'pending'")->fetchColumn();
-    $stmt = $pdo->query("SELECT ar.*, u.full_name, u.email, u.department FROM account_recovery_requests ar JOIN users u ON ar.user_id = u.id WHERE ar.status = 'pending' ORDER BY ar.requested_at DESC LIMIT 5");
-    $recentRecoveryRequests = $stmt->fetchAll();
-}
 ?>
+
+<!-- Role Verification Banner -->
+<div style="margin-bottom: 20px; padding: 12px 16px; background: <?php echo $isAdmin ? '#FDE8E9' : ($isITStaff ? '#EBF5FB' : '#F0F3F7'); ?>; border-left: 4px solid <?php echo $isAdmin ? '#D9232E' : ($isITStaff ? '#3498DB' : '#95A5A6'); ?>; border-radius: 6px; font-size: 13px;">
+    <strong>Logged in as:</strong> <?php echo sanitize($roleDisplay); ?> 
+    <?php if ($isAdmin): ?>
+    <span style="margin-left: 10px; background: #D9232E; color: white; padding: 2px 8px; border-radius: 3px; font-size: 11px; font-weight: 700;">ADMIN DASHBOARD</span>
+    <?php elseif ($isITStaff): ?>
+    <span style="margin-left: 10px; background: #3498DB; color: white; padding: 2px 8px; border-radius: 3px; font-size: 11px; font-weight: 700;">IT STAFF DASHBOARD</span>
+    <?php endif; ?>
+</div>
 
 <!-- Stats Grid -->
 <div class="stats-grid">
@@ -97,65 +93,94 @@ if (hasRole('admin')) {
     </div>
 </div>
 
-<?php if ($isITStaff || $isAdmin): ?>
-<div class="card" style="margin-top: 20px;">
-    <div class="card-header">
-        <h3><i class="fas fa-user-check"></i> IT Support Overview</h3>
-    </div>
-    <div class="card-body">
-        <div style="display:flex;flex-wrap:wrap;gap:16px;">
-            <a href="deployments.php" class="support-box" style="flex:1;min-width:220px;background:#f4f8ff;border:1px solid #d0e4ff;border-radius:12px;padding:18px;text-decoration:none;color:#1d3557;">
-                <div style="font-size:24px;font-weight:700;"><?php echo $activeAssignments; ?></div>
-                <div style="margin-top:8px;font-size:13px;font-weight:600;">Assigned Assets</div>
-                <div style="margin-top:6px;color:#627d98;">View active device assignments and employee asset history.</div>
-            </a>
-            <a href="repairs.php" class="support-box" style="flex:1;min-width:220px;background:#fff4e6;border:1px solid #ffe1c6;border-radius:12px;padding:18px;text-decoration:none;color:#7a4a00;">
-                <div style="font-size:24px;font-weight:700;"><?php echo $pendingRepairCount; ?></div>
-                <div style="margin-top:8px;font-size:13px;font-weight:600;">Pending Repairs</div>
-                <div style="margin-top:6px;color:#7a4a00;">Review alerts for devices currently pending repair or under repair.</div>
-            </a>
-            <a href="inspections.php" class="support-box" style="flex:1;min-width:220px;background:#f9f5ff;border:1px solid #e3dbff;border-radius:12px;padding:18px;text-decoration:none;color:#4a2c8f;">
-                <div style="font-size:24px;font-weight:700;"><?php echo $pendingInspectionCount; ?></div>
-                <div style="margin-top:8px;font-size:13px;font-weight:600;">Pending Inspections</div>
-                <div style="margin-top:6px;color:#5c4e99;">See devices awaiting inspection before they enter inventory.</div>
-            </a>
-            <a href="users.php" class="support-box" style="flex:1;min-width:220px;background:#e9f9f2;border:1px solid #c9efd7;border-radius:12px;padding:18px;text-decoration:none;color:#1d6f52;">
-                <div style="font-size:24px;font-weight:700;">User Lookup</div>
-                <div style="margin-top:8px;font-size:13px;font-weight:600;">Search user accounts</div>
-                <div style="margin-top:6px;color:#216e55;">Inspect employee records, view assigned assets, and troubleshoot issues.</div>
-            </a>
-        </div>
-    </div>
-</div>
-<?php endif; ?>
-
-
-
-<!-- Charts Row -->
+<!-- Recent Devices & Deployments -->
 <div class="grid-2">
     <div class="card">
         <div class="card-header">
-            <h3><i class="fas fa-chart-pie"></i> Device Status Distribution</h3>
+            <h3><i class="fas fa-clock"></i> Recent Devices Added</h3>
+            <a href="devices.php" class="btn btn-sm btn-outline">View All</a>
         </div>
         <div class="card-body">
-            <div class="chart-container">
-                <canvas id="statusChart"></canvas>
+            <?php if (empty($recentDevices)): ?>
+            <div class="empty-state">
+                <i class="fas fa-laptop"></i>
+                <h4>No devices yet</h4>
+                <p>Devices added will appear here.</p>
             </div>
+            <?php else: ?>
+            <div class="data-table-wrapper">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Asset Tag</th>
+                            <th>Type</th>
+                            <th>Model</th>
+                            <th>Status</th>
+                            <th>Date</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php foreach ($recentDevices as $dev): ?>
+                        <tr>
+                            <td><strong><?php echo sanitize($dev['asset_tag']); ?></strong></td>
+                            <td><?php echo sanitize($dev['type_name']); ?></td>
+                            <td><?php echo sanitize($dev['brand'] . ' ' . $dev['model']); ?></td>
+                            <td><?php echo getStatusBadge($dev['status']); ?></td>
+                            <td><?php echo formatDate($dev['created_at']); ?></td>
+                        </tr>
+                        <?php endforeach; ?>
+                    </tbody>
+                </table>
+            </div>
+            <?php endif; ?>
         </div>
     </div>
+
     <div class="card">
         <div class="card-header">
-            <h3><i class="fas fa-chart-bar"></i> Devices by Type</h3>
+            <h3><i class="fas fa-hand-holding"></i> Recent Deployments</h3>
+            <a href="deployments.php" class="btn btn-sm btn-outline">View All</a>
         </div>
         <div class="card-body">
-            <div class="chart-container">
-                <canvas id="typeChart"></canvas>
+            <?php if (empty($recentAssignments)): ?>
+            <div class="empty-state">
+                <i class="fas fa-hand-holding"></i>
+                <h4>No deployments yet</h4>
+                <p>Device assignments will appear here.</p>
             </div>
+            <?php else: ?>
+            <div class="data-table-wrapper">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Device</th>
+                            <th>Employee</th>
+                            <th>Date</th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php foreach ($recentAssignments as $asgn): ?>
+                        <tr>
+                            <td><strong><?php echo sanitize($asgn['asset_tag']); ?></strong><br><small><?php echo sanitize($asgn['model']); ?></small></td>
+                            <td><?php echo sanitize($asgn['employee_name']); ?></td>
+                            <td><?php echo formatDate($asgn['assigned_date']); ?></td>
+                            <td>
+                                <span class="status-badge" style="background: <?php echo $asgn['status'] == 'active' ? '#27AE6020' : '#F39C1220'; ?>; color: <?php echo $asgn['status'] == 'active' ? '#27AE60' : '#F39C12'; ?>; border: 1px solid <?php echo $asgn['status'] == 'active' ? '#27AE60' : '#F39C12'; ?>;">
+                                    <?php echo ucfirst($asgn['status']); ?>
+                                </span>
+                            </td>
+                        </tr>
+                        <?php endforeach; ?>
+                    </tbody>
+                </table>
+            </div>
+            <?php endif; ?>
         </div>
     </div>
 </div>
 
-<!-- Recent Activity & Devices -->
+<!-- Quick Actions -->
 <div class="grid-2">
     <div class="card">
         <div class="card-header">
