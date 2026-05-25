@@ -574,15 +574,17 @@ body {
     color: #2c3e50;
     font-weight: 600;
     text-align: left;
-    padding: 13px 16px;
+    padding: 16px 14px;
     border-bottom: 2px solid #e0e0e0;
-    white-space: nowrap;
+    min-width: 100px;
 }
 
 .data-table tbody td {
-    padding: 13px 16px;
+    padding: 16px 14px;
     border-bottom: 1px solid #f0f0f0;
     vertical-align: middle;
+    line-height: 1.6;
+    word-break: break-word;
 }
 
 .data-table tbody tr:hover { background: #fafafa; }
