@@ -56,14 +56,9 @@ $pageTitle = $pageTitle ?? 'KBMC Asset Management';
                 <i class="fas fa-cogs"></i>
                 <span>IT Dashboard</span>
             </a>
-            <?php else: ?>
-            <a href="dashboard.php" class="nav-item <?php echo basename($_SERVER['PHP_SELF']) == 'dashboard.php' ? 'active' : ''; ?>">
-                <i class="fas fa-home"></i>
-                <span>Dashboard</span>
-            </a>
             <?php endif; ?>
 
-            <?php if (hasRole('admin') || hasRole('it_staff')): ?>
+            <?php if (hasRole('it_staff')): ?>
             <div class="nav-section">Device Management</div>
             <a href="devices.php" class="nav-item <?php echo basename($_SERVER['PHP_SELF']) == 'devices.php' ? 'active' : ''; ?>">
                 <i class="fas fa-laptop"></i>
@@ -91,28 +86,32 @@ $pageTitle = $pageTitle ?? 'KBMC Asset Management';
             </a>
             <?php endif; ?>
 
+            <?php if (!hasRole('admin')): ?>
             <a href="requests.php" class="nav-item <?php echo basename($_SERVER['PHP_SELF']) == 'requests.php' ? 'active' : ''; ?>">
                 <i class="fas fa-hand-paper"></i>
                 <span>Device Requests</span>
                 <?php
                 $pendingRequests = $pdo->query("SELECT COUNT(*) FROM device_requests WHERE status = 'pending'")->fetchColumn();
-                if ($pendingRequests > 0 && (hasRole('admin') || hasRole('it_staff'))):
+                if ($pendingRequests > 0 && !hasRole('admin')):
                 ?>
                 <span class="nav-badge"><?php echo $pendingRequests; ?></span>
                 <?php endif; ?>
             </a>
+            <?php endif; ?>
 
             <div class="nav-section">Tools & Search</div>
+            <?php if (!hasRole('employee')): ?>
             <a href="device_search.php" class="nav-item <?php echo basename($_SERVER['PHP_SELF']) == 'device_search.php' ? 'active' : ''; ?>">
                 <i class="fas fa-search"></i>
                 <span>Search Devices</span>
             </a>
+            <?php endif; ?>
             <a href="user_asset_dashboard.php" class="nav-item <?php echo basename($_SERVER['PHP_SELF']) == 'user_asset_dashboard.php' ? 'active' : ''; ?>">
                 <i class="fas fa-laptop-house"></i>
                 <span>My Devices</span>
             </a>
 
-            <?php if (hasRole('admin') || hasRole('it_staff')): ?>
+            <?php if (hasRole('it_staff')): ?>
             <a href="maintenance_reminders.php" class="nav-item <?php echo basename($_SERVER['PHP_SELF']) == 'maintenance_reminders.php' ? 'active' : ''; ?>">
                 <i class="fas fa-calendar-check"></i>
                 <span>Maintenance</span>
@@ -138,10 +137,6 @@ $pageTitle = $pageTitle ?? 'KBMC Asset Management';
             <a href="users.php" class="nav-item <?php echo basename($_SERVER['PHP_SELF']) == 'users.php' ? 'active' : ''; ?>">
                 <i class="fas fa-users-cog"></i>
                 <span>Manage Users</span>
-            </a>
-            <a href="audit_logs.php" class="nav-item <?php echo basename($_SERVER['PHP_SELF']) == 'audit_logs.php' ? 'active' : ''; ?>">
-                <i class="fas fa-history"></i>
-                <span>Audit Logs</span>
             </a>
             <a href="users.php#recovery" class="nav-item">
                 <i class="fas fa-user-shield"></i>

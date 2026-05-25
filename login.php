@@ -5,21 +5,33 @@
  */
 require_once 'includes/functions.php';
 
+$error = '';
+
 // Check Remember Me cookie first
 if (checkRememberMe()) {
     logAudit($_SESSION['user_id'], 'Login (Remember Me)', 'users', $_SESSION['user_id']);
-    header('Location: dashboard.php');
+    if ($_SESSION['role'] === 'admin') {
+        header('Location: admin_dashboard.php');
+    } elseif ($_SESSION['role'] === 'it_staff') {
+        header('Location: it_dashboard.php');
+    } else {
+        header('Location: requests.php');
+    }
     exit();
 }
 
 if (isLoggedIn()) {
-    header('Location: dashboard.php');
+    if ($_SESSION['role'] === 'admin') {
+        header('Location: admin_dashboard.php');
+    } elseif ($_SESSION['role'] === 'it_staff') {
+        header('Location: it_dashboard.php');
+    } else {
+        header('Location: requests.php');
+    }
     exit();
 }
 
-$error = '';
-
-if ($_SERVER['REQUEST_METHOD'] == 'POST') {
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $email = trim($_POST['email'] ?? '');
     $password = $_POST['password'] ?? '';
     $remember = isset($_POST['remember']);
@@ -60,7 +72,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                 } elseif ($user['role'] === 'it_staff') {
                     header('Location: it_dashboard.php');
                 } else {
-                    header('Location: dashboard.php');
+                    header('Location: requests.php');
                 }
                 exit();
             } else {

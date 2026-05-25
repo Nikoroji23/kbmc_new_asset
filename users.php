@@ -4,9 +4,10 @@
  * Includes: User Management + Recovery Requests tabs
  */
 $pageTitle = 'Manage Users';
-require_once 'includes/header.php';
+require_once 'includes/functions.php';
 requireITStaff();
 $canManageUsers = hasRole('admin');
+$canRequestUsers = $canManageUsers || hasRole('it_staff');
 
 if (isset($_GET['view_user']) && isAjaxRequest()) {
     $uid = (int) $_GET['view_user'];
@@ -24,6 +25,8 @@ if (isset($_GET['view_user']) && isAjaxRequest()) {
     exit();
 }
 
+require_once 'includes/header.php';
+
 // Get all users and pending recovery requests
 $users = $pdo->query("SELECT id, employee_id, full_name, email, role, department, position, phone, status, created_at FROM users ORDER BY created_at DESC")->fetchAll();
 $recoveryRequests = getPendingRecoveryRequests();
@@ -31,16 +34,16 @@ $recoveryRequests = getPendingRecoveryRequests();
 
 <div class="page-header">
     <h1><i class="fas fa-users-cog"></i> Manage Users</h1>
-    <?php if ($canManageUsers): ?>
+    <?php if ($canRequestUsers): ?>
     <button class="btn btn-primary" data-modal="addUserModal"><i class="fas fa-plus"></i> Add User</button>
     <?php else: ?>
-    <span style="display:inline-flex;align-items:center;margin-left:20px;background:#3498db;color:#ffffff;padding:8px 12px;border-radius:999px;font-size:14px;font-weight:600;">IT Staff View Only</span>
+    <span style="display:inline-flex;align-items:center;margin-left:20px;background:#3498db;color:#ffffff;padding:8px 12px;border-radius:999px;font-size:14px;font-weight:600;">View Only</span>
     <?php endif; ?>
 </div>
 
 <?php if (!$canManageUsers): ?>
 <div style="margin-bottom:18px;padding:14px 18px;background:#ecf6ff;border:1px solid #b3d8ff;border-radius:8px;color:#225b9d;">
-    <strong>IT Staff</strong> can inspect employee accounts and assigned assets. Administrative actions such as add, activate/deactivate, delete, and recovery approval are reserved for admin only.
+    <strong>IT Staff</strong> can request IT/Admin user creation and inspect employee accounts. Administrative actions such as activate/deactivate, delete, and recovery approval remain reserved for admin only.
 </div>
 <?php endif; ?>
 
@@ -97,7 +100,7 @@ $recoveryRequests = getPendingRecoveryRequests();
                             <td style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;">
                                 <button class="action-btn view view-user-btn"
                                         data-id="<?php echo $u['id']; ?>"
-                                        title="View User & Assets">
+                                        title="View Details">
                                     <i class="fas fa-eye"></i>
                                 </button>
                                 <?php if (!$canManageUsers): ?>

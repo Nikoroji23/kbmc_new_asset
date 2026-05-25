@@ -4,7 +4,7 @@
  */
 $pageTitle = 'Add New Device';
 require_once 'includes/header.php';
-requireITStaff();
+requireITStaffOnly();
 
 $types = $pdo->query("SELECT * FROM device_types ORDER BY type_name")->fetchAll();
 
@@ -229,7 +229,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     });
 
     input.addEventListener('input', function () {
-        var pos  = this.selectionStart;
+        var pos  = this.selectionStart; 
         this.value = this.value.toUpperCase().replace(/[^A-Z0-9\-_]/g, '');
         this.setSelectionRange(pos, pos);
     });

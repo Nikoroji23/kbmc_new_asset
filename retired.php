@@ -4,7 +4,7 @@
  */
 $pageTitle = 'Retired / Disposed Devices';
 require_once 'includes/header.php';
-requireITStaff();
+requireITStaffOnly();
 
 $stmt = $pdo->query("SELECT d.*, dt.type_name FROM devices d JOIN device_types dt ON d.device_type_id = dt.id WHERE d.status IN ('retired', 'disposed') ORDER BY d.updated_at DESC");
 $devices = $stmt->fetchAll();

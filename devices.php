@@ -4,7 +4,7 @@
  */
 $pageTitle = 'All Devices';
 require_once 'includes/header.php';
-requireITStaff();
+requireITStaffOnly();
 
 $status = $_GET['status'] ?? '';
 $type = $_GET['type'] ?? '';

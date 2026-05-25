@@ -2,16 +2,22 @@
 /**
  * KBMC Asset Management - Security Control Center
  * Master key verification and IT/Admin user approval system
- * Only accessible by Security Admins
+ * Accessible by security admins, including IT staff granted security approval rights.
  */
 $pageTitle = 'Security Control';
 require_once 'includes/header.php';
-requireAdmin();
+requireITStaff();
 
 // Check if user is security admin
 if (!isSecurityAdmin($_SESSION['user_id'])) {
     setFlashMessage('error', 'You do not have security admin privileges.');
-    header('Location: admin_dashboard.php');
+    if (hasRole('admin')) {
+        header('Location: admin_dashboard.php');
+    } elseif (hasRole('it_staff')) {
+        header('Location: it_dashboard.php');
+    } else {
+        header('Location: dashboard.php');
+    }
     exit();
 }
 
@@ -113,7 +119,7 @@ if ($flash):
                 </thead>
                 <tbody>
                     <?php foreach ($approvals as $req): ?>
-                    <tr>
+                    <tr id="request-<?php echo $req['id']; ?>">
                         <td><?php echo sanitize($req['requested_by_name'] ?? 'Admin'); ?></td>
                         <td>
                             <strong><?php echo sanitize($req['full_name']); ?></strong><br>
@@ -134,7 +140,16 @@ if ($flash):
                             <button class="action-btn delete" onclick="rejectRequest(<?php echo $req['id']; ?>)" title="Reject">
                                 <i class="fas fa-times"></i>
                             </button>
-                            <button class="action-btn view" onclick="viewRequestDetails(<?php echo $req['id']; ?>)" title="View Details">
+                            <button class="action-btn view" 
+                                data-requested-by="<?php echo sanitize($req['requested_by_name'] ?? 'Admin'); ?>"
+                                data-full-name="<?php echo sanitize($req['full_name']); ?>"
+                                data-email="<?php echo sanitize($req['email']); ?>"
+                                data-role="<?php echo sanitize($req['requested_role']); ?>"
+                                data-department="<?php echo sanitize($req['department'] ?? 'N/A'); ?>"
+                                data-position="<?php echo sanitize($req['position'] ?? 'N/A'); ?>"
+                                data-reason="<?php echo sanitize($req['reason'] ?? 'No reason provided'); ?>"
+                                data-created-at="<?php echo formatDate($req['created_at'], 'M d, Y h:i A'); ?>"
+                                onclick="viewRequestDetails(this)" title="View Details">
                                 <i class="fas fa-eye"></i>
                             </button>
                         </td>
@@ -237,6 +252,21 @@ if ($flash):
     </div>
 </div>
 
+<div id="requestDetailModal" class="modal-overlay" style="display: none;">
+    <div class="modal-box" style="max-width: 680px;">
+        <div class="modal-header">
+            <h3><i class="fas fa-eye"></i> Request Details</h3>
+            <button class="modal-close" onclick="document.getElementById('requestDetailModal').style.display='none';">&times;</button>
+        </div>
+        <div class="modal-body" id="requestDetailBody">
+            <p style="text-align:center;color:#999;padding:30px;">Loading...</p>
+        </div>
+        <div class="modal-footer">
+            <button type="button" class="btn btn-light" onclick="document.getElementById('requestDetailModal').style.display='none';">Close</button>
+        </div>
+    </div>
+</div>
+
 <script>
 function approveRequest(id) {
     document.getElementById('approveId').value = id;
@@ -248,9 +278,34 @@ function rejectRequest(id) {
     document.getElementById('rejectModal').style.display = 'flex';
 }
 
-function viewRequestDetails(id) {
-    // Load and display full details if needed
-    alert('View details for request: ' + id);
+function viewRequestDetails(button) {
+    var detailModal = document.getElementById('requestDetailModal');
+    var detailBody = document.getElementById('requestDetailBody');
+
+    var requestedBy = button.getAttribute('data-requested-by') || 'Admin';
+    var fullName = button.getAttribute('data-full-name') || 'N/A';
+    var email = button.getAttribute('data-email') || 'N/A';
+    var role = button.getAttribute('data-role') || 'N/A';
+    var department = button.getAttribute('data-department') || 'N/A';
+    var position = button.getAttribute('data-position') || 'N/A';
+    var reason = button.getAttribute('data-reason') || 'No reason provided';
+    var createdAt = button.getAttribute('data-created-at') || 'N/A';
+
+    detailBody.innerHTML =
+        '<div class="form-grid" style="margin-bottom:22px;">'
+            + '<div><strong>Requested By</strong><p>' + requestedBy + '</p></div>'
+            + '<div><strong>Requested User</strong><p>' + fullName + '</p></div>'
+            + '<div><strong>Email</strong><p>' + email + '</p></div>'
+            + '<div><strong>Role</strong><p>' + (role === 'admin' ? 'Administrator' : (role === 'it_staff' ? 'IT Staff' : role)) + '</p></div>'
+            + '<div><strong>Department</strong><p>' + department + '</p></div>'
+            + '<div><strong>Position</strong><p>' + position + '</p></div>'
+            + '<div><strong>Requested At</strong><p>' + createdAt + '</p></div>'
+        + '</div>'
+        + '<hr style="border:none;border-top:1px solid #eee;margin-bottom:18px;">'
+        + '<h4 style="font-size:14px;color:#2c3e50;margin-bottom:12px;"><i class="fas fa-comment-dots"></i> Request Reason</h4>'
+        + '<p style="line-height:1.6;color:#4a4a4a;">' + reason + '</p>';
+
+    detailModal.style.display = 'flex';
 }
 
 // Close modals on escape key
@@ -264,7 +319,7 @@ document.addEventListener('keydown', function(e) {
 
 // Close modals on outside click
 document.addEventListener('click', function(e) {
-    const modals = ['masterKeyModal', 'approveModal', 'rejectModal'];
+    const modals = ['masterKeyModal', 'approveModal', 'rejectModal', 'requestDetailModal'];
     modals.forEach(id => {
         const modal = document.getElementById(id);
         if (e.target === modal) {

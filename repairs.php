@@ -5,7 +5,7 @@
  */
 $pageTitle = 'Device Repairs';
 require_once 'includes/header.php';
-requireITStaff();
+requireITStaffOnly();
 
 // Get pending repairs
 $pendingRepairs = getPendingRepairs();

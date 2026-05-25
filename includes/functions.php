@@ -55,6 +55,14 @@ function requireITStaff() {
     }
 }
 
+function requireITStaffOnly() {
+    requireLogin();
+    if (!hasRole('it_staff')) {
+        header('Location: dashboard.php');
+        exit();
+    }
+}
+
 // Validate a role is one of the allowed values
 function isValidRole($role) {
     $allowed_roles = ['admin', 'it_staff', 'employee'];
@@ -131,6 +139,11 @@ function getNotificationUrl(array $notification) {
         case 'maintenance_assigned':
         case 'maintenance_due':
             return 'maintenance_reminders.php';
+        case 'user_creation_request':
+            return 'security_control.php' . ($relatedId ? '#request-' . $relatedId : '');
+        case 'user_creation_approved':
+        case 'user_creation_rejected':
+            return 'notifications.php';
         default:
             return 'notifications.php';
     }
@@ -266,11 +279,16 @@ function isAjaxRequest() {
 function getAssignedAssets($userId) {
     global $pdo;
     $stmt = $pdo->prepare(
-        "SELECT a.asset_tag, a.name, a.category, a.status, aa.assigned_at
-         FROM asset_assignments aa
-         JOIN assets a ON aa.asset_id = a.id
-         WHERE aa.user_id = ? AND aa.status = 'active'
-         ORDER BY aa.assigned_at DESC"
+        "SELECT d.asset_tag,
+                CONCAT(d.brand, ' ', d.model) AS name,
+                dt.type_name AS category,
+                d.status,
+                da.assigned_date AS assigned_at
+         FROM device_assignments da
+         JOIN devices d ON da.device_id = d.id
+         LEFT JOIN device_types dt ON d.device_type_id = dt.id
+         WHERE da.employee_id = ? AND da.status = 'active'
+         ORDER BY da.assigned_date DESC"
     );
     $stmt->execute([$userId]);
     return $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -357,7 +375,7 @@ function isSecurityAdmin($userId = null) {
     }
     if (!$userId) return false;
     
-    $stmt = $pdo->prepare("SELECT is_security_admin FROM users WHERE id = ? AND role = 'admin'");
+    $stmt = $pdo->prepare("SELECT is_security_admin FROM users WHERE id = ?");
     $stmt->execute([$userId]);
     $result = $stmt->fetch();
     return $result && $result['is_security_admin'] == 1;
@@ -372,7 +390,7 @@ function generateMasterKey($length = 32) {
 function setMasterKey($userId, $masterKey) {
     global $pdo;
     $hashedKey = password_hash($masterKey, PASSWORD_BCRYPT);
-    $stmt = $pdo->prepare("UPDATE users SET master_key_hash = ?, is_security_admin = 1 WHERE id = ? AND role = 'admin'");
+    $stmt = $pdo->prepare("UPDATE users SET master_key_hash = ?, is_security_admin = 1 WHERE id = ?");
     return $stmt->execute([$hashedKey, $userId]);
 }
 
@@ -501,6 +519,14 @@ function approveUserCreation($approvalId, $approvedByUserId, $masterKey = null) 
         ]);
         
         $newUserId = $pdo->lastInsertId();
+
+        addNotification(
+            $newUserId,
+            'user_creation_approved',
+            'Account Approved',
+            'Your IT/Admin account has been approved. You can now log in.',
+            null
+        );
         
         // Update approval request
         $updateStmt = $pdo->prepare("

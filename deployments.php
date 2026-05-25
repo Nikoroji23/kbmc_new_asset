@@ -4,7 +4,7 @@
  */
 $pageTitle = 'Deployments';
 require_once 'includes/header.php';
-requireITStaff();
+requireITStaffOnly();
 
 $action = $_GET['action'] ?? 'list';
 

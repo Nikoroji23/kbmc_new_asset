@@ -4,7 +4,7 @@
  */
 $pageTitle = 'Device Inspections';
 require_once 'includes/header.php';
-requireITStaff();
+requireITStaffOnly();
 
 $deviceId = $_GET['device'] ?? '';
 

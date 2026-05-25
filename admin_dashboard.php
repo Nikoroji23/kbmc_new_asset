@@ -188,6 +188,34 @@ $recoveryRequests = $stmt->fetchAll();
 </div>
 <?php endif; ?>
 
+<!-- Recent Activity Log -->
+<div class="card" style="margin-top: 20px;">
+    <div class="card-header">
+        <h3><i class="fas fa-history"></i> Recent System Activity</h3>
+        <a href="audit_logs.php" class="btn btn-sm btn-outline">View All</a>
+    </div>
+    <div class="card-body">
+        <?php if (empty($recentLogs)): ?>
+        <div class="empty-state">
+            <i class="fas fa-inbox"></i>
+            <h4>No activity yet</h4>
+        </div>
+        <?php else: ?>
+        <?php foreach ($recentLogs as $log): ?>
+        <div class="activity-item">
+            <div class="activity-icon" style="background: var(--kbmc-red-light); color: var(--kbmc-red);">
+                <i class="fas fa-<?php echo strpos($log['action'], 'Create') !== false ? 'plus' : (strpos($log['action'], 'Update') !== false ? 'edit' : (strpos($log['action'], 'Delete') !== false ? 'trash' : 'sign-in-alt')); ?>"></i>
+            </div>
+            <div class="activity-content">
+                <div class="activity-title"><?php echo sanitize($log['action']); ?> - <?php echo sanitize($log['table_name'] ?? 'System'); ?></div>
+                <div class="activity-time">By <?php echo sanitize($log['full_name'] ?? 'System'); ?> on <?php echo formatDate($log['created_at'], 'M d, Y h:i A'); ?></div>
+            </div>
+        </div>
+        <?php endforeach; ?>
+        <?php endif; ?>
+    </div>
+</div>
+
 <!-- Account Recovery Requests -->
 <?php if (!empty($recoveryRequests)): ?>
 <div class="card" style="margin-top: 20px;">
@@ -223,33 +251,5 @@ $recoveryRequests = $stmt->fetchAll();
     </div>
 </div>
 <?php endif; ?>
-
-<!-- Recent Activity Log -->
-<div class="card" style="margin-top: 20px;">
-    <div class="card-header">
-        <h3><i class="fas fa-history"></i> Recent System Activity</h3>
-        <a href="audit_logs.php" class="btn btn-sm btn-outline">View All</a>
-    </div>
-    <div class="card-body">
-        <?php if (empty($recentLogs)): ?>
-        <div class="empty-state">
-            <i class="fas fa-inbox"></i>
-            <h4>No activity yet</h4>
-        </div>
-        <?php else: ?>
-        <?php foreach ($recentLogs as $log): ?>
-        <div class="activity-item">
-            <div class="activity-icon" style="background: var(--kbmc-red-light); color: var(--kbmc-red);">
-                <i class="fas fa-<?php echo strpos($log['action'], 'Create') !== false ? 'plus' : (strpos($log['action'], 'Update') !== false ? 'edit' : (strpos($log['action'], 'Delete') !== false ? 'trash' : 'sign-in-alt')); ?>"></i>
-            </div>
-            <div class="activity-content">
-                <div class="activity-title"><?php echo sanitize($log['action']); ?> - <?php echo sanitize($log['table_name'] ?? 'System'); ?></div>
-                <div class="activity-time">By <?php echo sanitize($log['full_name'] ?? 'System'); ?> on <?php echo formatDate($log['created_at'], 'M d, Y h:i A'); ?></div>
-            </div>
-        </div>
-        <?php endforeach; ?>
-        <?php endif; ?>
-    </div>
-</div>
 
 <?php require_once 'includes/footer.php'; ?>

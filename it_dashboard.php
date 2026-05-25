@@ -6,6 +6,7 @@
 $pageTitle = 'IT Dashboard';
 require_once 'includes/header.php';
 requireITStaff();
+$isSecurityAdmin = isSecurityAdmin($_SESSION['user_id']);
 
 // Get IT-specific statistics
 $totalDevices = getTotalDeviceCount();
@@ -19,7 +20,7 @@ $activeAssignments = getActiveAssignmentCount();
 $pendingReqCount = $pdo->query("SELECT COUNT(*) FROM device_requests WHERE status = 'pending'")->fetchColumn();
 
 // Get recent repairs
-$stmt = $pdo->query("SELECT dr.*, u.full_name, d.asset_tag FROM device_repairs dr JOIN users u ON dr.reported_by = u.id JOIN devices d ON dr.device_id = d.id WHERE dr.status = 'pending' ORDER BY dr.created_at DESC LIMIT 5");
+$stmt = $pdo->query("SELECT dr.*, u.full_name, d.asset_tag FROM device_repairs dr JOIN users u ON dr.reported_by = u.id JOIN devices d ON dr.device_id = d.id WHERE dr.repair_status = 'pending' ORDER BY dr.created_at DESC LIMIT 5");
 $pendingRepairs = $stmt->fetchAll();
 
 // Get recent inspections
@@ -27,7 +28,7 @@ $stmt = $pdo->query("SELECT di.*, d.asset_tag, u.full_name FROM device_inspectio
 $recentInspections = $stmt->fetchAll();
 
 // Get pending device requests
-$stmt = $pdo->query("SELECT dr.*, u.full_name FROM device_requests dr JOIN users u ON dr.requested_by = u.id WHERE dr.status = 'pending' ORDER BY dr.created_at DESC LIMIT 5");
+$stmt = $pdo->query("SELECT dr.*, u.full_name FROM device_requests dr JOIN users u ON dr.requester_id = u.id WHERE dr.status = 'pending' ORDER BY dr.created_at DESC LIMIT 5");
 $pendingRequests = $stmt->fetchAll();
 
 // Get recent deployments
@@ -45,6 +46,11 @@ $recentDeployments = $stmt->fetchAll();
         <div style="text-align: right; font-size: 12px; opacity: 0.9;">
             <div><strong><?php echo date('l, F d, Y'); ?></strong></div>
             <div>User: <?php echo sanitize($_SESSION['full_name']); ?></div>
+            <?php if ($isSecurityAdmin): ?>
+            <div style="margin-top: 5px; background: rgba(255,255,255,0.2); padding: 3px 8px; border-radius: 3px; display: inline-block; font-size: 11px;">
+                <i class="fas fa-key"></i> Security Admin
+            </div>
+            <?php endif; ?>
         </div>
     </div>
 </div>
@@ -116,9 +122,17 @@ $recentDeployments = $stmt->fetchAll();
         <a href="maintenance_reminders.php" class="btn btn-info" style="flex: 1; min-width: 150px;">
             <i class="fas fa-calendar-check"></i> Maintenance
         </a>
+        <a href="it_clearance.php" class="btn btn-danger" style="flex: 1; min-width: 150px;">
+            <i class="fas fa-user-check"></i> User Clearance
+        </a>
         <a href="requests.php" class="btn btn-outline" style="flex: 1; min-width: 150px;">
             <i class="fas fa-tasks"></i> Device Requests
         </a>
+        <?php if ($isSecurityAdmin): ?>
+        <a href="security_control.php" class="btn btn-danger" style="flex: 1; min-width: 150px;">
+            <i class="fas fa-shield-alt"></i> Security Control
+        </a>
+        <?php endif; ?>
     </div>
 </div>
 

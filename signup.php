@@ -36,6 +36,9 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['signup'])) {
         $error = 'Passwords do not match.';
     } elseif (empty($department)) {
         $error = 'Department is required.';
+    } elseif (in_array(strtolower($department), ['it', 'administration', 'admin'], true)
+        || preg_match('/\b(it|admin|administrator|security)\b/i', $position)) {
+        $error = 'IT or Administrator accounts cannot be created through self-registration. Please contact your administrator to request the proper account.';
     } else {
         // Check if employee_id or email already exists
         $checkStmt = $pdo->prepare("SELECT id FROM users WHERE employee_id = ? OR email = ?");
@@ -145,6 +148,9 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['signup'])) {
         <div class="login-right">
             <h3><i class="fas fa-user-plus"></i> Create Employee Account</h3>
             <p>Sign up to access the asset management system.</p>
+            <p style="font-size: 13px; color: #555; margin-bottom: 18px;">
+                Note: This form is for general employee accounts only. IT and Administrator accounts cannot be self-registered.
+            </p>
 
             <?php if ($success): ?>
             <div class="alert alert-success" style="margin-bottom: 20px;">
@@ -200,7 +206,6 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['signup'])) {
                         <label for="department">Department *</label>
                         <select name="department" id="department" class="form-control" required>
                             <option value="">-- Select Department --</option>
-                            <option value="IT">IT</option>
                             <option value="Sales">Sales</option>
                             <option value="Marketing">Marketing</option>
                             <option value="Logistics">Logistics</option>
@@ -209,7 +214,6 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['signup'])) {
                             <option value="Supply Chain">Supply Chain</option>
                             <option value="QC/Technical">QC/Technical</option>
                             <option value="Warehouse">Warehouse</option>
-                            <option value="Administration">Administration</option>
                         </select>
                     </div>
                     <div class="form-group">

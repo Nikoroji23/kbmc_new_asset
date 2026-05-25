@@ -4,7 +4,7 @@
  * Handles user creation, status toggle, deletion, and account recovery actions.
  */
 require_once 'includes/functions.php';
-requireAdmin();
+requireITStaff();
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     redirect('users.php');
@@ -91,9 +91,21 @@ function handleAddUser() {
             );
             
             if ($success) {
+                $approvalRequestId = $pdo->lastInsertId();
                 $roleDisplay = $role === 'admin' ? 'Administrator' : 'IT Staff';
                 setFlashMessage('success', "User creation request submitted for $roleDisplay approval. Security admin approval required.");
                 logAudit($_SESSION['user_id'], 'Submit User Approval Request', 'user_approval_requests', null, null, "role=$role, user=$email");
+
+                $securityAdmins = $pdo->query("SELECT id FROM users WHERE is_security_admin = 1 AND status = 'active'")->fetchAll();
+                foreach ($securityAdmins as $admin) {
+                    addNotification(
+                        $admin['id'],
+                        'user_creation_request',
+                        'New IT/Admin User Request',
+                        "A $roleDisplay account request for $full_name has been submitted. Review pending approvals.",
+                        $approvalRequestId
+                    );
+                }
             } else {
                 setFlashMessage('error', 'Failed to submit approval request.');
             }
@@ -127,6 +139,11 @@ function handleAddUser() {
 }
 
 function handleToggleUser() {
+    if (!hasRole('admin')) {
+        setFlashMessage('error', 'Only administrators can update user status.');
+        redirect('users.php');
+    }
+
     $userId = isset($_POST['id']) ? (int) $_POST['id'] : 0;
     if ($userId <= 0) {
         setFlashMessage('error', 'Invalid user selected.');
@@ -144,6 +161,11 @@ function handleToggleUser() {
 }
 
 function handleDeleteUser() {
+    if (!hasRole('admin')) {
+        setFlashMessage('error', 'Only administrators can delete users.');
+        redirect('users.php');
+    }
+
     $userId = isset($_POST['id']) ? (int) $_POST['id'] : 0;
     if ($userId <= 0) {
         setFlashMessage('error', 'Invalid user selected.');

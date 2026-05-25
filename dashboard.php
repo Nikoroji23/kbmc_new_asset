@@ -5,6 +5,21 @@
 $pageTitle = 'Dashboard';
 require_once 'includes/header.php';
 
+if (hasRole('admin')) {
+    header('Location: admin_dashboard.php');
+    exit();
+}
+
+if (hasRole('it_staff')) {
+    header('Location: it_dashboard.php');
+    exit();
+}
+
+if (hasRole('employee')) {
+    header('Location: requests.php');
+    exit();
+}
+
 // Get statistics
 $totalDevices = getTotalDeviceCount();
 $inStock = getDeviceCountByStatus('in_stock');

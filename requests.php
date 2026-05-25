@@ -58,6 +58,24 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['submit_request'])) {
     }
 }
 
+// Cancel request (requester)
+if (isset($_GET['action']) && $_GET['action'] === 'cancel' && isset($_GET['id'])) {
+    $reqId = (int)$_GET['id'];
+    $stmt = $pdo->prepare("SELECT * FROM device_requests WHERE id = ? AND requester_id = ? AND status = 'pending'");
+    $stmt->execute([$reqId, $_SESSION['user_id']]);
+    $request = $stmt->fetch();
+
+    if ($request) {
+        $pdo->prepare("UPDATE device_requests SET status = 'cancelled', approved_by = ?, approved_date = CURDATE() WHERE id = ?")->execute([$_SESSION['user_id'], $reqId]);
+        setFlashMessage('success', 'Your device request has been cancelled.');
+    } else {
+        setFlashMessage('error', 'Unable to cancel this request. It may already be processed.');
+    }
+
+    header('Location: requests.php');
+    exit();
+}
+
 // Approve/Reject request (admin/it_staff)
 if ((hasRole('admin') || hasRole('it_staff')) && isset($_GET['action']) && isset($_GET['id'])) {
     $reqId = $_GET['id'];
@@ -201,12 +219,18 @@ $requests = $stmt->fetchAll();
                         </td>
                         <td><?php echo formatDate($r['created_at']); ?></td>
                         <td>
+                            <?php if ($r['status'] == 'pending' && $r['requester_id'] == $_SESSION['user_id']): ?>
+                            <div class="action-btns">
+                                <a href="requests.php?action=cancel&id=<?php echo $r['id']; ?>" class="action-btn delete" title="Cancel Request" onclick="return confirm('Cancel this request?')"><i class="fas fa-ban"></i></a>
+                            </div>
+                            <?php endif; ?>
                             <?php if ($r['status'] == 'pending' && (hasRole('admin') || hasRole('it_staff'))): ?>
                             <div class="action-btns">
                                 <a href="requests.php?action=approve&id=<?php echo $r['id']; ?>" class="action-btn assign" title="Approve" onclick="return confirm('Approve this request?')"><i class="fas fa-check"></i></a>
                                 <a href="requests.php?action=reject&id=<?php echo $r['id']; ?>" class="action-btn delete" title="Reject" onclick="return confirm('Reject this request?')"><i class="fas fa-times"></i></a>
                             </div>
-                            <?php else: ?>
+                            <?php endif; ?>
+                            <?php if (!($r['status'] == 'pending' && ($r['requester_id'] == $_SESSION['user_id'] || hasRole('admin') || hasRole('it_staff')))): ?>
                             <span style="color: #999; font-size: 12px;">-</span>
                             <?php endif; ?>
                         </td>
