@@ -312,8 +312,44 @@ function toggleUserStatus($userId) {
 
 function deleteUserById($userId) {
     global $pdo;
-    $stmt = $pdo->prepare("DELETE FROM users WHERE id = ?");
-    return $stmt->execute([$userId]);
+    try {
+        $pdo->beginTransaction();
+
+        // Return any active assignments for this user back to stock
+        $stmt = $pdo->prepare("SELECT id, device_id FROM device_assignments WHERE employee_id = ? AND status = 'active'");
+        $stmt->execute([$userId]);
+        $assignments = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        foreach ($assignments as $a) {
+            $pdo->prepare("UPDATE device_assignments SET status = 'returned', returned_date = CURDATE() WHERE id = ?")->execute([$a['id']]);
+            $pdo->prepare("UPDATE devices SET status = 'in_stock', location = 'IT Stock Room' WHERE id = ?")->execute([$a['device_id']]);
+
+            // Notify admins about the automatic return
+            $admins = $pdo->query("SELECT id FROM users WHERE role = 'admin'")->fetchAll(PDO::FETCH_ASSOC);
+            foreach ($admins as $admin) {
+                if (!empty($admin['id'])) {
+                    addNotification($admin['id'], 'device_returned', 'Device Returned', "Device with ID {$a['device_id']} has been returned to stock due to user removal.", $a['device_id']);
+                }
+            }
+
+            // Audit log
+            if (session_status() == PHP_SESSION_NONE) {
+                @session_start();
+            }
+            $currentUserId = $_SESSION['user_id'] ?? null;
+            logAudit($currentUserId, 'AutoReturn', 'device_assignments', $a['id']);
+        }
+
+        // Finally delete the user
+        $stmt = $pdo->prepare("DELETE FROM users WHERE id = ?");
+        $res = $stmt->execute([$userId]);
+
+        $pdo->commit();
+        return $res;
+    } catch (Exception $e) {
+        if ($pdo->inTransaction()) $pdo->rollBack();
+        return false;
+    }
 }
 
 function processRecoveryRequest($recoveryId, $action, $adminId) {
@@ -1010,4 +1046,99 @@ function getCompletedRepairs($limit = 10) {
     ");
     $stmt->execute([$limit]);
     return $stmt->fetchAll();
+}
+
+// ============================================================
+// DEVICE DEPLOYMENT CONSISTENCY FUNCTIONS
+
+/**
+ * Ensure device status matches deployment status
+ * Fixes orphaned 'deployed' devices with no active assignments
+ * @return array Results of consistency check
+ */
+function fixDeploymentStatusConsistency() {
+    global $pdo;
+    $results = [
+        'fixed_deployed' => 0,
+        'fixed_unassigned' => 0,
+        'errors' => []
+    ];
+    
+    try {
+        // Close orphaned active assignments (those with no active user) first
+        $stmt = $pdo->prepare("            
+            UPDATE device_assignments da
+            LEFT JOIN users u ON da.employee_id = u.id AND u.status = 'active'
+            SET da.status = 'returned', da.returned_date = CURDATE(), da.notes = CONCAT(COALESCE(da.notes, ''), ?)
+            WHERE da.status = 'active' AND (da.employee_id IS NULL OR u.id IS NULL)
+        ");
+        $note = '\nAuto-returned by consistency cleanup on ' . date('Y-m-d H:i:s');
+        $stmt->execute([$note]);
+        $results['fixed_orphan_assignments'] = $stmt->rowCount();
+
+        // Find deployed devices with NO valid active assignments and mark as in_stock
+        $stmt = $pdo->prepare("            
+            UPDATE devices d
+            SET d.status = 'in_stock', d.location = 'IT Stock Room'
+            WHERE d.status = 'deployed'
+            AND d.id NOT IN (
+                SELECT DISTINCT da.device_id
+                FROM device_assignments da
+                JOIN users u ON da.employee_id = u.id AND u.status = 'active'
+                WHERE da.status = 'active'
+            )
+        ");
+        $stmt->execute();
+        $results['fixed_deployed'] = $stmt->rowCount();
+        
+        // Find valid active assignments where device is NOT deployed - update device to deployed
+        $stmt = $pdo->prepare("            
+            UPDATE devices d
+            SET d.status = 'deployed'
+            WHERE d.id IN (
+                SELECT DISTINCT da.device_id
+                FROM device_assignments da
+                JOIN users u ON da.employee_id = u.id AND u.status = 'active'
+                WHERE da.status = 'active'
+            )
+            AND d.status != 'deployed'
+        ");
+        $stmt->execute();
+        $results['fixed_unassigned'] = $stmt->rowCount();
+        
+    } catch (PDOException $e) {
+        $results['errors'][] = $e->getMessage();
+    }
+    
+    return $results;
+}
+
+/**
+ * Check if a device has any active deployment assignment
+ * @param int $deviceId Device ID to check
+ * @return bool True if device has active assignment, false otherwise
+ */
+function hasActiveDeployment($deviceId) {
+    global $pdo;
+    $stmt = $pdo->prepare("SELECT COUNT(*) FROM device_assignments WHERE device_id = ? AND status = 'active'");
+    $stmt->execute([$deviceId]);
+    return $stmt->fetchColumn() > 0;
+}
+
+/**
+ * Get the active assignment for a device
+ * @param int $deviceId Device ID
+ * @return array|null Assignment details or null if none
+ */
+function getActiveDeviceAssignment($deviceId) {
+    global $pdo;
+    $stmt = $pdo->prepare("
+        SELECT da.*, u.full_name, u.email, u.department 
+        FROM device_assignments da
+        JOIN users u ON da.employee_id = u.id
+        WHERE da.device_id = ? AND da.status = 'active'
+        LIMIT 1
+    ");
+    $stmt->execute([$deviceId]);
+    return $stmt->fetch();
 }

@@ -2,6 +2,8 @@
 ob_start();
 require_once __DIR__ . '/functions.php';
 requireLogin();
+// Fix any deployment/device status inconsistencies (e.g., orphaned deployed devices)
+fixDeploymentStatusConsistency();
 
 $user = getUserInfo($_SESSION['user_id']);
 $unreadCount = getUnreadNotificationCount($_SESSION['user_id']);
@@ -79,6 +81,12 @@ $pageTitle = $pageTitle ?? 'KBMC Asset Management';
             <a href="repairs.php" class="nav-item <?php echo basename($_SERVER['PHP_SELF']) == 'repairs.php' ? 'active' : ''; ?>">
                 <i class="fas fa-tools"></i>
                 <span>Repairs</span>
+                <?php
+                $pendingRepairs = $pdo->query("SELECT COUNT(*) FROM device_repairs WHERE repair_status IN ('pending', 'under_repair')")->fetchColumn();
+                if ($pendingRepairs > 0):
+                ?>
+                <span class="nav-badge"><?php echo $pendingRepairs; ?></span>
+                <?php endif; ?>
             </a>
             <a href="retired.php" class="nav-item <?php echo basename($_SERVER['PHP_SELF']) == 'retired.php' ? 'active' : ''; ?>">
                 <i class="fas fa-trash-alt"></i>
@@ -116,7 +124,7 @@ $pageTitle = $pageTitle ?? 'KBMC Asset Management';
                 <i class="fas fa-calendar-check"></i>
                 <span>Maintenance</span>
                 <?php
-                $upcomingMaint = $pdo->query("SELECT COUNT(*) FROM maintenance_schedules WHERE next_due_date <= DATE_ADD(NOW(), INTERVAL 7 DAY)")->fetchColumn();
+                $upcomingMaint = $pdo->query("SELECT COUNT(*) FROM maintenance_schedules WHERE next_due_date <= DATE_ADD(NOW(), INTERVAL 7 DAY) AND next_due_date > NOW()")->fetchColumn();
                 if ($upcomingMaint > 0):
                 ?>
                 <span class="nav-badge"><?php echo $upcomingMaint; ?></span>
