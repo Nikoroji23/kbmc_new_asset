@@ -8,6 +8,9 @@ requireITStaffOnly();
 
 $action = $_GET['action'] ?? 'list';
 
+// Ensure deployment status consistency (fix orphaned deployed devices)
+fixDeploymentStatusConsistency();
+
 // Handle device return
 if (isset($_GET['action']) && $_GET['action'] == 'return' && isset($_GET['id'])) {
     $assignmentId = $_GET['id'];
@@ -42,11 +45,19 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['assign_device'])) {
 
     if ($device_id && $employee_id) {
         try {
+            // Verify device exists and is in_stock
+            $deviceCheck = $pdo->query("SELECT id, status FROM devices WHERE id = $device_id")->fetch();
+            if (!$deviceCheck || $deviceCheck['status'] !== 'in_stock') {
+                setFlashMessage('error', 'Device is not available for assignment.');
+                header('Location: deployments.php?action=assign');
+                exit();
+            }
+
             // Create assignment
             $stmt = $pdo->prepare("INSERT INTO device_assignments (device_id, employee_id, assigned_by, assigned_date, purpose, accountability_form_signed, status) VALUES (?, ?, ?, CURDATE(), ?, 1, 'active')");
             $stmt->execute([$device_id, $employee_id, $_SESSION['user_id'], $purpose]);
 
-            // Update device status
+            // Update device status ONLY after successful assignment creation
             $pdo->prepare("UPDATE devices SET status = 'deployed' WHERE id = ?")->execute([$device_id]);
 
             // Get device info
