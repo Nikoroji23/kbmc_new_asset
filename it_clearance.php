@@ -187,6 +187,35 @@ require_once 'includes/header.php';
             </div>
         <?php endif; ?>
 
+        <div class="card" style="margin-top: 22px; border: 1px solid #eee; padding: 18px;">
+            <h4 style="font-size: 15px; margin-bottom: 14px;"><i class="fas fa-file-signature"></i> Clearance Authorization</h4>
+            <div class="form-grid" style="grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px;">
+                <div>
+                    <div style="font-size:11px;color:#888;font-weight:700;text-transform:uppercase;letter-spacing:.5px;">Employee Name</div>
+                    <p style="margin:8px 0 0 0;font-weight:600;"><?php echo sanitize($selectedUser['full_name']); ?></p>
+                </div>
+                <div>
+                    <div style="font-size:11px;color:#888;font-weight:700;text-transform:uppercase;letter-spacing:.5px;">IT Staff</div>
+                    <p style="margin:8px 0 0 0;font-weight:600;"><?php echo sanitize($_SESSION['full_name']); ?></p>
+                </div>
+                <div style="grid-column: span 2;">
+                    <div style="font-size:11px;color:#888;font-weight:700;text-transform:uppercase;letter-spacing:.5px;">Clearance Date</div>
+                    <p style="margin:8px 0 0 0;font-weight:600;"><?php echo date('F j, Y'); ?></p>
+                </div>
+            </div>
+
+            <div style="margin-top: 22px; display:grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 30px;">
+                <div>
+                    <div style="font-size:11px;color:#888;font-weight:700;text-transform:uppercase;letter-spacing:.5px; margin-bottom:10px;">Employee Signature</div>
+                    <div style="height:80px; border-bottom:1px solid #ccc;"></div>
+                </div>
+                <div>
+                    <div style="font-size:11px;color:#888;font-weight:700;text-transform:uppercase;letter-spacing:.5px; margin-bottom:10px;">IT Staff Signature</div>
+                    <div style="height:80px; border-bottom:1px solid #ccc;"></div>
+                </div>
+            </div>
+        </div>
+
         <div style="margin-top: 22px;">
             <form method="POST">
                 <?php echo csrfInputField(); ?>
