@@ -40,6 +40,7 @@ CREATE TABLE devices (
     model VARCHAR(100),
     serial_number VARCHAR(100) UNIQUE NOT NULL,
     ip_address VARCHAR(50),
+    pc_name VARCHAR(100),
     mac_address VARCHAR(50),
     specifications TEXT,
     purchase_date DATE,

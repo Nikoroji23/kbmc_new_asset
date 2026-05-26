@@ -8,6 +8,10 @@ requireITStaffOnly();
 
 $status = $_GET['status'] ?? '';
 $type = $_GET['type'] ?? '';
+$assetTagFilter = $_GET['asset_tag'] ?? '';
+$pcNameFilter = $_GET['pc_name'] ?? '';
+$ipAddressFilter = $_GET['ip_address'] ?? '';
+$assignedToFilter = $_GET['assigned_to'] ?? '';
 $search = $_GET['search'] ?? '';
 
 $sql = "SELECT d.*, dt.type_name, u.full_name as assigned_to, 
@@ -22,7 +26,11 @@ $params = [];
 
 if ($status) { $sql .= " AND d.status = ?"; $params[] = $status; }
 if ($type) { $sql .= " AND d.device_type_id = ?"; $params[] = $type; }
-if ($search) { $sql .= " AND (d.asset_tag LIKE ? OR d.serial_number LIKE ? OR d.model LIKE ? OR d.brand LIKE ? OR d.ip_address LIKE ?)"; 
+if ($assetTagFilter) { $sql .= " AND d.asset_tag LIKE ?"; $params[] = "%$assetTagFilter%"; }
+if ($pcNameFilter) { $sql .= " AND d.pc_name LIKE ?"; $params[] = "%$pcNameFilter%"; }
+if ($ipAddressFilter) { $sql .= " AND d.ip_address LIKE ?"; $params[] = "%$ipAddressFilter%"; }
+if ($assignedToFilter) { $sql .= " AND u.full_name LIKE ?"; $params[] = "%$assignedToFilter%"; }
+if ($search) { $sql .= " AND (d.asset_tag LIKE ? OR d.pc_name LIKE ? OR d.ip_address LIKE ? OR dt.type_name LIKE ? OR u.full_name LIKE ?)"; 
     $s = "%$search%"; $params = array_merge($params, [$s, $s, $s, $s, $s]); }
 
 $sql .= " ORDER BY d.created_at DESC";
@@ -31,6 +39,10 @@ $stmt->execute($params);
 $devices = $stmt->fetchAll();
 
 $types = $pdo->query("SELECT * FROM device_types ORDER BY type_name")->fetchAll();
+$assetTags = $pdo->query("SELECT DISTINCT asset_tag FROM devices ORDER BY asset_tag")->fetchAll(PDO::FETCH_COLUMN);
+$pcNames = $pdo->query("SELECT DISTINCT pc_name FROM devices WHERE pc_name IS NOT NULL AND pc_name <> '' ORDER BY pc_name")->fetchAll(PDO::FETCH_COLUMN);
+$ipAddresses = $pdo->query("SELECT DISTINCT ip_address FROM devices WHERE ip_address IS NOT NULL AND ip_address <> '' ORDER BY ip_address")->fetchAll(PDO::FETCH_COLUMN);
+$assignedUsers = $pdo->query("SELECT DISTINCT u.full_name FROM devices d LEFT JOIN device_assignments da ON d.id = da.device_id AND da.status = 'active' LEFT JOIN users u ON da.employee_id = u.id WHERE u.full_name IS NOT NULL AND u.full_name <> '' ORDER BY u.full_name")->fetchAll(PDO::FETCH_COLUMN);
 ?>
 
 <div class="page-header" style="display: flex; justify-content: space-between; align-items: center;">
@@ -51,13 +63,19 @@ $types = $pdo->query("SELECT * FROM device_types ORDER BY type_name")->fetchAll(
     </div>
 </div>
 
-<!-- Filters -->
+<form method="GET" id="deviceFilterForm">
 <div class="card" style="margin-bottom: 20px;">
     <div class="card-body">
-        <form method="GET" class="filter-row">
-            <input type="text" name="search" placeholder="Search by asset tag, serial, model, IP..." value="<?php echo sanitize($search); ?>" style="flex: 1; min-width: 200px;">
-            <select name="status">
-                <option value="">All Status</option>
+        <div class="filter-row" style="display: flex; flex-wrap: wrap; gap: 10px; align-items: center;">
+            <input type="text" name="search" placeholder="Search asset tag, PC name, IP, type or assigned..." value="<?php echo sanitize($search); ?>" style="flex: 1; min-width: 220px; padding: 10px 12px; border: 1px solid #d6d8db; border-radius: 8px;">
+            <select name="type" class="header-filter-select" style="min-width: 170px;">
+                <option value="">All Types</option>
+                <?php foreach ($types as $t): ?>
+                <option value="<?php echo $t['id']; ?>" <?php echo $type == $t['id'] ? 'selected' : ''; ?>><?php echo sanitize($t['type_name']); ?></option>
+                <?php endforeach; ?>
+            </select>
+            <select name="status" class="header-filter-select" style="min-width: 170px;">
+                <option value="">All Statuses</option>
                 <option value="in_stock" <?php echo $status == 'in_stock' ? 'selected' : ''; ?>>In Stock</option>
                 <option value="deployed" <?php echo $status == 'deployed' ? 'selected' : ''; ?>>Deployed</option>
                 <option value="under_repair" <?php echo $status == 'under_repair' ? 'selected' : ''; ?>>Under Repair</option>
@@ -66,15 +84,15 @@ $types = $pdo->query("SELECT * FROM device_types ORDER BY type_name")->fetchAll(
                 <option value="pending_inspection" <?php echo $status == 'pending_inspection' ? 'selected' : ''; ?>>Pending Inspection</option>
                 <option value="rejected" <?php echo $status == 'rejected' ? 'selected' : ''; ?>>Rejected</option>
             </select>
-            <select name="type">
-                <option value="">All Types</option>
-                <?php foreach ($types as $t): ?>
-                <option value="<?php echo $t['id']; ?>" <?php echo $type == $t['id'] ? 'selected' : ''; ?>><?php echo sanitize($t['type_name']); ?></option>
+            <select name="assigned_to" class="header-filter-select" style="min-width: 180px;">
+                <option value="">All Assignees</option>
+                <?php foreach ($assignedUsers as $assignee): ?>
+                <option value="<?php echo sanitize($assignee); ?>" <?php echo $assignedToFilter == $assignee ? 'selected' : ''; ?>><?php echo sanitize($assignee); ?></option>
                 <?php endforeach; ?>
             </select>
             <button type="submit" class="btn btn-primary btn-sm"><i class="fas fa-search"></i> Filter</button>
             <a href="devices.php" class="btn btn-light btn-sm"><i class="fas fa-undo"></i> Reset</a>
-        </form>
+        </div>
     </div>
 </div>
 
@@ -86,9 +104,8 @@ $types = $pdo->query("SELECT * FROM device_types ORDER BY type_name")->fetchAll(
                 <thead>
                     <tr>
                         <th>Asset Tag</th>
+                        <th>PC Name</th>
                         <th>Type</th>
-                        <th>Brand / Model</th>
-                        <th>Serial Number</th>
                         <th>IP Address</th>
                         <th>Status</th>
                         <th>Assigned To</th>
@@ -98,7 +115,7 @@ $types = $pdo->query("SELECT * FROM device_types ORDER BY type_name")->fetchAll(
                 <tbody>
                     <?php if (empty($devices)): ?>
                     <tr>
-                        <td colspan="8" class="empty-state" style="padding: 40px;">
+                        <td colspan="7" class="empty-state" style="padding: 40px;">
                             <i class="fas fa-search" style="font-size: 40px; color: #ddd;"></i>
                             <h4 style="margin-top: 10px;">No devices found</h4>
                         </td>
@@ -107,9 +124,8 @@ $types = $pdo->query("SELECT * FROM device_types ORDER BY type_name")->fetchAll(
                     <?php foreach ($devices as $dev): ?>
                     <tr>
                         <td><strong><?php echo sanitize($dev['asset_tag']); ?></strong></td>
+                        <td><?php echo sanitize($dev['pc_name'] ?: 'N/A'); ?></td>
                         <td><?php echo sanitize($dev['type_name']); ?></td>
-                        <td><?php echo sanitize($dev['brand'] . ' ' . $dev['model']); ?></td>
-                        <td><?php echo sanitize($dev['serial_number']); ?></td>
                         <td><?php echo sanitize($dev['ip_address'] ?: 'N/A'); ?></td>
                         <td><?php echo getStatusBadge($dev['status']); ?></td>
                         <td>
@@ -140,6 +156,7 @@ $types = $pdo->query("SELECT * FROM device_types ORDER BY type_name")->fetchAll(
         </div>
     </div>
 </div>
+</form>
 
 <script>
 function exportDevicesCSV() {
@@ -153,13 +170,12 @@ function exportDevicesCSV() {
                 cells[2]?.textContent.trim() || '',
                 cells[3]?.textContent.trim() || '',
                 cells[4]?.textContent.trim() || '',
-                cells[5]?.textContent.trim() || '',
-                cells[6]?.textContent.trim() || ''
+                cells[5]?.textContent.trim() || ''
             ]);
         }
     });
     exportToCSV('devices_<?php echo date('Y-m-d'); ?>.csv',
-        ['Asset Tag', 'Type', 'Brand/Model', 'Serial Number', 'IP Address', 'Status', 'Assigned To'],
+        ['Asset Tag', 'PC Name', 'Type', 'IP Address', 'Status', 'Assigned To'],
         rows
     );
 }
@@ -175,17 +191,17 @@ function exportDevicesPDF() {
                 cells[2]?.textContent.trim() || '',
                 cells[3]?.textContent.trim() || '',
                 cells[4]?.textContent.trim() || '',
-                cells[5]?.textContent.trim() || '',
-                cells[6]?.textContent.trim() || ''
+                cells[5]?.textContent.trim() || ''
             ]);
         }
     });
     exportToPDF('Device Inventory Report',
-        ['Asset Tag', 'Type', 'Brand/Model', 'Serial', 'IP', 'Status', 'Assigned'],
+        ['Asset Tag', 'PC Name', 'Type', 'IP', 'Status', 'Assigned'],
         rows,
         'devices_report_<?php echo date('Y-m-d'); ?>.pdf'
     );
 }
+
 </script>
 
 <?php require_once 'includes/footer.php'; ?>

@@ -229,10 +229,10 @@ function generateAssetTag($deviceTypeId) {
     $stmt = $pdo->prepare("SELECT type_name FROM device_types WHERE id = ?");
     $stmt->execute([$deviceTypeId]);
     $type = $stmt->fetch();
-    $prefix = 'KBMC-' . strtoupper(substr($type['type_name'], 0, 3)) . '-';
+    $prefix = 'KBM-IT-';
     $stmt = $pdo->query("SELECT COUNT(*) FROM devices");
     $count = $stmt->fetchColumn() + 1;
-    return $prefix . str_pad($count, 3, '0', STR_PAD_LEFT);
+    return $prefix . str_pad($count, 5, '0', STR_PAD_LEFT);
 }
 
 function sanitize($input) {

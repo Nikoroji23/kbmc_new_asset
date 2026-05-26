@@ -1,10 +1,10 @@
 <?php
 /**
- * KBMC Asset Management - Bulk Import Assets from CSV
- * Imports employees and their assigned assets from Excel CSV file
+ * KBMC Asset Management - Bulk Import Assets from CSV or Excel
+ * Imports employees and their assigned assets from CSV or XLSX files
  */
 
-$pageTitle = 'Import Assets from CSV';
+$pageTitle = 'Import Assets from CSV or Excel';
 require_once 'includes/header.php';
 
 // Only admin and IT staff can access this
@@ -28,46 +28,69 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_FILES['csv_file'])) {
         
         $tmpFile = $file['tmp_name'];
         
-        // Open CSV file
         if (!file_exists($tmpFile)) {
             throw new Exception('Temporary file not found');
         }
         
-        $handle = fopen($tmpFile, 'r');
-        if (!$handle) {
-            throw new Exception('Cannot open CSV file');
+        $fileName = $file['name'] ?? '';
+        $extension = strtolower(pathinfo($fileName, PATHINFO_EXTENSION));
+        $allowedExtensions = ['csv', 'xlsx'];
+        if (!in_array($extension, $allowedExtensions)) {
+            throw new Exception('Unsupported file type. Upload a CSV or XLSX file.');
+        }
+
+        $rows = readImportRows($tmpFile, $extension);
+        if (empty($rows)) {
+            throw new Exception('Uploaded file contains no data.');
+        }
+
+        $header = array_shift($rows);
+        if (!is_array($header) || empty($header)) {
+            throw new Exception('Cannot read spreadsheet header');
         }
         
-        // Read header row
-        $header = fgetcsv($handle);
-        if (!$header) {
-            throw new Exception('Cannot read CSV header');
+        // Normalize headers and build column index map
+        $headerMap = [];
+        foreach ($header as $index => $columnName) {
+            $cleanName = preg_replace('/^\xEF\xBB\xBF/', '', $columnName);
+            $cleanName = strtoupper(trim($cleanName));
+            $cleanName = preg_replace('/\s+/', ' ', $cleanName);
+            if ($cleanName === 'IP ADRESS') {
+                $cleanName = 'IP ADDRESS';
+            }
+            $headerMap[$cleanName] = $index;
         }
-        
-        // Define column mappings
-        $columnMap = [
-            'NAME' => 0,
-            'DEPARTMENT' => 1,
-            'PC NAME' => 2,
-            'IP ADRESS' => 3,
-            'MONITOR 1' => 4,
-            'MONITOR 2' => 5,
-            'MOUSE' => 6,
-            'KEYBOARD' => 7,
-            'SYSTEM UNIT' => 8,
-            'UPS' => 9,
-            'LAPTOP' => 10,
-            'CHARGER' => 11,
-            'MOUSE 1' => 12,
-            'PRINTER 1' => 13,
-            'PRINTER 2' => 14,
-            'STORAGE' => 15,
-            'SWITCH' => 16,
-            'REMARKS' => 17
-        ];
-        
+
+        $requiredHeaders = ['NAME', 'DEPARTMENT', 'PC NAME', 'IP ADDRESS'];
+        foreach ($requiredHeaders as $requiredHeader) {
+            if (!array_key_exists($requiredHeader, $headerMap)) {
+                throw new Exception('Missing required CSV column: ' . $requiredHeader);
+            }
+        }
+
         // Device type mapping
         $deviceTypes = getDeviceTypeMap();
+
+        $assetColumns = [
+            ['name' => 'MONITOR 1', 'type' => 'monitor'],
+            ['name' => 'MONITOR 2', 'type' => 'monitor'],
+            ['name' => 'MOUSE', 'type' => 'mouse'],
+            ['name' => 'KEYBOARD', 'type' => 'keyboard'],
+            ['name' => 'SYSTEM UNIT', 'type' => 'system unit'],
+            ['name' => 'UPS', 'type' => 'ups'],
+            ['name' => 'LAPTOP', 'type' => 'laptop'],
+            ['name' => 'CHARGER', 'type' => 'charger'],
+            ['name' => 'MOUSE 1', 'type' => 'mouse'],
+            ['name' => 'PRINTER 1', 'type' => 'printer'],
+            ['name' => 'PRINTER 2', 'type' => 'printer'],
+            ['name' => 'STORAGE', 'type' => 'storage'],
+            ['name' => 'SWITCH', 'type' => 'switch'],
+        ];
+
+        foreach ($assetColumns as &$asset) {
+            $asset['column_index'] = isset($headerMap[$asset['name']]) ? $headerMap[$asset['name']] : null;
+        }
+        unset($asset);
         
         $usersCreated = 0;
         $devicesCreated = 0;
@@ -78,7 +101,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_FILES['csv_file'])) {
         // Get current admin
         $adminId = $_SESSION['user_id'];
         
-        while (($row = fgetcsv($handle)) !== false) {
+        foreach ($rows as $row) {
             $lineNumber++;
             
             try {
@@ -87,10 +110,10 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_FILES['csv_file'])) {
                     continue;
                 }
                 
-                $name = trim($row[$columnMap['NAME']] ?? '');
-                $department = trim($row[$columnMap['DEPARTMENT']] ?? '');
-                $pcName = trim($row[$columnMap['PC NAME']] ?? '');
-                $ipAddress = trim($row[$columnMap['IP ADRESS']] ?? '');
+                $name = trim($row[$headerMap['NAME']] ?? '');
+                $department = trim($row[$headerMap['DEPARTMENT']] ?? '');
+                $pcName = trim($row[$headerMap['PC NAME']] ?? '');
+                $ipAddress = trim($row[$headerMap['IP ADDRESS']] ?? '');
                 
                 if (empty($name)) {
                     continue;
@@ -122,50 +145,43 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_FILES['csv_file'])) {
                 }
                 
                 // Process devices assigned to this user
-                $assetColumns = [
-                    ['name' => 'MONITOR 1', 'type' => 'monitor', 'column' => 4],
-                    ['name' => 'MONITOR 2', 'type' => 'monitor', 'column' => 5],
-                    ['name' => 'MOUSE', 'type' => 'mouse', 'column' => 6],
-                    ['name' => 'KEYBOARD', 'type' => 'keyboard', 'column' => 7],
-                    ['name' => 'SYSTEM UNIT', 'type' => 'system unit', 'column' => 8],
-                    ['name' => 'UPS', 'type' => 'ups', 'column' => 9],
-                    ['name' => 'LAPTOP', 'type' => 'laptop', 'column' => 10],
-                    ['name' => 'CHARGER', 'type' => 'charger', 'column' => 11],
-                    ['name' => 'MOUSE 1', 'type' => 'mouse', 'column' => 12],
-                    ['name' => 'PRINTER 1', 'type' => 'printer', 'column' => 13],
-                    ['name' => 'PRINTER 2', 'type' => 'printer', 'column' => 14],
-                    ['name' => 'STORAGE', 'type' => 'storage', 'column' => 15],
-                    ['name' => 'SWITCH', 'type' => 'switch', 'column' => 16],
-                ];
-                
                 foreach ($assetColumns as $asset) {
-                    $assetTag = trim($row[$asset['column']] ?? '');
-                    
-                    if (empty($assetTag) || $assetTag === 'N/A' || $assetTag === 'KBM-IT-00') {
+                    if ($asset['column_index'] === null) {
                         continue;
                     }
                     
-                    // Get device type ID
-                    $typeId = $deviceTypes[strtolower($asset['type'])] ?? null;
+                    $assetTagRaw = trim($row[$asset['column_index']] ?? '');
+                    if (empty($assetTagRaw) || strcasecmp($assetTagRaw, 'N/A') === 0 || strcasecmp($assetTagRaw, 'KBM-IT-00') === 0) {
+                        continue;
+                    }
+                    
+                    $typeId = $deviceTypes[$asset['type']] ?? null;
                     if (!$typeId) {
                         continue;
                     }
                     
+                    $assetTag = normalizeImportAssetTag($assetTagRaw, $typeId);
+                    
                     // Check if device exists
-                    $deviceCheck = $pdo->prepare("SELECT id FROM devices WHERE asset_tag = ?");
+                    $deviceCheck = $pdo->prepare("SELECT id, pc_name FROM devices WHERE asset_tag = ?");
                     $deviceCheck->execute([$assetTag]);
                     $existingDevice = $deviceCheck->fetch();
                     
                     if ($existingDevice) {
                         $deviceId = $existingDevice['id'];
+                        if (!empty($pcName) && empty($existingDevice['pc_name'])) {
+                            $updatePcName = $pdo->prepare("UPDATE devices SET pc_name = ? WHERE id = ?");
+                            $updatePcName->execute([$pcName, $deviceId]);
+                        }
                     } else {
                         // Create device
-                        $stmt = $pdo->prepare("INSERT INTO devices (asset_tag, device_type_id, serial_number, ip_address, status, created_by) VALUES (?, ?, ?, ?, ?, ?)");
+                        $stmt = $pdo->prepare("INSERT INTO devices (asset_tag, device_type_id, serial_number, ip_address, pc_name, status, created_by) VALUES (?, ?, ?, ?, ?, ?, ?)");
                         $stmt->execute([
                             $assetTag,
                             $typeId,
                             $assetTag,
                             (!empty($ipAddress) && $asset['name'] === 'SYSTEM UNIT') ? $ipAddress : null,
+                            $pcName ?: null,
                             'deployed',
                             $adminId
                         ]);
@@ -197,8 +213,6 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_FILES['csv_file'])) {
             }
         }
         
-        fclose($handle);
-        
         $importSummary = [
             'users_created' => $usersCreated,
             'devices_created' => $devicesCreated,
@@ -211,6 +225,113 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_FILES['csv_file'])) {
     } catch (Exception $e) {
         setFlashMessage('error', 'Import failed: ' . $e->getMessage());
     }
+}
+
+function readImportRows($filePath, $extension) {
+    if ($extension === 'csv') {
+        return readCsvRows($filePath);
+    }
+    if ($extension === 'xlsx') {
+        return readXlsxRows($filePath);
+    }
+    throw new Exception('Unsupported import file type.');
+}
+
+function readCsvRows($filePath) {
+    ini_set('auto_detect_line_endings', '1');
+    $rows = [];
+    if (($handle = fopen($filePath, 'r')) === false) {
+        throw new Exception('Cannot open CSV file');
+    }
+    while (($row = fgetcsv($handle)) !== false) {
+        $rows[] = $row;
+    }
+    fclose($handle);
+    return $rows;
+}
+
+function readXlsxRows($filePath) {
+    if (!class_exists('ZipArchive')) {
+        throw new Exception('Excel import requires the PHP Zip extension.');
+    }
+
+    $zip = new ZipArchive();
+    if ($zip->open($filePath) !== true) {
+        throw new Exception('Cannot open XLSX file');
+    }
+
+    $sharedStrings = [];
+    if (($xml = $zip->getFromName('xl/sharedStrings.xml')) !== false) {
+        $sharedStrings = parseXlsxSharedStrings($xml);
+    }
+
+    $sheetXml = $zip->getFromName('xl/worksheets/sheet1.xml');
+    if ($sheetXml === false) {
+        $zip->close();
+        throw new Exception('Cannot locate worksheet data in XLSX file');
+    }
+
+    $rows = parseXlsxSheet($sheetXml, $sharedStrings);
+    $zip->close();
+    return $rows;
+}
+
+function parseXlsxSharedStrings($xml) {
+    $dom = new DOMDocument();
+    $dom->loadXML($xml);
+    $strings = [];
+
+    foreach ($dom->getElementsByTagName('si') as $si) {
+        $text = '';
+        foreach ($si->getElementsByTagName('t') as $t) {
+            $text .= $t->nodeValue;
+        }
+        $strings[] = $text;
+    }
+
+    return $strings;
+}
+
+function parseXlsxSheet($xml, $sharedStrings) {
+    $dom = new DOMDocument();
+    $dom->loadXML($xml);
+    $rows = [];
+
+    foreach ($dom->getElementsByTagName('row') as $rowNode) {
+        $row = [];
+
+        foreach ($rowNode->getElementsByTagName('c') as $cell) {
+            $cellRef = $cell->getAttribute('r');
+            $columnIndex = xlsxColumnIndexFromReference($cellRef);
+            $valueNode = $cell->getElementsByTagName('v')->item(0);
+            $value = $valueNode ? $valueNode->nodeValue : '';
+            if ($cell->getAttribute('t') === 's' && $value !== '') {
+                $value = $sharedStrings[intval($value)] ?? $value;
+            }
+            $row[$columnIndex] = $value;
+        }
+
+        if (!empty($row)) {
+            ksort($row);
+            $rows[] = array_values($row);
+        }
+    }
+
+    return $rows;
+}
+
+function xlsxColumnIndexFromReference($reference) {
+    if (!preg_match('/^([A-Z]+)\d+$/', $reference, $matches)) {
+        return 0;
+    }
+
+    $letters = $matches[1];
+    $index = 0;
+    foreach (str_split($letters) as $char) {
+        $index = $index * 26 + (ord($char) - ord('A') + 1);
+    }
+
+    return $index - 1;
 }
 
 function generateEmail($fullName) {
@@ -243,6 +364,18 @@ function generateEmployeeId($fullName) {
     $maxId = $result['max_id'] ?? 0;
     
     return str_pad($maxId + 1, 5, '0', STR_PAD_LEFT);
+}
+
+function isValidAssetTag($value) {
+    return preg_match('/^[A-Z0-9]+(?:-[A-Z0-9]+)*-\d+$/i', trim($value));
+}
+
+function normalizeImportAssetTag($assetTagRaw, $deviceTypeId) {
+    $assetTagRaw = trim($assetTagRaw);
+    if (isValidAssetTag($assetTagRaw)) {
+        return strtoupper($assetTagRaw);
+    }
+    return generateAssetTag($deviceTypeId);
 }
 
 function getDeviceTypeMap() {
@@ -329,9 +462,9 @@ function getDeviceTypeMap() {
     <div class="card-body">
         <form method="POST" enctype="multipart/form-data">
             <div class="form-group">
-                <label for="csv_file"><i class="fas fa-file-csv"></i> Select CSV File</label>
-                <input type="file" id="csv_file" name="csv_file" class="form-control" accept=".csv" required>
-                <small style="color: #7f8c8d;">CSV file should contain columns: NAME, DEPARTMENT, PC NAME, IP ADDRESS, MONITOR 1, MONITOR 2, MOUSE, KEYBOARD, SYSTEM UNIT, UPS, LAPTOP, CHARGER, MOUSE 1, PRINTER 1, PRINTER 2, STORAGE, SWITCH, REMARKS</small>
+                <label for="csv_file"><i class="fas fa-file-csv"></i> Select CSV or Excel File</label>
+                <input type="file" id="csv_file" name="csv_file" class="form-control" accept=".csv,.xlsx" required>
+                <small style="color: #7f8c8d;">Upload a CSV or XLSX file. Header order is flexible and the importer normalizes header names.</small>
             </div>
             <div style="margin-top: 20px;">
                 <button type="submit" class="btn btn-primary"><i class="fas fa-upload"></i> Import Assets</button>
@@ -341,7 +474,7 @@ function getDeviceTypeMap() {
         <div style="margin-top: 30px; padding: 15px; background: #ecf0f1; border-radius: 5px;">
             <h4><i class="fas fa-info-circle"></i> Import Instructions</h4>
             <ul style="font-size: 13px; line-height: 1.8;">
-                <li><strong>CSV Format:</strong> The file should be in CSV (Comma-Separated Values) format</li>
+                <li><strong>Upload Format:</strong> The file can be a CSV or Excel (.xlsx) workbook</li>
                 <li><strong>User Creation:</strong> Each unique NAME will create a user account with:
                     <ul>
                         <li>Default password: <code>password</code></li>
@@ -350,6 +483,7 @@ function getDeviceTypeMap() {
                     </ul>
                 </li>
                 <li><strong>Device Creation:</strong> All asset columns will create device records and link them to the user</li>
+                <li><strong>Asset Tag Generation:</strong> If a cell does not contain a standard asset tag, the system generates a valid KBM-IT asset tag for that device type</li>
                 <li><strong>Valid Assets:</strong> Assets marked as "N/A" or "KBM-IT-00" will be skipped</li>
                 <li><strong>Device Status:</strong> All imported devices are set to "deployed" status</li>
                 <li><strong>Duplicate Prevention:</strong> Existing users and devices will not be duplicated</li>

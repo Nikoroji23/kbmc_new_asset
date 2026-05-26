@@ -14,6 +14,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     $model = trim($_POST['model'] ?? '');
     $serial_number = trim($_POST['serial_number'] ?? '');
     $ip_address = trim($_POST['ip_address'] ?? '');
+    $pc_name = trim($_POST['pc_name'] ?? '');
     $mac_address = trim($_POST['mac_address'] ?? '');
     $specifications = trim($_POST['specifications'] ?? '');
     $purchase_date = $_POST['purchase_date'] ?? null;
@@ -44,10 +45,10 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             }
 
             $stmt = $pdo->prepare("INSERT INTO devices 
-                (asset_tag, device_type_id, brand, model, serial_number, ip_address, mac_address, specifications, 
+                (asset_tag, device_type_id, brand, model, serial_number, ip_address, pc_name, mac_address, specifications, 
                  purchase_date, vendor, warranty_expiry, purchase_price, location, condition_notes, status, created_by) 
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending_inspection', ?)");
-            $stmt->execute([$asset_tag, $device_type_id, $brand, $model, $serial_number, $ip_address, $mac_address,
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending_inspection', ?)");
+            $stmt->execute([$asset_tag, $device_type_id, $brand, $model, $serial_number, $ip_address, $pc_name, $mac_address,
                 $specifications, $purchase_date, $vendor, $warranty_expiry, $purchase_price, $location, $condition_notes, $_SESSION['user_id']]);
 
             $deviceId = $pdo->lastInsertId();
@@ -141,6 +142,10 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                 <div class="form-group">
                     <label>IP Address</label>
                     <input type="text" name="ip_address" class="form-control" placeholder="e.g., 192.168.1.100">
+                </div>
+                <div class="form-group">
+                    <label>PC Name</label>
+                    <input type="text" name="pc_name" class="form-control" placeholder="e.g., DESKTOP-1234ABC">
                 </div>
                 <div class="form-group">
                     <label>MAC Address</label>

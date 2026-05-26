@@ -25,6 +25,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     $model = trim($_POST['model'] ?? '');
     $serial_number = trim($_POST['serial_number'] ?? '');
     $ip_address = trim($_POST['ip_address'] ?? '');
+    $pc_name = trim($_POST['pc_name'] ?? '');
     $mac_address = trim($_POST['mac_address'] ?? '');
     $specifications = trim($_POST['specifications'] ?? '');
     $purchase_date = $_POST['purchase_date'] ?: null;
@@ -37,8 +38,8 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
 
     try {
         $oldData = json_encode($device);
-        $stmt = $pdo->prepare("UPDATE devices SET device_type_id=?, brand=?, model=?, serial_number=?, ip_address=?, mac_address=?, specifications=?, purchase_date=?, vendor=?, warranty_expiry=?, purchase_price=?, location=?, condition_notes=?, status=? WHERE id=?");
-        $stmt->execute([$device_type_id, $brand, $model, $serial_number, $ip_address, $mac_address, $specifications, $purchase_date, $vendor, $warranty_expiry, $purchase_price, $location, $condition_notes, $status, $id]);
+        $stmt = $pdo->prepare("UPDATE devices SET device_type_id=?, brand=?, model=?, serial_number=?, ip_address=?, pc_name=?, mac_address=?, specifications=?, purchase_date=?, vendor=?, warranty_expiry=?, purchase_price=?, location=?, condition_notes=?, status=? WHERE id=?");
+        $stmt->execute([$device_type_id, $brand, $model, $serial_number, $ip_address, $pc_name, $mac_address, $specifications, $purchase_date, $vendor, $warranty_expiry, $purchase_price, $location, $condition_notes, $status, $id]);
 
         $newData = json_encode(['serial' => $serial_number, 'status' => $status, 'ip' => $ip_address]);
         logAudit($_SESSION['user_id'], 'Update', 'devices', $id, $oldData, $newData);
@@ -91,6 +92,10 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                 <div class="form-group">
                     <label>IP Address</label>
                     <input type="text" name="ip_address" class="form-control" value="<?php echo sanitize($device['ip_address']); ?>">
+                </div>
+                <div class="form-group">
+                    <label>PC Name</label>
+                    <input type="text" name="pc_name" class="form-control" value="<?php echo sanitize($device['pc_name'] ?? ''); ?>">
                 </div>
                 <div class="form-group">
                     <label>MAC Address</label>

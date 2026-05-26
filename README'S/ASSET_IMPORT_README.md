@@ -50,14 +50,14 @@ Employees can see all their devices:
 ## 📋 How to Use
 
 ### Step 1: Prepare Your Data
-Export your employee asset list as **CSV** with these columns:
+Export your employee asset list as a **CSV or Excel (.xlsx)** file with these columns:
 ```
-NAME | DEPARTMENT | PC NAME | IP ADDRESS | MONITOR 1 | MONITOR 2 | 
-MOUSE | KEYBOARD | SYSTEM UNIT | UPS | LAPTOP | CHARGER | 
-MOUSE 1 | PRINTER 1 | PRINTER 2 | STORAGE | SWITCH | REMARKS
+NAME,DEPARTMENT,PC NAME,IP ADDRESS,MONITOR 1,MONITOR 2,
+MOUSE,KEYBOARD,SYSTEM UNIT,UPS,LAPTOP,CHARGER,
+MOUSE 1,PRINTER 1,PRINTER 2,STORAGE,SWITCH,REMARKS
 ```
 
-**Note:** Column order matters! Save Excel as CSV format.
+**Note:** Column order matters! The importer accepts CSV or XLSX and normalizes header names.
 
 ### Step 2: Access Import Tool
 1. Log in as **Administrator**
@@ -66,8 +66,8 @@ MOUSE 1 | PRINTER 1 | PRINTER 2 | STORAGE | SWITCH | REMARKS
 4. Or visit: `http://localhost/kbmc_new_asset/import_assets.php`
 
 ### Step 3: Upload and Process
-1. Select your CSV file (max 5MB)
-2. Click **"Import Assets"** 
+1. Select your CSV or XLSX file (max 5MB)
+2. Click **"Import Assets"**
 3. Wait for processing
 4. Review import summary (users created, devices created, any errors)
 
@@ -224,7 +224,7 @@ Display Summary & Results
 
 **Input (CSV Row):**
 ```
-KATHLEEN DE GUZMAN | ACCOUNTING | PC22111 | 192.168.22.111 | KBM-IT-000691 | ... 
+KATHLEEN DE GUZMAN, ACCOUNTING, PC22111, 192.168.22.111, KBM-IT-00001, KBM-IT-00002, KBM-IT-00003, KBM-IT-00004, KBM-IT-00005, KBM-IT-00006, KBM-IT-00007, KBM-IT-00008, KBM-IT-00009, , , , 
 ```
 
 **Output:**
@@ -232,11 +232,11 @@ KATHLEEN DE GUZMAN | ACCOUNTING | PC22111 | 192.168.22.111 | KBM-IT-000691 | ...
 - **Employee ID:** 00001 (auto-assigned)
 - **Department:** ACCOUNTING
 - **Devices Assigned:**
-  - Monitor: KBM-IT-000691 (device_type: Monitor)
-  - Keyboard: KBM-IT-001565 (device_type: Keyboard)
-  - Mouse: KBM-IT-002596 (device_type: Mouse)
-  - System Unit: KBM-IT-002541 (device_type: System Unit)
-  - UPS: KBM-IT-001311 (device_type: UPS)
+  - Monitor: KBM-IT-00001 (device_type: Monitor)
+  - Keyboard: KBM-IT-00004 (device_type: Keyboard)
+  - Mouse: KBM-IT-00003 (device_type: Mouse)
+  - System Unit: KBM-IT-00005 (device_type: System Unit)
+  - UPS: KBM-IT-00006 (device_type: UPS)
   - ... (all valid assets)
 
 ---

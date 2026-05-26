@@ -63,10 +63,8 @@ foreach ($assignments as $a) {
                 <div><strong style="color: #666; font-size: 12px;">Asset Tag</strong><br><span style="font-size: 18px; font-weight: 700; color: var(--kbmc-red);"><?php echo sanitize($device['asset_tag']); ?></span></div>
                 <div><strong style="color: #666; font-size: 12px;">Status</strong><br><?php echo getStatusBadge($device['status']); ?></div>
                 <div><strong style="color: #666; font-size: 12px;">Device Type</strong><br><?php echo sanitize($device['type_name']); ?></div>
-                <div><strong style="color: #666; font-size: 12px;">Brand / Model</strong><br><?php echo sanitize($device['brand'] . ' ' . $device['model']); ?></div>
-                <div><strong style="color: #666; font-size: 12px;">Serial Number</strong><br><?php echo sanitize($device['serial_number']); ?></div>
+                <div><strong style="color: #666; font-size: 12px;">PC Name</strong><br><?php echo sanitize($device['pc_name'] ?: 'N/A'); ?></div>
                 <div><strong style="color: #666; font-size: 12px;">IP Address</strong><br><?php echo sanitize($device['ip_address'] ?: 'N/A'); ?></div>
-                <div><strong style="color: #666; font-size: 12px;">MAC Address</strong><br><?php echo sanitize($device['mac_address'] ?: 'N/A'); ?></div>
                 <div><strong style="color: #666; font-size: 12px;">Location</strong><br><?php echo sanitize($device['location']); ?></div>
                 <div><strong style="color: #666; font-size: 12px;">Vendor</strong><br><?php echo sanitize($device['vendor'] ?: 'N/A'); ?></div>
                 <div><strong style="color: #666; font-size: 12px;">Purchase Date</strong><br><?php echo formatDate($device['purchase_date']); ?></div>

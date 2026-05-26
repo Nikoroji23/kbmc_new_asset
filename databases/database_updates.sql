@@ -29,3 +29,6 @@ CREATE TABLE IF NOT EXISTS account_recovery_requests (
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
     FOREIGN KEY (resolved_by) REFERENCES users(id)
 );
+
+-- 4. Add pc_name hostname support for devices
+ALTER TABLE devices ADD COLUMN pc_name VARCHAR(100) DEFAULT NULL AFTER ip_address;

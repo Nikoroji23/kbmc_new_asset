@@ -36,13 +36,12 @@ Users can now edit the following profile information:
 
 ## How to Use
 
-### Step 1: Prepare Your CSV File
-
-The CSV file must have the following columns (in this exact order):
+### Step 1: Prepare Your Import File
+The file must be a **CSV or Excel (.xlsx)** workbook with the following columns (in this exact order):
 1. NAME
 2. DEPARTMENT
 3. PC NAME
-4. IP ADRESS (Note: Spelled with one S)
+4. IP ADDRESS
 5. MONITOR 1
 6. MONITOR 2
 7. MOUSE
@@ -58,12 +57,11 @@ The CSV file must have the following columns (in this exact order):
 17. SWITCH
 18. REMARKS
 
-**Sample CSV Format:**
+**Sample Format:**
 ```
-NAME,DEPARTMENT,PC NAME,IP ADRESS,MONITOR 1,MONITOR 2,MOUSE,KEYBOARD,SYSTEM UNIT,UPS,LAPTOP,CHARGER,MOUSE 1,PRINTER 1,PRINTER 2,STORAGE,SWITCH,REMARKS
-KATHLEEN DE GUZMAN,ACCOUNTING,PC22111,192.168.22.111,KBM-IT-000691,KBM-IT-00,KBM-IT-002596,KBM-IT-001565,KBM-IT-002541,KBM-IT-001311,KBM-IT-00,KBM-IT-00,KBM-IT-00,KBM-IT-00,KBM-IT-00,KBM-IT-00,KBM-IT-00,
+NAME,DEPARTMENT,PC NAME,IP ADDRESS,MONITOR 1,MONITOR 2,MOUSE,KEYBOARD,SYSTEM UNIT,UPS,LAPTOP,CHARGER,MOUSE 1,PRINTER 1,PRINTER 2,STORAGE,SWITCH,REMARKS
+KATHLEEN DE GUZMAN,ACCOUNTING,PC22111,192.168.22.111,KBM-IT-00001,KBM-IT-00002,KBM-IT-00003,KBM-IT-00004,KBM-IT-00005,KBM-IT-00006,KBM-IT-00007,KBM-IT-00008,KBM-IT-00009,,,
 ```
-
 ### Step 2: Access Import Page
 
 1. Log in as Administrator
