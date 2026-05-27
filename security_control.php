@@ -2,15 +2,15 @@
 /**
  * KBMC Asset Management - Security Control Center
  * Master key verification and IT/Admin user approval system
- * Accessible by security admins, including IT staff granted security approval rights.
+ * Accessible by security IT approvers, including IT staff granted security approval rights.
  */
 $pageTitle = 'Security Control';
 require_once 'includes/header.php';
 requireITStaff();
 
-// Check if user is security admin
+// Check if user is security IT approver
 if (!isSecurityAdmin($_SESSION['user_id'])) {
-    setFlashMessage('error', 'You do not have security admin privileges.');
+    setFlashMessage('error', 'You do not have Security IT approval privileges.');
     if (hasRole('admin')) {
         header('Location: admin_dashboard.php');
     } elseif (hasRole('it_staff')) {
@@ -184,7 +184,7 @@ if ($flash):
                     <label>Master Security Key <span class="required">*</span></label>
                     <input type="password" name="master_key" class="form-control" placeholder="Enter your master key" required autofocus>
                     <small style="color: #999; margin-top: 5px; display: block;">
-                        Your master key is 32 characters long. It was provided when you were designated as Security Admin.
+                        Your master key is 32 characters long. It was provided when you were designated as a Security IT approver.
                     </small>
                 </div>
             </div>

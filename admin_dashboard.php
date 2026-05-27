@@ -7,7 +7,7 @@ $pageTitle = 'Admin Dashboard';
 require_once 'includes/header.php';
 requireAdmin();
 
-// Check if user is security admin
+// Check if user is a security IT approver
 $isSecurityAdmin = isSecurityAdmin($_SESSION['user_id']);
 
 // Get admin-specific statistics
@@ -42,7 +42,7 @@ $recoveryRequests = $stmt->fetchAll();
             <div>User: <?php echo sanitize($_SESSION['full_name']); ?></div>
             <?php if ($isSecurityAdmin): ?>
             <div style="margin-top: 5px; background: rgba(255,255,255,0.2); padding: 3px 8px; border-radius: 3px; display: inline-block;">
-                <i class="fas fa-key"></i> Security Admin
+                <i class="fas fa-key"></i> Security IT
             </div>
             <?php endif; ?>
         </div>

@@ -93,13 +93,13 @@ function handleAddUser() {
             if ($success) {
                 $approvalRequestId = $pdo->lastInsertId();
                 $roleDisplay = $role === 'admin' ? 'Administrator' : 'IT Staff';
-                setFlashMessage('success', "User creation request submitted for $roleDisplay approval. Security admin approval required.");
+                setFlashMessage('success', "User creation request submitted for $roleDisplay approval. Security IT approval required.");
                 logAudit($_SESSION['user_id'], 'Submit User Approval Request', 'user_approval_requests', null, null, "role=$role, user=$email");
 
-                $securityAdmins = $pdo->query("SELECT id FROM users WHERE is_security_admin = 1 AND status = 'active'")->fetchAll();
-                foreach ($securityAdmins as $admin) {
+                $securityITApprovers = $pdo->query("SELECT id FROM users WHERE role = 'it_staff' AND is_security_admin = 1 AND status = 'active'")->fetchAll();
+                foreach ($securityITApprovers as $approver) {
                     addNotification(
-                        $admin['id'],
+                        $approver['id'],
                         'user_creation_request',
                         'New IT/Admin User Request',
                         "A $roleDisplay account request for $full_name has been submitted. Review pending approvals.",

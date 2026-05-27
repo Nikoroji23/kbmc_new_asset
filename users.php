@@ -285,7 +285,7 @@ $recoveryRequests = getPendingRecoveryRequests();
                 <div id="approvalNotice" style="display: none; margin-top: 15px; padding: 12px 15px; background: #FFF3CD; border: 1px solid #FFC107; border-radius: 6px; border-left: 4px solid #FFC107;">
                     <strong style="color: #856404;">⚠️ Approval Required</strong>
                     <p style="margin: 5px 0 0 0; font-size: 12px; color: #856404;">
-                        Creating IT Staff or Administrator accounts requires approval from the Security Admin. 
+                        Creating IT Staff or Administrator accounts requires approval from a Security IT approver. 
                         A request will be submitted for review.
                     </p>
                 </div>

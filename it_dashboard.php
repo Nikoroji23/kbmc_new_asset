@@ -48,7 +48,7 @@ $recentDeployments = $stmt->fetchAll();
             <div>User: <?php echo sanitize($_SESSION['full_name']); ?></div>
             <?php if ($isSecurityAdmin): ?>
             <div style="margin-top: 5px; background: rgba(255,255,255,0.2); padding: 3px 8px; border-radius: 3px; display: inline-block; font-size: 11px;">
-                <i class="fas fa-key"></i> Security Admin
+                <i class="fas fa-key"></i> Security IT
             </div>
             <?php endif; ?>
         </div>
@@ -132,12 +132,31 @@ $recentDeployments = $stmt->fetchAll();
             <i class="fas fa-tasks"></i> Device Requests
         </a>
         <?php if ($isSecurityAdmin): ?>
+        <a href="assign_security_it.php" class="btn btn-secondary" style="flex: 1; min-width: 150px;">
+            <i class="fas fa-user-shield"></i> Manage Security IT
+        </a>
         <a href="security_control.php" class="btn btn-danger" style="flex: 1; min-width: 150px;">
             <i class="fas fa-shield-alt"></i> Security Control
         </a>
+        <?php else: ?>
+        <button type="button" class="btn btn-outline" style="flex: 1; min-width: 150px; opacity: 0.6; cursor: not-allowed;" title="Ask your admin to assign Security IT approval privileges.">
+            <i class="fas fa-shield-alt"></i> Security Control
+        </button>
         <?php endif; ?>
     </div>
 </div>
+
+<?php if (!$isSecurityAdmin): ?>
+<div class="card" style="margin-top: 20px; border: 1px solid #f0ad4e; background: #fff8e1;">
+    <div class="card-body">
+        <h3 style="margin-top: 0;"><i class="fas fa-exclamation-triangle"></i> Security IT Access Required</h3>
+        <p style="margin: 0; color: #555;">
+            If you need to approve new IT or admin user requests, your IT account must be designated as a Security IT approver.
+            Ask your administrator to assign <strong>Security IT</strong> privileges to your account and set your master key.
+        </p>
+    </div>
+</div>
+<?php endif; ?>
 
 <!-- Pending Repairs & Inspections -->
 <div class="grid-2" style="margin-top: 20px;">

@@ -1,6 +1,7 @@
 <?php
 ob_start();
 require_once __DIR__ . '/functions.php';
+ensureDeviceSchema();
 requireLogin();
 // Fix any deployment/device status inconsistencies (e.g., orphaned deployed devices)
 fixDeploymentStatusConsistency();

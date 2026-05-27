@@ -111,6 +111,51 @@ function filterUniqueEmails(array $recipients) {
     return $unique;
 }
 
+function tableExists($table) {
+    global $pdo;
+    try {
+        $stmt = $pdo->prepare("SHOW TABLES LIKE ?");
+        $stmt->execute([$table]);
+        return $stmt->fetchColumn() !== false;
+    } catch (PDOException $e) {
+        return false;
+    }
+}
+
+function columnExists($table, $column) {
+    global $pdo;
+    try {
+        $stmt = $pdo->prepare("SHOW COLUMNS FROM `$table` LIKE ?");
+        $stmt->execute([$column]);
+        return $stmt->fetchColumn() !== false;
+    } catch (PDOException $e) {
+        return false;
+    }
+}
+
+function ensureDeviceSchema() {
+    static $checked = false;
+    if ($checked) {
+        return;
+    }
+    $checked = true;
+
+    if (!tableExists('devices')) {
+        return;
+    }
+
+    try {
+        if (!columnExists('devices', 'pc_name')) {
+            $GLOBALS['pdo']->exec("ALTER TABLE devices ADD COLUMN pc_name VARCHAR(100) DEFAULT NULL AFTER ip_address");
+        }
+        if (!columnExists('devices', 'ip_address')) {
+            $GLOBALS['pdo']->exec("ALTER TABLE devices ADD COLUMN ip_address VARCHAR(50) DEFAULT NULL AFTER serial_number");
+        }
+    } catch (PDOException $e) {
+        // If ALTER TABLE fails, allow the app to continue; device listing may still fail.
+    }
+}
+
 function addNotification($userId, $type, $title, $message, $relatedId = null) {
     global $pdo;
     $stmt = $pdo->prepare("INSERT INTO notifications (user_id, type, title, message, related_id) VALUES (?, ?, ?, ?, ?)");
@@ -403,7 +448,7 @@ function downloadCSV($filename, $headers, $data) {
 // ============================================================
 // MASTER KEY & SECURITY FUNCTIONS
 
-// Check if user is a security admin (can approve IT/Admin user creation)
+// Check if user is a security IT approver (IT staff with security approval privileges)
 function isSecurityAdmin($userId = null) {
     global $pdo;
     if ($userId === null) {
@@ -411,10 +456,16 @@ function isSecurityAdmin($userId = null) {
     }
     if (!$userId) return false;
     
-    $stmt = $pdo->prepare("SELECT is_security_admin FROM users WHERE id = ?");
+    $stmt = $pdo->prepare("SELECT role, is_security_admin FROM users WHERE id = ?");
     $stmt->execute([$userId]);
     $result = $stmt->fetch();
-    return $result && $result['is_security_admin'] == 1;
+    return $result && $result['is_security_admin'] == 1 && $result['role'] === 'it_staff';
+}
+
+function setSecurityITApprover($userId, $enabled = true) {
+    global $pdo;
+    $stmt = $pdo->prepare("UPDATE users SET is_security_admin = ? WHERE id = ? AND role = 'it_staff'");
+    return $stmt->execute([$enabled ? 1 : 0, $userId]);
 }
 
 // Generate master security key for an admin
@@ -422,12 +473,13 @@ function generateMasterKey($length = 32) {
     return bin2hex(random_bytes($length / 2));
 }
 
-// Set master key for security admin
+// Set master key for security IT approver
 function setMasterKey($userId, $masterKey) {
     global $pdo;
     $hashedKey = password_hash($masterKey, PASSWORD_BCRYPT);
-    $stmt = $pdo->prepare("UPDATE users SET master_key_hash = ?, is_security_admin = 1 WHERE id = ?");
-    return $stmt->execute([$hashedKey, $userId]);
+    $stmt = $pdo->prepare("UPDATE users SET master_key_hash = ?, is_security_admin = 1 WHERE id = ? AND role = 'it_staff'");
+    $stmt->execute([$hashedKey, $userId]);
+    return $stmt->rowCount() > 0;
 }
 
 // Verify master key

@@ -43,4 +43,49 @@ document.addEventListener('DOMContentLoaded', function () {
             }
         });
     });
+
+    // Simple modal system: open by [data-modal] and close by [data-dismiss="modal"] or clicking overlay
+    function openModalById(id) {
+        if (!id) return;
+        var modal = document.getElementById(id);
+        if (!modal) return;
+        modal.classList.add('show');
+        modal.style.display = 'flex';
+    }
+
+    function closeModalElement(el) {
+        if (!el) return;
+        var modal = el.closest('.modal-overlay');
+        if (!modal) return;
+        modal.classList.remove('show');
+        modal.style.display = 'none';
+    }
+
+    // Attach openers
+    document.querySelectorAll('[data-modal]').forEach(function (btn) {
+        btn.addEventListener('click', function (e) {
+            var target = btn.getAttribute('data-modal');
+            openModalById(target);
+        });
+    });
+
+    // Attach dismiss buttons
+    document.querySelectorAll('[data-dismiss="modal"]').forEach(function (btn) {
+        btn.addEventListener('click', function (e) {
+            closeModalElement(btn);
+        });
+    });
+
+    // Close when clicking overlay background
+    document.querySelectorAll('.modal-overlay').forEach(function (modal) {
+        modal.addEventListener('click', function (e) {
+            if (e.target === modal) {
+                modal.classList.remove('show');
+                modal.style.display = 'none';
+            }
+        });
+    });
+
+    // Expose helper for inline calls from templates
+    window.closeViewUserModal = function () { closeModalElement(document.getElementById('viewUserModal') || null); };
 });
