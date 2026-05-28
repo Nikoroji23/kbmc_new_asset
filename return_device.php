@@ -1,6 +1,6 @@
 <?php
 /**
- * KBMC Asset Management — View Device Details
+ * KBMC Asset Management - View Device Details
  */
 
 $pageTitle = 'Device Details';
@@ -61,21 +61,13 @@ $currentAssignment = null;
 foreach ($assignments as $a) {
     if ($a['status'] == 'active') { $currentAssignment = $a; break; }
 }
-
-$isITOrAdmin = hasRole('admin') || hasRole('it_staff');
-$isAssignedEmployee = (
-    hasRole('employee') &&
-    $currentAssignment &&
-    isset($_SESSION['user_id']) &&
-    (int)$_SESSION['user_id'] === (int)$currentAssignment['employee_id']
-);
 ?>
 
 <div class="page-header">
     <h1><i class="fas fa-laptop"></i> Device Details</h1>
-    <div style="display:flex;gap:10px;">
+    <div style="display: flex; gap: 10px;">
         <a href="devices.php" class="btn btn-outline"><i class="fas fa-arrow-left"></i> Back</a>
-        <?php if ($isITOrAdmin): ?>
+        <?php if (hasRole('admin') || hasRole('it_staff')): ?>
         <a href="edit_device.php?id=<?php echo $id; ?>" class="btn btn-primary"><i class="fas fa-edit"></i> Edit</a>
         <?php endif; ?>
     </div>
@@ -88,33 +80,35 @@ $isAssignedEmployee = (
         <div class="card-header">
             <h3><i class="fas fa-info-circle"></i> Device Information</h3>
         </div>
-        <div class="card-body" style="font-size:14px;">
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:15px;">
+        <div class="card-body" style="font-size: 14px;">
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
                 <div>
-                    <strong style="color:#666;font-size:12px;">Asset Tag</strong><br>
-                    <span style="font-size:18px;font-weight:700;color:var(--kbmc-red);"><?php echo sanitize($device['asset_tag']); ?></span>
+                    <strong style="color: #666; font-size: 12px;">Asset Tag</strong><br>
+                    <span style="font-size: 18px; font-weight: 700; color: var(--kbmc-red);">
+                        <?php echo sanitize($device['asset_tag']); ?>
+                    </span>
                 </div>
-                <div><strong style="color:#666;font-size:12px;">Status</strong><br><?php echo getStatusBadge($device['status']); ?></div>
-                <div><strong style="color:#666;font-size:12px;">Device Type</strong><br><?php echo sanitize($device['type_name']); ?></div>
-                <div><strong style="color:#666;font-size:12px;">PC Name</strong><br><?php echo sanitize($device['pc_name'] ?: 'N/A'); ?></div>
-                <div><strong style="color:#666;font-size:12px;">IP Address</strong><br><?php echo sanitize($device['ip_address'] ?: 'N/A'); ?></div>
-                <div><strong style="color:#666;font-size:12px;">Location</strong><br><?php echo sanitize($device['location']); ?></div>
-                <div><strong style="color:#666;font-size:12px;">Vendor</strong><br><?php echo sanitize($device['vendor'] ?: 'N/A'); ?></div>
-                <div><strong style="color:#666;font-size:12px;">Purchase Date</strong><br><?php echo formatDate($device['purchase_date']); ?></div>
-                <div><strong style="color:#666;font-size:12px;">Warranty Expiry</strong><br><?php echo formatDate($device['warranty_expiry']); ?></div>
+                <div><strong style="color: #666; font-size: 12px;">Status</strong><br><?php echo getStatusBadge($device['status']); ?></div>
+                <div><strong style="color: #666; font-size: 12px;">Device Type</strong><br><?php echo sanitize($device['type_name']); ?></div>
+                <div><strong style="color: #666; font-size: 12px;">PC Name</strong><br><?php echo sanitize($device['pc_name'] ?: 'N/A'); ?></div>
+                <div><strong style="color: #666; font-size: 12px;">IP Address</strong><br><?php echo sanitize($device['ip_address'] ?: 'N/A'); ?></div>
+                <div><strong style="color: #666; font-size: 12px;">Location</strong><br><?php echo sanitize($device['location']); ?></div>
+                <div><strong style="color: #666; font-size: 12px;">Vendor</strong><br><?php echo sanitize($device['vendor'] ?: 'N/A'); ?></div>
+                <div><strong style="color: #666; font-size: 12px;">Purchase Date</strong><br><?php echo formatDate($device['purchase_date']); ?></div>
+                <div><strong style="color: #666; font-size: 12px;">Warranty Expiry</strong><br><?php echo formatDate($device['warranty_expiry']); ?></div>
                 <div>
-                    <strong style="color:#666;font-size:12px;">Purchase Price</strong><br>
-                    <?php echo $device['purchase_price'] ? number_format($device['purchase_price'],2).' PHP' : 'N/A'; ?>
+                    <strong style="color: #666; font-size: 12px;">Purchase Price</strong><br>
+                    <?php echo $device['purchase_price'] ? number_format($device['purchase_price'], 2) . ' PHP' : 'N/A'; ?>
                 </div>
             </div>
-            <hr style="margin:15px 0;border:none;border-top:1px solid #eee;">
+            <hr style="margin: 15px 0; border: none; border-top: 1px solid #eee;">
             <div>
-                <strong style="color:#666;font-size:12px;">Specifications</strong><br>
+                <strong style="color: #666; font-size: 12px;">Specifications</strong><br>
                 <p><?php echo nl2br(sanitize($device['specifications'])); ?></p>
             </div>
             <?php if ($device['condition_notes']): ?>
-            <div style="margin-top:10px;">
-                <strong style="color:#666;font-size:12px;">Condition Notes</strong><br>
+            <div style="margin-top: 10px;">
+                <strong style="color: #666; font-size: 12px;">Condition Notes</strong><br>
                 <p><?php echo nl2br(sanitize($device['condition_notes'])); ?></p>
             </div>
             <?php endif; ?>
@@ -128,12 +122,12 @@ $isAssignedEmployee = (
         </div>
         <div class="card-body">
             <?php if ($currentAssignment): ?>
-            <div style="text-align:center;padding:20px;">
+            <div style="text-align: center; padding: 20px;">
                 <div style="width:80px;height:80px;background:var(--kbmc-red-light);color:var(--kbmc-red);border-radius:50%;
                             display:flex;align-items:center;justify-content:center;font-size:32px;margin:0 auto 15px;">
                     <i class="fas fa-user"></i>
                 </div>
-                <h4 style="margin-bottom:5px;"><?php echo sanitize($currentAssignment['employee_name']); ?></h4>
+                <h4 style="margin-bottom: 5px;"><?php echo sanitize($currentAssignment['employee_name']); ?></h4>
                 <p style="color:#666;font-size:13px;">
                     <?php echo sanitize($currentAssignment['department']); ?> — <?php echo sanitize($currentAssignment['position']); ?>
                 </p>
@@ -153,28 +147,26 @@ $isAssignedEmployee = (
                     </span>
                 </p>
 
-                <!-- ── Action buttons ── -->
-                <div style="display:flex;justify-content:center;flex-wrap:wrap;gap:10px;margin-top:20px;">
-
-                    <?php if ($isITOrAdmin): ?>
-                    <!-- IT-initiated return → full return form -->
+                <!-- ── Return Buttons ── -->
+                <div style="display:flex;justify-content:center;flex-wrap:wrap;gap:10px;margin-top:18px;">
+                    <?php if (hasRole('admin') || hasRole('it_staff')): ?>
+                    <!-- IT-initiated return (full form) -->
                     <a href="return_device.php?id=<?php echo $currentAssignment['id']; ?>"
                        class="btn btn-warning btn-sm"
                        style="display:inline-flex;align-items:center;gap:6px;">
                         <i class="fas fa-undo-alt"></i> Return Device
                     </a>
-
-                    <!-- Single-device IT Clearance form shortcut -->
-                    <a href="it_clearance.php?user_id=<?php echo $currentAssignment['employee_id']; ?>&device_id=<?php echo $id; ?>"
-                       class="btn btn-outline btn-sm"
-                       style="display:inline-flex;align-items:center;gap:6px;border-color:var(--kbmc-red);color:var(--kbmc-red);">
-                        <i class="fas fa-file-check"></i> IT Clearance (1 Device)
-                    </a>
                     <?php endif; ?>
 
-                    <?php if ($isAssignedEmployee): ?>
-                    <!-- Employee-initiated voluntary return -->
-                    <a href="return_device.php?id=<?php echo $currentAssignment['id']; ?>&mode=voluntary"
+                    <?php
+                    // Allow the assigned employee themselves to request a voluntary return
+                    $isAssignedEmployee = (
+                        hasRole('employee') &&
+                        isset($_SESSION['user_id']) &&
+                        (int)$_SESSION['user_id'] === (int)$currentAssignment['employee_id']
+                    );
+                    if ($isAssignedEmployee): ?>
+                    <a href="return_device.php?id=<?php echo $currentAssignment['id']; ?>"
                        class="btn btn-outline btn-sm"
                        style="display:inline-flex;align-items:center;gap:6px;border-color:#E67E22;color:#E67E22;">
                         <i class="fas fa-hand-holding"></i> Voluntarily Return
@@ -182,13 +174,12 @@ $isAssignedEmployee = (
                     <?php endif; ?>
                 </div>
 
-                <?php if ($isAssignedEmployee): ?>
-                <div style="margin-top:12px;background:#FEF9E7;border:1px solid #F39C1240;border-radius:6px;
-                             padding:10px 14px;font-size:12px;color:#7D6608;text-align:left;">
+                <!-- ── Voluntary return info strip (visible to employee) ── -->
+                <?php if ($isAssignedEmployee ?? false): ?>
+                <div style="margin-top:14px;background:#FEF9E7;border:1px solid #F39C1240;border-radius:6px;padding:10px 14px;font-size:12px;color:#7D6608;text-align:left;">
                     <i class="fas fa-info-circle"></i>
-                    <strong>Voluntary Return:</strong> Clicking the button opens a return form.
-                    An IT staff member must be present to inspect the device and co-sign.
-                    A printable <strong>IT Clearance Form</strong> will be generated after.
+                    Clicking <strong>"Voluntarily Return"</strong> will open a return form where IT staff will check
+                    the device condition and log the return. You will need to be present during the inspection.
                 </div>
                 <?php endif; ?>
             </div>
@@ -198,7 +189,7 @@ $isAssignedEmployee = (
                 <i class="fas fa-user-slash" style="font-size:40px;"></i>
                 <h4>Not Assigned</h4>
                 <p>This device is currently not assigned to anyone.</p>
-                <?php if ($device['status'] == 'in_stock' && $isITOrAdmin): ?>
+                <?php if ($device['status'] == 'in_stock' && (hasRole('admin') || hasRole('it_staff'))): ?>
                 <a href="deployments.php?action=assign&device=<?php echo $id; ?>"
                    class="btn btn-success btn-sm" style="margin-top:10px;">
                     <i class="fas fa-hand-holding"></i> Assign Now
@@ -209,13 +200,13 @@ $isAssignedEmployee = (
         </div>
     </div>
 
-</div>
+</div><!-- /.grid-2 -->
 
-<!-- ══ Inspection History ═════════════════════════════════════════════════════→ -->
+<!-- ══ Inspection History ═══════════════════════════════════════════ -->
 <div class="card">
     <div class="card-header">
         <h3><i class="fas fa-clipboard-check"></i> Inspection History</h3>
-        <?php if ($isITOrAdmin): ?>
+        <?php if (hasRole('admin') || hasRole('it_staff')): ?>
         <a href="inspections.php?device=<?php echo $id; ?>" class="btn btn-primary btn-sm">
             <i class="fas fa-plus"></i> New Inspection
         </a>
@@ -228,7 +219,10 @@ $isAssignedEmployee = (
         <div class="data-table-wrapper">
             <table class="data-table">
                 <thead>
-                    <tr><th>Date</th><th>Inspector</th><th>Condition</th><th>Functionality</th><th>Result</th><th>Notes</th></tr>
+                    <tr>
+                        <th>Date</th><th>Inspector</th><th>Condition</th>
+                        <th>Functionality</th><th>Result</th><th>Notes</th>
+                    </tr>
                 </thead>
                 <tbody>
                     <?php foreach ($inspections as $i): ?>
@@ -236,12 +230,12 @@ $isAssignedEmployee = (
                         <td><?php echo formatDate($i['inspection_date']); ?></td>
                         <td><?php echo sanitize($i['inspector_name']); ?></td>
                         <td><?php echo ucfirst($i['physical_condition']); ?></td>
-                        <td><?php echo ucfirst(str_replace('_',' ',$i['functionality_status'])); ?></td>
+                        <td><?php echo ucfirst(str_replace('_', ' ', $i['functionality_status'])); ?></td>
                         <td>
                             <span class="status-badge" style="
-                                background:<?php echo $i['result']=='passed'?'#27AE6020':'#E74C3C20'; ?>;
-                                color:<?php echo $i['result']=='passed'?'#27AE60':'#E74C3C'; ?>;
-                                border:1px solid <?php echo $i['result']=='passed'?'#27AE60':'#E74C3C'; ?>;">
+                                background:<?php echo $i['result']=='passed' ? '#27AE6020' : '#E74C3C20'; ?>;
+                                color:<?php echo $i['result']=='passed' ? '#27AE60' : '#E74C3C'; ?>;
+                                border:1px solid <?php echo $i['result']=='passed' ? '#27AE60' : '#E74C3C'; ?>;">
                                 <?php echo ucfirst($i['result']); ?>
                             </span>
                         </td>
@@ -255,7 +249,7 @@ $isAssignedEmployee = (
     </div>
 </div>
 
-<!-- ══ Repair History ════════════════════════════════════════════════════════ -->
+<!-- ══ Repair History ════════════════════════════════════════════════ -->
 <div class="card">
     <div class="card-header">
         <h3><i class="fas fa-tools"></i> Repair History</h3>
@@ -277,12 +271,12 @@ $isAssignedEmployee = (
                         <td><?php echo sanitize($r['issue_description']); ?></td>
                         <td>
                             <span class="status-badge" style="
-                                background:<?php echo $r['repair_status']=='completed'?'#27AE6020':'#F39C1220'; ?>;
-                                color:<?php echo $r['repair_status']=='completed'?'#27AE60':'#F39C12'; ?>;">
-                                <?php echo ucwords(str_replace('_',' ',$r['repair_status'])); ?>
+                                background:<?php echo $r['repair_status']=='completed' ? '#27AE6020' : '#F39C1220'; ?>;
+                                color:<?php echo $r['repair_status']=='completed' ? '#27AE60' : '#F39C12'; ?>;">
+                                <?php echo ucwords(str_replace('_', ' ', $r['repair_status'])); ?>
                             </span>
                         </td>
-                        <td><?php echo $r['repair_cost'] ? number_format($r['repair_cost'],2).' PHP' : 'N/A'; ?></td>
+                        <td><?php echo $r['repair_cost'] ? number_format($r['repair_cost'], 2) . ' PHP' : 'N/A'; ?></td>
                     </tr>
                     <?php endforeach; ?>
                 </tbody>
