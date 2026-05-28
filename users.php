@@ -8,6 +8,7 @@ require_once 'includes/functions.php';
 requireITStaff();
 $canManageUsers = hasRole('admin');
 $canRequestUsers = $canManageUsers || hasRole('it_staff');
+$search = trim($_GET['search'] ?? '');
 
 if (isset($_GET['view_user']) && isAjaxRequest()) {
     $uid = (int) $_GET['view_user'];
@@ -28,7 +29,17 @@ if (isset($_GET['view_user']) && isAjaxRequest()) {
 require_once 'includes/header.php';
 
 // Get all users and pending recovery requests
-$users = $pdo->query("SELECT id, employee_id, full_name, email, role, department, position, phone, status, created_at FROM users ORDER BY created_at DESC")->fetchAll();
+$sql = "SELECT id, employee_id, full_name, email, role, department, position, phone, status, created_at FROM users";
+$params = [];
+if ($search) {
+    $sql .= " WHERE full_name LIKE ? OR email LIKE ? OR employee_id LIKE ? OR department LIKE ?";
+    $q = "%$search%";
+    $params = [$q, $q, $q, $q];
+}
+$sql .= " ORDER BY created_at DESC";
+$stmt = $pdo->prepare($sql);
+$stmt->execute($params);
+$users = $stmt->fetchAll();
 $recoveryRequests = getPendingRecoveryRequests();
 ?>
 
@@ -40,6 +51,12 @@ $recoveryRequests = getPendingRecoveryRequests();
     <span style="display:inline-flex;align-items:center;margin-left:20px;background:#3498db;color:#ffffff;padding:8px 12px;border-radius:999px;font-size:14px;font-weight:600;">View Only</span>
     <?php endif; ?>
 </div>
+
+<form method="GET" style="margin-bottom: 18px; display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
+    <input type="text" name="search" placeholder="Search users by name, email, employee ID, department" value="<?php echo sanitize($search); ?>" style="flex:1; min-width:240px; padding:10px 12px; border:1px solid #d6d8db; border-radius:8px;">
+    <button type="submit" class="btn btn-primary btn-sm"><i class="fas fa-search"></i> Search</button>
+    <a href="users.php" class="btn btn-light btn-sm"><i class="fas fa-undo"></i> Reset</a>
+</form>
 
 <?php if (!$canManageUsers): ?>
 <div style="margin-bottom:18px;padding:14px 18px;background:#ecf6ff;border:1px solid #b3d8ff;border-radius:8px;color:#225b9d;">
@@ -309,9 +326,14 @@ $recoveryRequests = getPendingRecoveryRequests();
 <!-- View User Modal -->
 <div id="viewUserModal" class="modal-overlay">
     <div class="modal-box" style="max-width: 700px;">
-        <div class="modal-header">
-            <h3><i class="fas fa-user-circle"></i> User Details</h3>
-            <button class="modal-close" onclick="closeViewUserModal()">&times;</button>
+        <div class="modal-header" style="display: flex; justify-content: space-between; align-items: center; gap: 10px;">
+            <div style="display:flex;align-items:center;gap:10px;">
+                <h3 style="margin:0;"><i class="fas fa-user-circle"></i> User Details</h3>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px;">
+                <button type="button" class="btn btn-outline no-print" onclick="printViewUserDetails()"><i class="fas fa-print"></i> Print</button>
+                <button class="modal-close" onclick="closeViewUserModal()">&times;</button>
+            </div>
         </div>
         <div class="modal-body" id="viewUserBody">
             <p style="text-align:center;color:#999;padding:30px;">Loading...</p>
@@ -481,11 +503,13 @@ document.querySelectorAll('.view-user-btn').forEach(function(btn) {
             var assetsHtml = assets.length === 0
                 ? '<p style="color:#999;text-align:center;padding:20px 0;"><i class="fas fa-box-open" style="font-size:28px;display:block;margin-bottom:8px;"></i>No assets currently assigned to this user.</p>'
                 : '<div class="data-table-wrapper"><table class="data-table"><thead><tr>'
-                    + '<th>Asset Tag</th><th>Name</th><th>Category</th><th>Status</th><th>Assigned At</th>'
+                    + '<th>Asset Tag</th><th>PC Name</th><th>IP Address</th><th>Name</th><th>Category</th><th>Status</th><th>Assigned At</th>'
                     + '</tr></thead><tbody>'
                     + assets.map(function(a) {
                         return '<tr>'
                             + '<td><strong>' + (a.asset_tag || 'N/A') + '</strong></td>'
+                            + '<td>' + (a.pc_name || 'N/A') + '</td>'
+                            + '<td>' + (a.ip_address || 'N/A') + '</td>'
                             + '<td>' + (a.name || 'N/A') + '</td>'
                             + '<td>' + (a.category || 'N/A') + '</td>'
                             + '<td><span class="status-badge" style="background:#27AE6020;color:#27AE60;border:1px solid #27AE60;">' + (a.status || 'N/A') + '</span></td>'
@@ -517,6 +541,20 @@ document.querySelectorAll('.view-user-btn').forEach(function(btn) {
         });
     });
 });
+
+function printViewUserDetails() {
+    var content = document.getElementById('viewUserBody').innerHTML;
+    var printWindow = window.open('', '', 'width=1000,height=800');
+    printWindow.document.write('<!DOCTYPE html><html><head><title>Print User Details</title>');
+    printWindow.document.write('<style>body{font-family:Arial,sans-serif;padding:24px;color:#222;} h1,h2,h3{margin:0 0 .75rem;} table{width:100%;border-collapse:collapse;margin-top:1rem;} th,td{border:1px solid #ccc;padding:10px;text-align:left;} th{background:#f4f4f4;} .status-badge{display:inline-block;padding:4px 8px;border-radius:4px;background:#f0f0f0;color:#333;font-size:12px;} .form-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:16px;margin-bottom:20px;} .modal-body p{margin:0;}</style>');
+    printWindow.document.write('</head><body>');
+    printWindow.document.write('<h1>User Assigned Devices</h1>');
+    printWindow.document.write(content);
+    printWindow.document.write('</body></html>');
+    printWindow.document.close();
+    printWindow.focus();
+    printWindow.print();
+}
 
 function closeViewUserModal() {
     document.getElementById('viewUserModal').classList.remove('show');

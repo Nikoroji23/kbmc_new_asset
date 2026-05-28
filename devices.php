@@ -14,7 +14,7 @@ $ipAddressFilter = $_GET['ip_address'] ?? '';
 $assignedToFilter = $_GET['assigned_to'] ?? '';
 $search = $_GET['search'] ?? '';
 
-$sql = "SELECT d.*, dt.type_name, u.full_name as assigned_to, 
+$sql = "SELECT d.*, dt.type_name, u.id AS assigned_user_id, u.full_name as assigned_to, 
         (SELECT full_name FROM users WHERE id = da.assigned_by) as assigned_by_name,
         da.assigned_date, da.status as assignment_status, da.id as assignment_id
         FROM devices d 
@@ -130,10 +130,10 @@ $assignedUsers = $pdo->query("SELECT DISTINCT u.full_name FROM devices d LEFT JO
                         <td><?php echo getStatusBadge($dev['status']); ?></td>
                         <td>
                             <?php if ($dev['assigned_to']): ?>
-                            <span style="display: flex; align-items: center; gap: 5px;">
+                            <button type="button" class="btn btn-link view-assignee-btn" data-user-id="<?php echo $dev['assigned_user_id']; ?>" style="padding:0; margin:0; color:#007bff; display:flex; align-items:center; gap:6px; font-size: 0.95rem;">
                                 <i class="fas fa-user" style="font-size: 11px; color: #999;"></i>
                                 <?php echo sanitize($dev['assigned_to']); ?>
-                            </span>
+                            </button>
                             <?php else: ?>
                             <span style="color: #999; font-size: 12px;">Unassigned</span>
                             <?php endif; ?>
@@ -157,6 +157,22 @@ $assignedUsers = $pdo->query("SELECT DISTINCT u.full_name FROM devices d LEFT JO
     </div>
 </div>
 </form>
+
+<!-- Assigned User Details Modal -->
+<div id="assignedUserModal" class="modal-overlay" style="display:none;">
+    <div class="modal-box" style="max-width: 900px; width: 95%;">
+        <div class="modal-header" style="display:flex;justify-content:space-between;align-items:center;gap:10px;">
+            <h3><i class="fas fa-user"></i> Assigned User Details</h3>
+            <div style="display:flex;gap:8px;align-items:center;">
+                <button type="button" class="btn btn-outline no-print" onclick="printAssignedUserDetails()"><i class="fas fa-print"></i> Print</button>
+                <button type="button" class="modal-close btn btn-outline no-print" onclick="closeAssignedUserModal()">&times;</button>
+            </div>
+        </div>
+        <div class="modal-body" id="assignedUserBody">
+            <p style="text-align:center;color:#999;padding:30px;"><i class="fas fa-spinner fa-spin"></i> Loading...</p>
+        </div>
+    </div>
+</div>
 
 <script>
 function exportDevicesCSV() {
@@ -201,6 +217,95 @@ function exportDevicesPDF() {
         'devices_report_<?php echo date('Y-m-d'); ?>.pdf'
     );
 }
+
+function closeAssignedUserModal() {
+    document.getElementById('assignedUserModal').style.display = 'none';
+}
+
+function printAssignedUserDetails() {
+    var content = document.getElementById('assignedUserBody').innerHTML;
+    var printWindow = window.open('', '', 'width=1000,height=800');
+    printWindow.document.write('<!DOCTYPE html><html><head><title>Print User Details</title>');
+    printWindow.document.write('<style>body{font-family:Arial,sans-serif;padding:24px;color:#222;} h1,h2,h3{margin:0 0 .75rem;} table{width:100%;border-collapse:collapse;margin-top:1rem;} th,td{border:1px solid #ccc;padding:10px;text-align:left;} th{background:#f4f4f4;} .status-badge{display:inline-block;padding:4px 8px;border-radius:4px;background:#f0f0f0;color:#333;font-size:12px;} .section-title{margin-top:20px;margin-bottom:10px;font-size:18px;}</style>');
+    printWindow.document.write('</head><body>');
+    printWindow.document.write('<h1>Assigned User Details</h1>');
+    printWindow.document.write(content);
+    printWindow.document.write('</body></html>');
+    printWindow.document.close();
+    printWindow.focus();
+    printWindow.print();
+}
+
+function setupAssignedUserButtons() {
+    document.querySelectorAll('.view-assignee-btn').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+            var userId = this.dataset.userId;
+            var body = document.getElementById('assignedUserBody');
+            body.innerHTML = '<p style="text-align:center;color:#999;padding:30px;"><i class="fas fa-spinner fa-spin"></i> Loading...</p>';
+            document.getElementById('assignedUserModal').style.display = 'flex';
+
+            fetch('users.php?view_user=' + userId, {
+                headers: { 'X-Requested-With': 'XMLHttpRequest' }
+            })
+            .then(function(res) { return res.json(); })
+            .then(function(data) {
+                var u = data.user;
+                var assets = data.assets;
+                var assetsHtml = assets.length === 0
+                    ? '<p style="color:#999;text-align:center;padding:20px 0;"><i class="fas fa-box-open" style="font-size:28px;display:block;margin-bottom:8px;"></i>No devices currently assigned to this user.</p>'
+                    : '<table class="data-table" style="width:100%;margin-top:15px;"><thead><tr>'
+                        + '<th>Asset Tag</th><th>PC Name</th><th>IP Address</th><th>Name</th><th>Category</th><th>Status</th><th>Assigned At</th>'
+                        + '</tr></thead><tbody>'
+                        + assets.map(function(a) {
+                            return '<tr>'
+                                + '<td><strong>' + (a.asset_tag || 'N/A') + '</strong></td>'
+                                + '<td>' + (a.pc_name || 'N/A') + '</td>'
+                                + '<td>' + (a.ip_address || 'N/A') + '</td>'
+                                + '<td>' + (a.name || 'N/A') + '</td>'
+                                + '<td>' + (a.category || 'N/A') + '</td>'
+                                + '<td><span class="status-badge">' + (a.status || 'N/A') + '</span></td>'
+                                + '<td>' + (a.assigned_at || 'N/A') + '</td>'
+                                + '</tr>';
+                        }).join('')
+                        + '</tbody></table>';
+
+                body.innerHTML = '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px;margin-bottom:20px;">'
+                    + '<div><strong>Employee ID</strong><div>' + (u.employee_id || 'N/A') + '</div></div>'
+                    + '<div><strong>Full Name</strong><div>' + (u.full_name || 'N/A') + '</div></div>'
+                    + '<div><strong>Email</strong><div>' + (u.email || 'N/A') + '</div></div>'
+                    + '<div><strong>Department</strong><div>' + (u.department || 'N/A') + '</div></div>'
+                    + '<div><strong>Position</strong><div>' + (u.position || 'N/A') + '</div></div>'
+                    + '<div><strong>Status</strong><div>' + (u.status ? '<span class="status-badge">' + u.status.charAt(0).toUpperCase() + u.status.slice(1) + '</span>' : 'N/A') + '</div></div>'
+                    + '</div>'
+                    + '<h4 class="section-title">Assigned Devices</h4>'
+                    + assetsHtml;
+            })
+            .catch(function() {
+                body.innerHTML = '<p style="color:#e74c3c;text-align:center;padding:30px;"><i class="fas fa-exclamation-circle"></i> Failed to load user details. Please try again.</p>';
+            });
+        });
+    });
+}
+
+function enableDeviceFilterEnter() {
+    var filterForm = document.getElementById('deviceFilterForm');
+    if (!filterForm) return;
+
+    filterForm.addEventListener('keydown', function(event) {
+        if (event.key === 'Enter') {
+            var target = event.target;
+            if (target && target.tagName === 'INPUT' && target.name === 'search') {
+                event.preventDefault();
+                filterForm.submit();
+            }
+        }
+    });
+}
+
+window.addEventListener('DOMContentLoaded', function() {
+    setupAssignedUserButtons();
+    enableDeviceFilterEnter();
+});
 
 </script>
 
