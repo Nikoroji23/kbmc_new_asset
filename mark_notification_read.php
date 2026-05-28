@@ -1,34 +1,29 @@
 <?php
 /**
- * KBMC Asset Management - Mark Notification as Read
- * AJAX endpoint for marking notifications as read
+ * AJAX handler to mark a single notification as read
  */
-require_once 'includes/functions.php';
-requireLogin();
+session_start();
+require_once '../includes/db.php'; // adjust if your db.php path is different
 
-header('Content-Type: application/json');
-
-$id = $_GET['id'] ?? 0;
-
-if ($id) {
-    try {
-        // Only mark as read if the notification belongs to the current user
-        $stmt = $pdo->prepare("UPDATE notifications SET is_read = 1 WHERE id = ? AND user_id = ?");
-        $stmt->execute([(int)$id, $_SESSION['user_id']]);
-
-        // Check if update was successful
-        if ($stmt->rowCount() > 0) {
-            http_response_code(200);
-            echo json_encode(['success' => true, 'message' => 'Notification marked as read']);
-        } else {
-            http_response_code(200);
-            echo json_encode(['success' => true, 'message' => 'Notification not found or already read (no action needed)']);
-        }
-    } catch (Exception $e) {
-        http_response_code(500);
-        echo json_encode(['success' => false, 'message' => 'Error: ' . $e->getMessage()]);
-    }
-} else {
-    http_response_code(400);
-    echo json_encode(['success' => false, 'message' => 'Invalid notification ID']);
+// Check if user is logged in
+if (!isset($_SESSION['user_id'])) {
+    http_response_code(403);
+    echo 'Unauthorized';
+    exit;
 }
+
+// Check if notification ID is provided
+if (!isset($_GET['id']) || empty($_GET['id'])) {
+    http_response_code(400);
+    echo 'Missing notification ID';
+    exit;
+}
+
+$notifId = (int)$_GET['id'];
+$userId = (int)$_SESSION['user_id'];
+
+// Update only if the notification belongs to this user
+$stmt = $pdo->prepare("UPDATE notifications SET is_read = 1 WHERE id = ? AND user_id = ?");
+$stmt->execute([$notifId, $userId]);
+
+echo 'OK';

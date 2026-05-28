@@ -37,8 +37,10 @@ $flash = getFlashMessage();
 ?>
 
 <?php if ($flash): ?>
-<div style="background: <?php echo $flash['type'] === 'success' ? '#d4edda' : '#f8d7da'; ?>; color: <?php echo $flash['type'] === 'success' ? '#155724' : '#721c24'; ?>; padding: 12px 20px; border-radius: 4px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center;">
-    <span><i class="fas fa-<?php echo $flash['type'] === 'success' ? 'check-circle' : 'exclamation-circle'; ?>"></i> <?php echo $flash['message']; ?></span>
+<div class="alert <?php echo $flash['type'] === 'success' ? 'alert-success' : 'alert-error'; ?>">
+    <i class="fas fa-<?php echo $flash['type'] === 'success' ? 'check-circle' : 'exclamation-circle'; ?>"></i>
+    <span><?php echo $flash['message']; ?></span>
+    <button type="button" class="alert-close" onclick="this.closest('.alert').remove();" aria-label="Close">&times;</button>
 </div>
 <?php endif; ?>
 
@@ -56,8 +58,8 @@ $flash = getFlashMessage();
         <h3><i class="fas fa-exclamation-circle"></i> Pending Repairs (<strong><?php echo count($pendingRepairs); ?></strong>)</h3>
     </div>
     <div class="card-body">
-        <div style="overflow-x: auto;">
-            <table class="table table-hover">
+        <div class="data-table-wrapper">
+            <table class="data-table">
                 <thead>
                     <tr>
                         <th>Device</th>
@@ -72,34 +74,37 @@ $flash = getFlashMessage();
                 <tbody>
                     <?php foreach ($pendingRepairs as $r): 
                         $severityColor = $r['severity'] === 'critical' ? '#e74c3c' : ($r['severity'] === 'high' ? '#f39c12' : ($r['severity'] === 'medium' ? '#3498db' : '#95a5a6'));
+                        $issueSnippet = strlen($r['issue_description']) > 60 ? substr($r['issue_description'], 0, 60) . '...' : $r['issue_description'];
                     ?>
                     <tr>
-                        <td><strong><?php echo sanitize($r['asset_tag']); ?></strong><br><small style="color: #7f8c8d;"><?php echo sanitize($r['model']); ?></small></td>
                         <td>
-                            <?php echo sanitize(substr($r['issue_description'], 0, 50)); ?>
+                            <strong><?php echo sanitize($r['asset_tag']); ?></strong>
+                            <div class="text-muted" style="font-size: 12px; margin-top: 4px;"><?php echo sanitize($r['model']); ?></div>
+                        </td>
+                        <td>
+                            <div><?php echo sanitize($issueSnippet); ?></div>
                             <?php if (!empty($r['incident_report_file']) && file_exists($r['incident_report_file'])): ?>
-                                <br><a href="<?php echo htmlspecialchars($r['incident_report_file']); ?>" target="_blank" title="View attached evidence" style="color: #3498db; font-size: 11px; text-decoration: none; display: inline-flex; align-items: center; gap: 4px;">
+                                <a href="<?php echo htmlspecialchars($r['incident_report_file']); ?>" target="_blank" title="View attached evidence" class="btn btn-sm btn-light" style="margin-top: 6px; display: inline-flex; align-items: center; gap: 6px;">
                                     <i class="fas fa-paperclip"></i> Evidence
                                 </a>
                             <?php endif; ?>
                         </td>
-                        <td><?php echo sanitize($r['reporter_name']); ?><br><small style="color: #7f8c8d;"><?php echo sanitize($r['email']); ?></small></td>
                         <td>
-                            <span style="background: #fff3cd; color: #856404; padding: 4px 8px; border-radius: 4px; font-size: 11px; font-weight: 600;">
-                                <?php echo str_replace('_', ' ', ucfirst($r['repair_status'])); ?>
-                            </span>
+                            <div><?php echo sanitize($r['reporter_name']); ?></div>
+                            <div class="text-muted" style="font-size: 12px; margin-top: 4px;"><?php echo sanitize($r['email']); ?></div>
+                        </td>
+                        <td>
+                            <span class="status-badge" style="background: #fff3cd; color: #856404;"><?php echo str_replace('_', ' ', ucfirst($r['repair_status'])); ?></span>
                         </td>
                         <td><strong><?php echo $r['days_in_repair']; ?></strong> days</td>
                         <td>
-                            <span style="background: <?php echo $severityColor; ?>20; color: <?php echo $severityColor; ?>; padding: 4px 8px; border-radius: 4px; font-size: 11px; font-weight: 600;">
-                                <?php echo strtoupper($r['severity'] ?? 'medium'); ?>
-                            </span>
+                            <span class="status-badge" style="background: <?php echo $severityColor; ?>20; color: <?php echo $severityColor; ?>;"><?php echo strtoupper($r['severity'] ?? 'medium'); ?></span>
                         </td>
-                        <td>
-                            <button onclick="markRepairDone(<?php echo $r['id']; ?>, '<?php echo sanitize($r['asset_tag']); ?>')" class="btn btn-sm btn-success" title="Mark as Complete">
-                                <i class="fas fa-check"></i> Done
+                        <td class="action-btns">
+                            <button onclick="markRepairDone(event, <?php echo $r['id']; ?>, '<?php echo sanitize($r['asset_tag']); ?>')" class="btn btn-sm btn-success" title="Mark as Complete">
+                                <i class="fas fa-check"></i>
                             </button>
-                            <a href="view_device.php?id=<?php echo $r['device_id']; ?>" class="btn btn-sm btn-info" title="View Device">
+                            <a href="view_device.php?id=<?php echo $r['device_id']; ?>" class="btn btn-sm btn-secondary" title="View Device">
                                 <i class="fas fa-eye"></i>
                             </a>
                         </td>
@@ -124,8 +129,8 @@ $flash = getFlashMessage();
             <p>No completed repairs yet</p>
         </div>
         <?php else: ?>
-        <div style="overflow-x: auto;">
-            <table class="table table-hover">
+        <div class="data-table-wrapper">
+            <table class="data-table">
                 <thead>
                     <tr>
                         <th>Device</th>
@@ -139,12 +144,15 @@ $flash = getFlashMessage();
                 <tbody>
                     <?php foreach ($completedRepairs as $r): ?>
                     <tr>
-                        <td><strong><?php echo sanitize($r['asset_tag']); ?></strong><br><small style="color: #7f8c8d;"><?php echo sanitize($r['model']); ?></small></td>
+                        <td>
+                            <strong><?php echo sanitize($r['asset_tag']); ?></strong>
+                            <div class="text-muted" style="font-size: 12px; margin-top: 4px;"><?php echo sanitize($r['model']); ?></div>
+                        </td>
                         <td><?php echo sanitize($r['reporter_name']); ?></td>
                         <td><?php echo date('M d, Y', strtotime($r['started_date'])); ?></td>
                         <td><?php echo date('M d, Y', strtotime($r['completed_date'])); ?></td>
                         <td><strong><?php echo $r['days_to_repair']; ?></strong> days</td>
-                        <td><small><?php echo sanitize(substr($r['repair_notes'] ?? 'N/A', 0, 40)); ?></small></td>
+                        <td><span class="text-muted" style="font-size: 12px;"><?php echo sanitize(strlen($r['repair_notes'] ?? 'N/A') > 50 ? substr($r['repair_notes'] ?? 'N/A', 0, 50) . '...' : ($r['repair_notes'] ?? 'N/A')); ?></span></td>
                     </tr>
                     <?php endforeach; ?>
                 </tbody>
@@ -155,17 +163,17 @@ $flash = getFlashMessage();
 </div>
 
 <!-- New Repair Request Modal -->
-<div id="repairFormModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000; align-items: center; justify-content: center;">
-    <div class="card" style="width: 90%; max-width: 600px; background: white;">
-        <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+<div id="repairFormModal" class="modal-overlay">
+    <div class="modal-box">
+        <div class="modal-header">
             <h3>New Repair Request</h3>
-            <button onclick="closeRepairForm()" style="background: none; border: none; font-size: 24px; cursor: pointer;">&times;</button>
+            <button type="button" class="modal-close" onclick="closeRepairForm()">&times;</button>
         </div>
-        <div class="card-body">
+        <div class="modal-body">
             <form method="POST">
-                <div class="form-group" style="margin-bottom: 15px;">
-                    <label for="deviceId" style="display: block; font-weight: 600; margin-bottom: 5px;">Device *</label>
-                    <select name="device_id" id="deviceId" required style="width: 100%; padding: 8px; border: 1px solid #bdc3c7; border-radius: 4px;">
+                <div class="form-group">
+                    <label for="deviceId">Device <span class="required">*</span></label>
+                    <select name="device_id" id="deviceId" required class="form-control">
                         <option value="">— Select a device —</option>
                         <?php foreach ($repairableDevices as $rd): ?>
                         <option value="<?php echo $rd['id']; ?>"><?php echo sanitize($rd['asset_tag'] . ' - ' . $rd['name']); ?></option>
@@ -173,12 +181,12 @@ $flash = getFlashMessage();
                     </select>
                 </div>
 
-                <div class="form-group" style="margin-bottom: 15px;">
-                    <label for="issueDesc" style="display: block; font-weight: 600; margin-bottom: 5px;">Issue Description *</label>
-                    <textarea name="issue_description" id="issueDesc" required style="width: 100%; min-height: 100px; padding: 8px; border: 1px solid #bdc3c7; border-radius: 4px;"></textarea>
+                <div class="form-group">
+                    <label for="issueDesc">Issue Description <span class="required">*</span></label>
+                    <textarea name="issue_description" id="issueDesc" required class="form-control"></textarea>
                 </div>
 
-                <div style="display: flex; gap: 10px; justify-content: flex-end;">
+                <div class="modal-footer">
                     <button type="button" onclick="closeRepairForm()" class="btn btn-outline">Cancel</button>
                     <button type="submit" name="submit_repair" value="1" class="btn btn-primary">Create Repair Request</button>
                 </div>
@@ -188,22 +196,22 @@ $flash = getFlashMessage();
 </div>
 
 <!-- Mark Repair Done Modal -->
-<div id="markDoneModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000; align-items: center; justify-content: center;">
-    <div class="card" style="width: 90%; max-width: 600px; background: white;">
-        <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+<div id="markDoneModal" class="modal-overlay">
+    <div class="modal-box">
+        <div class="modal-header">
             <h3>Mark Repair as Complete</h3>
-            <button onclick="closeMarkDone()" style="background: none; border: none; font-size: 24px; cursor: pointer;">&times;</button>
+            <button type="button" class="modal-close" onclick="closeMarkDone()">&times;</button>
         </div>
-        <div class="card-body">
+        <div class="modal-body">
             <div id="repairInfo" style="background: #f8f9fa; padding: 15px; border-radius: 4px; margin-bottom: 15px;">
                 <strong>Device:</strong> <span id="repairDeviceTag"></span><br>
                 <small style="color: #7f8c8d;" id="repairDeviceModel"></small>
             </div>
 
-            <div class="form-group" style="margin-bottom: 15px;">
-                <label for="completionNotes" style="display: block; font-weight: 600; margin-bottom: 5px;">Completion Notes</label>
-                <textarea id="completionNotes" placeholder="Describe what was done to fix the device..." style="width: 100%; min-height: 100px; padding: 8px; border: 1px solid #bdc3c7; border-radius: 4px;"></textarea>
-                <small style="color: #7f8c8d;">This will be included in the email sent to the employee</small>
+            <div class="form-group">
+                <label for="completionNotes">Completion Notes</label>
+                <textarea id="completionNotes" class="form-control" placeholder="Describe what was done to fix the device..."></textarea>
+                <small class="form-hint">This will be included in the email sent to the employee</small>
             </div>
 
             <div style="background: #e8f4f8; padding: 12px; border-left: 3px solid #3498db; margin-bottom: 15px; border-radius: 3px;">
@@ -215,7 +223,7 @@ $flash = getFlashMessage();
                 </ul>
             </div>
 
-            <div style="display: flex; gap: 10px; justify-content: flex-end;">
+            <div class="modal-footer">
                 <button type="button" onclick="closeMarkDone()" class="btn btn-outline">Cancel</button>
                 <button type="button" onclick="submitRepairCompletion()" class="btn btn-success">Mark as Complete</button>
             </div>
@@ -234,11 +242,10 @@ function closeRepairForm() {
     document.getElementById('repairFormModal').style.display = 'none';
 }
 
-function markRepairDone(repairId, assetTag) {
-    // Get repair details from table
-    const row = event.target.closest('tr');
-    const model = row.querySelector('small').textContent;
-    
+function markRepairDone(e, repairId, assetTag) {
+    const row = e.target.closest('tr');
+    const model = row ? (row.querySelector('small') ? row.querySelector('small').textContent : '') : '';
+
     document.getElementById('repairIdToMark').value = repairId;
     document.getElementById('repairDeviceTag').textContent = assetTag;
     document.getElementById('repairDeviceModel').textContent = model;

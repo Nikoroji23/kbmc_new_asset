@@ -186,63 +186,66 @@ function notifyITStaff($type, $title, $message, $relatedId = null) {
     }
 }
 
-function getNotificationUrl(array $notification) {
-    $type = $notification['type'] ?? '';
-    $relatedId = !empty($notification['related_id']) ? intval($notification['related_id']) : null;
-    $role = $_SESSION['role'] ?? '';
-
+/**
+ * Returns the correct URL for a notification based on its type and related_id
+ */
+function getNotificationUrl(array $notif): string {
+    $type = $notif['type'] ?? 'unknown';
+    $relatedId = $notif['related_id'] ?? null;
+    
+    // Build query string with related_id if available
+    $idParam = $relatedId ? '?id=' . urlencode($relatedId) : '';
+    
     switch ($type) {
-        case 'device_request':
-            return 'requests.php' . ($relatedId ? '?id=' . $relatedId : '');
-        case 'request_approved':
-        case 'request_rejected':
-            return 'requests.php' . ($relatedId ? '?id=' . $relatedId : '');
-        case 'repair_needed':
-        case 'repair_completed':
-            return 'repairs.php' . ($relatedId ? '?repair_id=' . $relatedId : '');
-        case 'device_deployed':
-        case 'device_returned':
-        case 'warranty_expiring':
-            return $relatedId ? 'view_device.php?id=' . $relatedId : 'devices.php';
-        case 'low_stock':
-            return 'devices.php';
-        case 'maintenance_assigned':
-        case 'maintenance_due':
-            return $relatedId ? 'maintenance_reminders.php?device_id=' . $relatedId : 'maintenance_reminders.php';
-        case 'user_creation_request':
-            return 'security_control.php' . ($relatedId ? '#request-' . $relatedId : '');
-        case 'user_creation_approved':
-        case 'user_creation_rejected':
-            return 'notifications.php';
-        case 'user_clearance_required':
-            return 'it_clearance.php';
-        case 'user_clearance_completed':
-            if ($role === 'employee') {
-                return $relatedId ? 'view_device.php?id=' . $relatedId : 'user_asset_dashboard.php';
-            }
-            return 'it_clearance.php';
-        case 'voluntary_return_requested':
-            if (in_array($role, ['admin', 'it_staff'], true)) {
-                return 'it_clearance.php';
-            }
-            return $relatedId ? 'view_device.php?id=' . $relatedId : 'user_asset_dashboard.php';
+        // Device Lifespan notifications
         case 'lifespan_monitor':
         case 'lifespan_replace_soon':
         case 'lifespan_overdue':
         case 'lifespan_replaced':
         case 'lifespan_extended':
-            // Employees see device details view, IT staff see full lifespan dashboard
-            if ($role === 'employee') {
-                return $relatedId ? 'view_device.php?id=' . $relatedId : 'devices.php';
-            }
-            return $relatedId ? 'device_lifespan.php?device_id=' . $relatedId : 'device_lifespan.php';
-        case 'audit_reminder':
-            return 'users.php#recovery';
+            return 'device_lifespan.php' . $idParam;
+            
+        // Device Requests
+        case 'request_approved':
+        case 'request_rejected':
+        case 'new_device_request':
+            return 'device_requests.php' . $idParam;
+            
+        // Maintenance (Reminder & Assigned)
+        case 'maintenance_reminder':
+        case 'maintenance_assigned':
+            return 'maintenance.php' . $idParam;
+            
+        // Repairs
+        case 'repair_needed':
+            return 'repairs.php' . $idParam;
+            
+        // Deployments
+        case 'device_deployed':
+        case 'device_returned':
+            return 'deployments.php' . $idParam;
+            
+        // Inspections / Clearances
+        case 'user_clearance_required':
+        case 'user_clearance_completed':
+            return 'inspections.php' . $idParam;
+            
+        // Low Stock / Inventory
+        case 'low_stock':
+            return 'inventory.php' . $idParam;
+            
+        // Warranty
+        case 'warranty_expiring':
+            return 'warranty.php' . $idParam;
+            
+        // Voluntary Return
+        case 'voluntary_return_requested':
+            return 'returns.php' . $idParam;
+            
         default:
-            return 'notifications.php';
+            return 'dashboard.php';
     }
 }
-
 function createPasswordResetToken($userId) {
     global $pdo;
     $token = bin2hex(random_bytes(32));
