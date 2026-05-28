@@ -1,88 +1,348 @@
 <?php
-/**
- * KBMC Asset Management - Manage Users
- * Includes: User Management + Recovery Requests tabs
- */
-$pageTitle = 'Manage Users';
-require_once 'includes/functions.php';
-requireITStaff();
-$canManageUsers = hasRole('admin');
-$canRequestUsers = $canManageUsers || hasRole('it_staff');
-$search = trim($_GET['search'] ?? '');
+session_start();
+require_once 'config/database.php';
+require_once 'config/auth.php';
 
-if (isset($_GET['view_user']) && isAjaxRequest()) {
-    $uid = (int) $_GET['view_user'];
-    $user = $pdo->prepare("SELECT * FROM users WHERE id = ?");
-    $user->execute([$uid]);
-    $user = $user->fetch(PDO::FETCH_ASSOC);
-    $assets = getAssignedAssets($uid);
+requireAdmin();
 
-    if ($user) {
-        unset($user['password'], $user['failed_logins'], $user['locked_until']);
+$pdo = getDBConnection();
+
+// --- Filters & Sorting ---
+$search      = trim($_GET['search']      ?? '');
+$dept_filter = trim($_GET['department']  ?? '');
+$name_sort   = $_GET['name_sort']        ?? '';   // 'asc' | 'desc'
+
+// Build WHERE
+$where  = "WHERE 1=1";
+$params = [];
+
+if ($search !== '') {
+    $where   .= " AND (u.name LIKE :search OR u.email LIKE :search OR u.employee_id LIKE :search OR u.department LIKE :search)";
+    $params[':search'] = "%$search%";
+}
+if ($dept_filter !== '') {
+    $where   .= " AND u.department = :dept";
+    $params[':dept'] = $dept_filter;
+}
+
+// ORDER BY
+$order = "ORDER BY u.id DESC";
+if ($name_sort === 'asc')  $order = "ORDER BY u.name ASC";
+if ($name_sort === 'desc') $order = "ORDER BY u.name DESC";
+
+// Fetch distinct departments for dropdown
+$deptStmt = $pdo->query("SELECT DISTINCT department FROM users WHERE department IS NOT NULL AND department != '' ORDER BY department ASC");
+$departments = $deptStmt->fetchAll(PDO::FETCH_COLUMN);
+
+// Fetch users
+$stmt = $pdo->prepare("SELECT u.*, u.employee_id AS emp_id FROM users u $where $order");
+$stmt->execute($params);
+$users = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+// Handle add/deactivate/delete actions (POST)
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    $action = $_POST['action'] ?? '';
+
+    if ($action === 'add_user') {
+        // Insert new user — generate master key automatically
+        $masterKey = strtoupper(bin2hex(random_bytes(4))); // e.g. A3F2C1D8
+        $hashedPw  = password_hash($_POST['password'], PASSWORD_DEFAULT);
+        $ins = $pdo->prepare("INSERT INTO users (employee_id, name, email, role, department, position, password, master_key, status, created_at)
+                               VALUES (:eid, :name, :email, :role, :dept, :pos, :pw, :mk, 'active', NOW())");
+        $ins->execute([
+            ':eid'   => $_POST['employee_id'],
+            ':name'  => $_POST['name'],
+            ':email' => $_POST['email'],
+            ':role'  => $_POST['role'],
+            ':dept'  => $_POST['department'],
+            ':pos'   => $_POST['position'],
+            ':pw'    => $hashedPw,
+            ':mk'    => $masterKey,
+        ]);
+        header("Location: users.php?success=User+added+successfully");
+        exit;
     }
 
-    header('Content-Type: application/json');
-    echo json_encode(['user' => $user, 'assets' => $assets]);
-    exit();
+    if ($action === 'deactivate') {
+        $pdo->prepare("UPDATE users SET status = 'inactive' WHERE id = :id")->execute([':id' => $_POST['user_id']]);
+        header("Location: users.php?success=User+deactivated");
+        exit;
+    }
+
+    if ($action === 'activate') {
+        $pdo->prepare("UPDATE users SET status = 'active' WHERE id = :id")->execute([':id' => $_POST['user_id']]);
+        header("Location: users.php?success=User+activated");
+        exit;
+    }
+
+    if ($action === 'delete') {
+        $pdo->prepare("DELETE FROM users WHERE id = :id")->execute([':id' => $_POST['user_id']]);
+        header("Location: users.php?success=User+deleted");
+        exit;
+    }
 }
 
-require_once 'includes/header.php';
-
-// Get all users and pending recovery requests
-$sql = "SELECT id, employee_id, full_name, email, role, department, position, phone, status, created_at FROM users";
-$params = [];
-if ($search) {
-    $sql .= " WHERE full_name LIKE ? OR email LIKE ? OR employee_id LIKE ? OR department LIKE ?";
-    $q = "%$search%";
-    $params = [$q, $q, $q, $q];
-}
-$sql .= " ORDER BY created_at DESC";
-$stmt = $pdo->prepare($sql);
-$stmt->execute($params);
-$users = $stmt->fetchAll();
-$recoveryRequests = getPendingRecoveryRequests();
+// Recovery requests count
+$recoveryCount = $pdo->query("SELECT COUNT(*) FROM recovery_requests WHERE status = 'pending'")->fetchColumn();
 ?>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Manage Users – KBMC Asset</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        /* ── Reset & Base ── */
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: 'Segoe UI', sans-serif; background: #f4f6fb; color: #333; display: flex; min-height: 100vh; }
 
-<div class="page-header">
-    <h1><i class="fas fa-users-cog"></i> Manage Users</h1>
-    <?php if ($canRequestUsers): ?>
-    <button class="btn btn-primary" data-modal="addUserModal"><i class="fas fa-plus"></i> Add User</button>
-    <?php else: ?>
-    <span style="display:inline-flex;align-items:center;margin-left:20px;background:#3498db;color:#ffffff;padding:8px 12px;border-radius:999px;font-size:14px;font-weight:600;">View Only</span>
-    <?php endif; ?>
-</div>
+        /* ── Sidebar ── */
+        .sidebar {
+            width: 255px; min-height: 100vh; background: #c0392b; color: #fff;
+            display: flex; flex-direction: column; position: fixed; top: 0; left: 0; z-index: 100;
+        }
+        .sidebar-brand { display: flex; align-items: center; gap: 10px; padding: 20px 18px; border-bottom: 1px solid rgba(255,255,255,.15); }
+        .sidebar-brand .logo-box { background:#fff; border-radius:6px; padding:4px 7px; font-weight:800; color:#c0392b; font-size:13px; line-height:1.2; }
+        .sidebar-brand .brand-name { font-size:12px; line-height:1.4; font-weight:600; }
+        .sidebar-user { display:flex; align-items:center; gap:10px; padding:14px 18px; border-bottom:1px solid rgba(255,255,255,.15); }
+        .sidebar-user .avatar { width:38px; height:38px; border-radius:50%; background:rgba(255,255,255,.25); display:flex; align-items:center; justify-content:center; font-size:16px; }
+        .sidebar-user .uname { font-size:13px; font-weight:600; }
+        .sidebar-user .urole { font-size:11px; opacity:.75; }
+        .sidebar nav { flex:1; padding:10px 0; }
+        .sidebar .nav-section { font-size:10px; text-transform:uppercase; letter-spacing:.8px; opacity:.6; padding:14px 18px 4px; }
+        .sidebar a { display:flex; align-items:center; gap:10px; padding:10px 18px; color:rgba(255,255,255,.88); text-decoration:none; font-size:13px; transition:.15s; }
+        .sidebar a:hover, .sidebar a.active { background:rgba(0,0,0,.18); color:#fff; }
+        .sidebar a i { width:16px; text-align:center; }
 
-<form method="GET" style="margin-bottom: 18px; display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
-    <input type="text" name="search" placeholder="Search users by name, email, employee ID, department" value="<?php echo sanitize($search); ?>" style="flex:1; min-width:240px; padding:10px 12px; border:1px solid #d6d8db; border-radius:8px;">
-    <button type="submit" class="btn btn-primary btn-sm"><i class="fas fa-search"></i> Search</button>
-    <a href="users.php" class="btn btn-light btn-sm"><i class="fas fa-undo"></i> Reset</a>
-</form>
+        /* ── Main ── */
+        .main { margin-left:255px; flex:1; display:flex; flex-direction:column; min-height:100vh; }
+        .topbar { background:#fff; border-bottom:1px solid #e5e9f0; padding:0 28px; height:56px; display:flex; align-items:center; justify-content:space-between; position:sticky; top:0; z-index:50; }
+        .topbar-title { font-size:15px; font-weight:600; }
+        .topbar-bell { position:relative; }
+        .topbar-bell .badge { position:absolute; top:-4px; right:-6px; background:#c0392b; color:#fff; border-radius:50%; font-size:10px; width:17px; height:17px; display:flex; align-items:center; justify-content:center; }
+        .content { padding:28px; flex:1; }
 
-<?php if (!$canManageUsers): ?>
-<div style="margin-bottom:18px;padding:14px 18px;background:#ecf6ff;border:1px solid #b3d8ff;border-radius:8px;color:#225b9d;">
-    <strong>IT Staff</strong> can request IT/Admin user creation and inspect employee accounts. Administrative actions such as activate/deactivate, delete, and recovery approval remain reserved for admin only.
-</div>
-<?php endif; ?>
+        /* ── Page Header ── */
+        .page-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:22px; }
+        .page-header h1 { font-size:22px; font-weight:700; display:flex; align-items:center; gap:10px; }
+        .btn { display:inline-flex; align-items:center; gap:7px; padding:9px 18px; border-radius:7px; border:none; cursor:pointer; font-size:13px; font-weight:600; text-decoration:none; transition:.15s; }
+        .btn-primary { background:#c0392b; color:#fff; }
+        .btn-primary:hover { background:#a93226; }
+        .btn-outline { background:#fff; color:#555; border:1px solid #d5d9e0; }
+        .btn-outline:hover { background:#f4f6fb; }
+        .btn-sm { padding:6px 12px; font-size:12px; }
+        .btn-danger  { background:#c0392b; color:#fff; }
+        .btn-danger:hover { background:#a93226; }
+        .btn-warning { background:#e67e22; color:#fff; }
+        .btn-warning:hover { background:#d35400; }
+        .btn-success { background:#27ae60; color:#fff; }
+        .btn-success:hover { background:#1e8449; }
+        .btn-icon { background:none; border:none; cursor:pointer; color:#555; font-size:15px; padding:5px 7px; border-radius:5px; transition:.15s; }
+        .btn-icon:hover { background:#f0f0f0; color:#c0392b; }
 
-<!-- Tabs Navigation -->
-<div class="tabs">
-    <button class="tab-btn active" onclick="switchTab('users-tab', this)">
-        <i class="fas fa-users"></i> All Users
-    </button>
-    <button class="tab-btn" onclick="switchTab('recovery-tab', this)">
-        <i class="fas fa-user-shield"></i> Recovery Requests
-        <?php if (count($recoveryRequests) > 0): ?>
-        <span class="nav-badge" style="margin-left: 8px;"><?php echo count($recoveryRequests); ?></span>
+        /* ── Alert ── */
+        .alert { padding:11px 16px; border-radius:7px; margin-bottom:18px; font-size:13px; display:flex; align-items:center; gap:8px; }
+        .alert-success { background:#d4edda; color:#155724; border:1px solid #c3e6cb; }
+
+        /* ── Filter Bar ── */
+        .filter-bar {
+            background:#fff; border:1px solid #e5e9f0; border-radius:10px;
+            padding:16px 20px; margin-bottom:20px;
+            display:flex; flex-wrap:wrap; gap:12px; align-items:flex-end;
+        }
+        .filter-bar .fg { display:flex; flex-direction:column; gap:5px; flex:1; min-width:180px; }
+        .filter-bar label { font-size:11px; font-weight:600; color:#888; text-transform:uppercase; letter-spacing:.5px; }
+        .filter-bar input, .filter-bar select {
+            padding:9px 12px; border:1px solid #d5d9e0; border-radius:7px; font-size:13px;
+            background:#fff; color:#333; outline:none; transition:.15s; width:100%;
+        }
+        .filter-bar input:focus, .filter-bar select:focus { border-color:#c0392b; box-shadow:0 0 0 3px rgba(192,57,43,.1); }
+        .filter-bar .fg-actions { display:flex; gap:8px; align-items:flex-end; }
+
+        /* ── Tabs ── */
+        .tabs { display:flex; gap:4px; margin-bottom:18px; border-bottom:2px solid #e5e9f0; }
+        .tab { padding:10px 18px; font-size:13px; font-weight:600; color:#888; border:none; background:none; cursor:pointer; border-bottom:2px solid transparent; margin-bottom:-2px; display:flex; align-items:center; gap:7px; transition:.15s; }
+        .tab.active { color:#c0392b; border-bottom-color:#c0392b; }
+        .tab .tab-badge { background:#c0392b; color:#fff; border-radius:50%; font-size:10px; width:18px; height:18px; display:flex; align-items:center; justify-content:center; }
+
+        /* ── Table Card ── */
+        .card { background:#fff; border-radius:12px; border:1px solid #e5e9f0; overflow:hidden; }
+        .table-wrap { overflow-x:auto; }
+        table { width:100%; border-collapse:collapse; font-size:13px; }
+        thead th { background:#f8f9fc; color:#555; font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.5px; padding:12px 16px; border-bottom:1px solid #e5e9f0; white-space:nowrap; }
+        tbody tr { border-bottom:1px solid #f0f2f8; transition:.12s; }
+        tbody tr:last-child { border-bottom:none; }
+        tbody tr:hover { background:#fafbff; }
+        tbody td { padding:13px 16px; vertical-align:middle; }
+        .user-name { font-weight:700; color:#222; }
+        .user-email { font-size:12px; color:#888; }
+        .badge-status { display:inline-flex; align-items:center; gap:5px; padding:4px 10px; border-radius:20px; font-size:11px; font-weight:700; }
+        .badge-active   { background:#d4edda; color:#155724; }
+        .badge-inactive { background:#f8d7da; color:#721c24; }
+        .action-btns { display:flex; gap:6px; flex-wrap:wrap; }
+
+        /* ── Empty State ── */
+        .empty-state { text-align:center; padding:60px 20px; color:#aaa; }
+        .empty-state i { font-size:40px; margin-bottom:14px; display:block; }
+        .empty-state p { font-size:14px; }
+
+        /* ── Modal ── */
+        .modal-overlay { display:none; position:fixed; inset:0; background:rgba(0,0,0,.45); z-index:200; align-items:center; justify-content:center; }
+        .modal-overlay.open { display:flex; }
+        .modal { background:#fff; border-radius:12px; width:520px; max-width:95vw; max-height:90vh; overflow-y:auto; box-shadow:0 20px 60px rgba(0,0,0,.2); }
+        .modal-header { padding:20px 24px 16px; border-bottom:1px solid #e5e9f0; display:flex; align-items:center; justify-content:space-between; }
+        .modal-header h3 { font-size:16px; font-weight:700; }
+        .modal-body { padding:24px; display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+        .modal-body .full { grid-column:1/-1; }
+        .form-group { display:flex; flex-direction:column; gap:6px; }
+        .form-group label { font-size:12px; font-weight:600; color:#666; }
+        .form-group input, .form-group select {
+            padding:9px 12px; border:1px solid #d5d9e0; border-radius:7px; font-size:13px; outline:none; transition:.15s;
+        }
+        .form-group input:focus, .form-group select:focus { border-color:#c0392b; box-shadow:0 0 0 3px rgba(192,57,43,.1); }
+        .modal-footer { padding:16px 24px; border-top:1px solid #e5e9f0; display:flex; justify-content:flex-end; gap:10px; }
+
+        /* ── Confirm Modal ── */
+        .confirm-body { padding:24px; text-align:center; }
+        .confirm-body i { font-size:44px; color:#c0392b; margin-bottom:14px; display:block; }
+        .confirm-body h4 { font-size:16px; font-weight:700; margin-bottom:8px; }
+        .confirm-body p { font-size:13px; color:#666; }
+        .confirm-footer { padding:16px 24px; border-top:1px solid #e5e9f0; display:flex; justify-content:center; gap:10px; }
+
+        /* ── Sort indicator ── */
+        .sort-indicator { font-size:10px; margin-left:4px; color:#c0392b; }
+    </style>
+</head>
+<body>
+
+<!-- ═══════════════════════ SIDEBAR ═══════════════════════ -->
+<aside class="sidebar">
+    <div class="sidebar-brand">
+        <div class="logo-box">KB<br>MC</div>
+        <div class="brand-name">Kitchen Beauty<br>Marketing Corp.</div>
+    </div>
+    <div class="sidebar-user">
+        <div class="avatar"><i class="fa fa-user"></i></div>
+        <div>
+            <div class="uname"><?= htmlspecialchars($_SESSION['user_name'] ?? 'System Administrator') ?></div>
+            <div class="urole"><?= htmlspecialchars($_SESSION['user_role'] ?? 'Administrator') ?></div>
+        </div>
+    </div>
+    <nav>
+        <a href="admin_dashboard.php"><i class="fa fa-gauge-high"></i> Admin Dashboard</a>
+        <div class="nav-section">Tools &amp; Search</div>
+        <a href="search_devices.php"><i class="fa fa-magnifying-glass"></i> Search Devices</a>
+        <a href="my_devices.php"><i class="fa fa-laptop"></i> My Devices</a>
+        <div class="nav-section">Administration</div>
+        <a href="users.php" class="active"><i class="fa fa-users"></i> Manage Users</a>
+        <a href="recovery_requests.php"><i class="fa fa-rotate-left"></i> Recovery Requests
+            <?php if ($recoveryCount > 0): ?>
+                <span class="tab-badge" style="margin-left:auto"><?= $recoveryCount ?></span>
+            <?php endif; ?>
+        </a>
+        <div class="nav-section">Account</div>
+        <a href="my_profile.php"><i class="fa fa-id-card"></i> My Profile</a>
+        <a href="logout.php"><i class="fa fa-right-from-bracket"></i> Logout</a>
+    </nav>
+</aside>
+
+<!-- ═══════════════════════ MAIN ═══════════════════════ -->
+<div class="main">
+    <div class="topbar">
+        <div class="topbar-title"><i class="fa fa-bars" style="cursor:pointer;margin-right:10px;color:#888"></i> Manage Users</div>
+        <div class="topbar-bell">
+            <i class="fa fa-bell" style="font-size:18px;color:#555"></i>
+            <span class="badge">29</span>
+        </div>
+    </div>
+
+    <div class="content">
+        <div class="page-header">
+            <h1><i class="fa fa-users" style="color:#c0392b"></i> Manage Users</h1>
+            <button class="btn btn-primary" onclick="openModal('addUserModal')">
+                <i class="fa fa-plus"></i> Add User
+            </button>
+        </div>
+
+        <?php if (!empty($_GET['success'])): ?>
+        <div class="alert alert-success">
+            <i class="fa fa-circle-check"></i> <?= htmlspecialchars($_GET['success']) ?>
+        </div>
         <?php endif; ?>
-    </button>
-</div>
 
-<!-- Users Tab -->
-<div id="users-tab" class="tab-content active">
-    <div class="card">
-        <div class="card-body">
-            <div class="data-table-wrapper">
-                <table class="data-table">
+        <!-- ── Filter Bar ── -->
+        <form method="GET" action="users.php" id="filterForm">
+            <div class="filter-bar">
+                <div class="fg" style="flex:2">
+                    <label><i class="fa fa-magnifying-glass"></i> Search</label>
+                    <input type="text" name="search" value="<?= htmlspecialchars($search) ?>" placeholder="Search by name, email, employee ID, department…">
+                </div>
+
+                <div class="fg">
+                    <label><i class="fa fa-building"></i> Department</label>
+                    <select name="department" onchange="this.form.submit()">
+                        <option value="">All Departments</option>
+                        <?php foreach ($departments as $d): ?>
+                            <option value="<?= htmlspecialchars($d) ?>" <?= $dept_filter === $d ? 'selected' : '' ?>>
+                                <?= htmlspecialchars($d) ?>
+                            </option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+
+                <div class="fg">
+                    <label><i class="fa fa-arrow-down-a-z"></i> Sort by Name</label>
+                    <select name="name_sort" onchange="this.form.submit()">
+                        <option value=""   <?= $name_sort === ''     ? 'selected' : '' ?>>Default</option>
+                        <option value="asc"  <?= $name_sort === 'asc'  ? 'selected' : '' ?>>A → Z</option>
+                        <option value="desc" <?= $name_sort === 'desc' ? 'selected' : '' ?>>Z → A</option>
+                    </select>
+                </div>
+
+                <div class="fg-actions">
+                    <button type="submit" class="btn btn-primary btn-sm"><i class="fa fa-magnifying-glass"></i> Search</button>
+                    <a href="users.php" class="btn btn-outline btn-sm"><i class="fa fa-rotate-right"></i> Reset</a>
+                </div>
+            </div>
+        </form>
+
+        <!-- ── Tabs ── -->
+        <div class="tabs">
+            <button class="tab active" onclick="switchTab('all')">
+                <i class="fa fa-users"></i> All Users
+                <span style="background:#e5e9f0;color:#555;border-radius:20px;padding:2px 8px;font-size:11px;margin-left:4px"><?= count($users) ?></span>
+            </button>
+            <a href="recovery_requests.php" class="tab" style="text-decoration:none">
+                <i class="fa fa-rotate-left"></i> Recovery Requests
+                <?php if ($recoveryCount > 0): ?>
+                    <span class="tab-badge"><?= $recoveryCount ?></span>
+                <?php endif; ?>
+            </a>
+        </div>
+
+        <!-- ── Results info ── -->
+        <?php if ($search || $dept_filter || $name_sort): ?>
+        <p style="font-size:12px;color:#888;margin-bottom:12px">
+            <i class="fa fa-filter"></i>
+            Showing <?= count($users) ?> result<?= count($users) !== 1 ? 's' : '' ?>
+            <?= $dept_filter ? "in <strong>$dept_filter</strong>" : '' ?>
+            <?= $search ? "matching <strong>\"" . htmlspecialchars($search) . "\"</strong>" : '' ?>
+            <?= $name_sort ? "· sorted <strong>" . ($name_sort === 'asc' ? 'A→Z' : 'Z→A') . "</strong>" : '' ?>
+            — <a href="users.php" style="color:#c0392b">Clear filters</a>
+        </p>
+        <?php endif; ?>
+
+        <!-- ── Table ── -->
+        <div class="card">
+            <div class="table-wrap">
+                <?php if (empty($users)): ?>
+                <div class="empty-state">
+                    <i class="fa fa-users-slash"></i>
+                    <p>No users found matching your filters.</p>
+                </div>
+                <?php else: ?>
+                <table>
                     <thead>
                         <tr>
                             <th>ID</th>
@@ -97,538 +357,190 @@ $recoveryRequests = getPendingRecoveryRequests();
                         </tr>
                     </thead>
                     <tbody>
-                        <?php if (empty($users)): ?>
-                        <tr><td colspan="9" class="empty-state" style="padding: 40px;"><h4>No users found</h4></td></tr>
-                        <?php else: ?>
                         <?php foreach ($users as $u): ?>
                         <tr>
-                            <td><?php echo sanitize($u['employee_id'] ?: 'N/A'); ?></td>
-                            <td><strong><?php echo sanitize($u['full_name']); ?></strong></td>
-                            <td><?php echo sanitize($u['email']); ?></td>
-                            <td><?php echo $role_names[$u['role']] ?? $u['role']; ?></td>
-                            <td><?php echo sanitize($u['department']); ?></td>
-                            <td><?php echo sanitize($u['position']); ?></td>
+                            <td style="color:#888;font-size:12px"><?= htmlspecialchars($u['employee_id'] ?? $u['id']) ?></td>
                             <td>
-                                <span class="status-badge" style="background: <?php echo $u['status'] == 'active' ? '#27AE6020' : '#E74C3C20'; ?>; color: <?php echo $u['status'] == 'active' ? '#27AE60' : '#E74C3C'; ?>; border: 1px solid <?php echo $u['status'] == 'active' ? '#27AE60' : '#E74C3C'; ?>;">
-                                    <?php echo ucfirst($u['status']); ?>
+                                <div class="user-name"><?= htmlspecialchars($u['name']) ?></div>
+                                <div class="user-email"><?= htmlspecialchars($u['email']) ?></div>
+                            </td>
+                            <td style="color:#555"><?= htmlspecialchars($u['email']) ?></td>
+                            <td><?= htmlspecialchars($u['role'] ?? '—') ?></td>
+                            <td><?= htmlspecialchars($u['department'] ?? '—') ?></td>
+                            <td><?= htmlspecialchars($u['position'] ?? '—') ?></td>
+                            <td>
+                                <?php $st = strtolower($u['status'] ?? 'active'); ?>
+                                <span class="badge-status badge-<?= $st ?>">
+                                    <i class="fa fa-circle" style="font-size:7px"></i>
+                                    <?= strtoupper($st) ?>
                                 </span>
                             </td>
-                            <td><?php echo formatDate($u['created_at']); ?></td>
-                            <td style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;">
-                                <button class="action-btn view view-user-btn"
-                                        data-id="<?php echo $u['id']; ?>"
-                                        title="View Details">
-                                    <i class="fas fa-eye"></i>
-                                </button>
-                                <?php if (!$canManageUsers): ?>
-                                <span style="display:inline-flex;align-items:center;margin-left:6px;padding:4px 9px;background:#3498db;color:#fff;border-radius:12px;font-size:12px;font-weight:600;">View only</span>
-                                <?php endif; ?>
-                                <?php if ($canManageUsers): ?>
-                                <form method="POST" action="user_actions.php" style="display:inline-block;margin:0;">
-                                    <?php echo csrfInputField(); ?>
-                                    <input type="hidden" name="action" value="toggle_user">
-                                    <input type="hidden" name="id" value="<?php echo $u['id']; ?>">
-                                    <button type="submit" class="btn btn-sm <?php echo $u['status'] == 'active' ? 'btn-danger' : 'btn-success'; ?>"
-                                        onclick="return confirm('<?php echo $u['status'] == 'active' ? 'Deactivate' : 'Activate'; ?> this user?')">
-                                        <?php echo $u['status'] == 'active' ? '<i class="fas fa-ban"></i> Deactivate' : '<i class="fas fa-check"></i> Activate'; ?>
-                                    </button>
-                                </form>
-                                <form method="POST" action="user_actions.php" style="display:inline-block;margin:0;">
-                                    <?php echo csrfInputField(); ?>
-                                    <input type="hidden" name="action" value="delete_user">
-                                    <input type="hidden" name="id" value="<?php echo $u['id']; ?>">
-                                    <button type="submit" class="btn btn-sm btn-danger"
-                                        onclick="return confirm('Are you sure you want to permanently delete <?php echo sanitize($u['full_name']); ?>? This cannot be undone.')">
-                                        <i class="fas fa-trash"></i> Delete
-                                    </button>
-                                </form>
-                                <?php endif; ?>
-                            </td>
-                        </tr>
-                        <?php endforeach; ?>
-                        <?php endif; ?>
-                    </tbody>
-                </table>
-            </div>
-        </div>
-    </div>
-</div>
-
-<!-- Recovery Requests Tab -->
-<div id="recovery-tab" class="tab-content">
-    <div class="card">
-        <div class="card-header">
-            <h3><i class="fas fa-user-shield"></i> Account Recovery Requests</h3>
-        </div>
-        <div class="card-body">
-            <?php if (empty($recoveryRequests)): ?>
-            <div class="empty-state">
-                <i class="fas fa-check-circle" style="font-size: 40px; color: #27AE60;"></i>
-                <h4>No pending recovery requests</h4>
-                <p>All accounts are active or recovery requests have been processed.</p>
-            </div>
-            <?php else: ?>
-            <div class="data-table-wrapper">
-                <table class="data-table">
-                    <thead>
-                        <tr>
-                            <th>Request ID</th>
-                            <th>User</th>
-                            <th>Email</th>
-                            <th>Department</th>
-                            <th>Reason</th>
-                            <th>Requested</th>
-                            <th>Status</th>
-                            <th>Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <?php foreach ($recoveryRequests as $req): ?>
-                        <tr>
-                            <td><strong>#<?php echo $req['id']; ?></strong></td>
-                            <td><?php echo sanitize($req['full_name']); ?></td>
-                            <td><?php echo sanitize($req['email']); ?></td>
-                            <td><?php echo sanitize($req['department'] ?: 'N/A'); ?></td>
-                            <td><?php echo sanitize(substr($req['request_reason'], 0, 50)) . (strlen($req['request_reason']) > 50 ? '...' : ''); ?></td>
-                            <td><?php echo formatDate($req['requested_at'], 'M d, Y h:i A'); ?></td>
-                            <td>
-                                <span class="status-badge" style="background: #F39C1220; color: #F39C12; border: 1px solid #F39C12;">
-                                    Pending
-                                </span>
+                            <td style="color:#888;font-size:12px;white-space:nowrap">
+                                <?= isset($u['created_at']) ? date('M d, Y', strtotime($u['created_at'])) : '—' ?>
                             </td>
                             <td>
                                 <div class="action-btns">
-                                    <?php if ($canManageUsers): ?>
-                                    <form method="POST" action="user_actions.php" style="display:inline-block;margin:0;">
-                                        <?php echo csrfInputField(); ?>
-                                        <input type="hidden" name="action" value="process_recovery">
-                                        <input type="hidden" name="recovery_id" value="<?php echo $req['id']; ?>">
-                                        <input type="hidden" name="approval_action" value="approve">
-                                        <button type="submit" class="action-btn assign" title="Approve Recovery"
-                                            onclick="return confirm('Approve account recovery for <?php echo sanitize($req['full_name']); ?>? This will reactivate their account.')">
-                                            <i class="fas fa-check"></i>
+                                    <button class="btn-icon" title="View" onclick="viewUser(<?= htmlspecialchars(json_encode($u)) ?>)">
+                                        <i class="fa fa-eye"></i>
+                                    </button>
+                                    <?php if ($st === 'active'): ?>
+                                    <form method="POST" style="display:inline">
+                                        <input type="hidden" name="action" value="deactivate">
+                                        <input type="hidden" name="user_id" value="<?= $u['id'] ?>">
+                                        <button type="submit" class="btn btn-sm btn-warning">
+                                            <i class="fa fa-ban"></i> Deactivate
                                         </button>
                                     </form>
-                                    <form method="POST" action="user_actions.php" style="display:inline-block;margin:0;">
-                                        <?php echo csrfInputField(); ?>
-                                        <input type="hidden" name="action" value="process_recovery">
-                                        <input type="hidden" name="recovery_id" value="<?php echo $req['id']; ?>">
-                                        <input type="hidden" name="approval_action" value="reject">
-                                        <button type="submit" class="action-btn delete" title="Reject Recovery"
-                                            onclick="return confirm('Reject account recovery for <?php echo sanitize($req['full_name']); ?>?')">
-                                            <i class="fas fa-times"></i>
+                                    <?php else: ?>
+                                    <form method="POST" style="display:inline">
+                                        <input type="hidden" name="action" value="activate">
+                                        <input type="hidden" name="user_id" value="<?= $u['id'] ?>">
+                                        <button type="submit" class="btn btn-sm btn-success">
+                                            <i class="fa fa-check"></i> Activate
                                         </button>
                                     </form>
                                     <?php endif; ?>
+                                    <button class="btn btn-sm btn-danger" onclick="confirmDelete(<?= $u['id'] ?>, '<?= htmlspecialchars(addslashes($u['name'])) ?>')">
+                                        <i class="fa fa-trash"></i> Delete
+                                    </button>
                                 </div>
                             </td>
                         </tr>
                         <?php endforeach; ?>
                     </tbody>
                 </table>
+                <?php endif; ?>
             </div>
-            <?php endif; ?>
         </div>
-    </div>
-</div>
+    </div><!-- /content -->
+</div><!-- /main -->
 
-<!-- Add User Modal -->
+<!-- ═══════════════════════ ADD USER MODAL ═══════════════════════ -->
 <div class="modal-overlay" id="addUserModal">
-    <div class="modal-box">
+    <div class="modal">
         <div class="modal-header">
-            <h3><i class="fas fa-user-plus"></i> Add New User</h3>
-            <button class="modal-close" data-dismiss="modal">&times;</button>
+            <h3><i class="fa fa-user-plus" style="color:#c0392b"></i> Add New User</h3>
+            <button class="btn-icon" onclick="closeModal('addUserModal')"><i class="fa fa-xmark"></i></button>
         </div>
-        <form method="POST" action="user_actions.php" id="addUserForm">
-            <?php echo csrfInputField(); ?>
+        <form method="POST">
             <input type="hidden" name="action" value="add_user">
             <div class="modal-body">
-                <div class="form-grid">
-                    <div class="form-group">
-                        <label>Employee ID</label>
-                        <input type="text" name="employee_id" class="form-control" placeholder="KBMC-EMP-001">
-                    </div>
-                    <div class="form-group">
-                        <label>Full Name <span class="required">*</span></label>
-                        <input type="text" name="full_name" class="form-control" required>
-                    </div>
-                    <div class="form-group">
-                        <label>Email <span class="required">*</span></label>
-                        <input type="email" name="email" class="form-control" required>
-                    </div>
-                    <div class="form-group">
-                        <label>Password <span class="required">*</span></label>
-                        <input type="password" name="password" class="form-control" required>
-                    </div>
-                    <div class="form-group">
-                        <label>Role</label>
-                        <select name="role" class="form-control">
-                            <option value="employee">Employee</option>
-                            <option value="it_staff">IT Staff</option>
-                            <option value="admin">Administrator</option>
-                        </select>
-                    </div>
-                    <div class="form-group">
-                        <label>Department</label>
-                        <input type="text" name="department" class="form-control" placeholder="Sales Department">
-                    </div>
-                    <div class="form-group">
-                        <label>Position</label>
-                        <input type="text" name="position" class="form-control" placeholder="Sales Associate">
-                    </div>
-                    <div class="form-group">
-                        <label>Phone</label>
-                        <div id="phoneWrapper" class="phone-picker">
-                            <button type="button" id="flagBtn" class="phone-picker-btn" onclick="togglePhonePicker()">
-                                <span id="flagDisplay">🇵🇭</span>
-                                <span id="codeDisplay">+63</span>
-                                <span id="chevron">▼</span>
-                            </button>
-                            <div id="phoneDropdown" class="phone-dropdown">
-                                <div class="phone-dropdown-search">
-                                    <input type="text" id="countrySearch" placeholder="Search..." oninput="filterPhoneCountries()" class="form-control">
-                                </div>
-                                <div id="countryListItems"></div>
-                            </div>
-                            <input type="tel" name="phone" id="phoneNumberInput" class="form-control phone-picker-input"
-                                placeholder="9XX XXX XXXX" maxlength="11"
-                                oninput="this.value=this.value.replace(/[^0-9]/g,'').slice(0,window._phoneMaxLen||11)">
-                        </div>
-                        <input type="hidden" name="phone_full" id="phoneFullInput">
-                    </div>
+                <div class="form-group">
+                    <label>Employee ID</label>
+                    <input type="text" name="employee_id" required placeholder="e.g. KBM-IT-00999">
                 </div>
-                
-                <!-- Approval Notice for IT/Admin Roles -->
-                <div id="approvalNotice" style="display: none; margin-top: 15px; padding: 12px 15px; background: #FFF3CD; border: 1px solid #FFC107; border-radius: 6px; border-left: 4px solid #FFC107;">
-                    <strong style="color: #856404;">⚠️ Approval Required</strong>
-                    <p style="margin: 5px 0 0 0; font-size: 12px; color: #856404;">
-                        Creating IT Staff or Administrator accounts requires approval from a Security IT approver. 
-                        A request will be submitted for review.
-                    </p>
+                <div class="form-group">
+                    <label>Full Name</label>
+                    <input type="text" name="name" required placeholder="Full name">
                 </div>
-                
-                <!-- Request Reason Field -->
-                <div id="reasonField" style="display: none; margin-top: 15px;">
-                    <div class="form-group">
-                        <label>Request Reason / Justification <span class="required">*</span></label>
-                        <textarea name="request_reason" class="form-control" rows="3" placeholder="Explain why this IT/Admin user needs to be created..."></textarea>
-                    </div>
+                <div class="form-group full">
+                    <label>Email Address</label>
+                    <input type="email" name="email" required placeholder="user@kbmc.com">
+                </div>
+                <div class="form-group">
+                    <label>Role</label>
+                    <select name="role" required>
+                        <option value="">Select role…</option>
+                        <option value="Employee">Employee</option>
+                        <option value="IT Staff">IT Staff</option>
+                        <option value="Administrator">Administrator</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Department</label>
+                    <input type="text" name="department" required placeholder="e.g. QC/TECHNICAL">
+                </div>
+                <div class="form-group">
+                    <label>Position</label>
+                    <input type="text" name="position" placeholder="e.g. IT Employee">
+                </div>
+                <div class="form-group">
+                    <label>Password</label>
+                    <input type="password" name="password" required placeholder="Set initial password">
+                </div>
+                <div class="form-group" style="background:#fff8f0;padding:12px;border-radius:8px;border:1px dashed #e67e22;grid-column:1/-1">
+                    <label style="color:#e67e22"><i class="fa fa-key"></i> Master Key</label>
+                    <p style="font-size:12px;color:#888;margin-top:4px">A unique master key will be <strong>auto-generated</strong> for this user and will be visible to Super Admin on the dashboard.</p>
                 </div>
             </div>
             <div class="modal-footer">
-                <button type="button" class="btn btn-light" data-dismiss="modal">Cancel</button>
-                <button type="submit" name="add_user" class="btn btn-primary"><i class="fas fa-save"></i> Add User</button>
+                <button type="button" class="btn btn-outline" onclick="closeModal('addUserModal')">Cancel</button>
+                <button type="submit" class="btn btn-primary"><i class="fa fa-user-plus"></i> Create User</button>
             </div>
         </form>
     </div>
 </div>
 
-<!-- View User Modal -->
-<div id="viewUserModal" class="modal-overlay">
-    <div class="modal-box" style="max-width: 700px;">
-        <div class="modal-header" style="display: flex; justify-content: space-between; align-items: center; gap: 10px;">
-            <div style="display:flex;align-items:center;gap:10px;">
-                <h3 style="margin:0;"><i class="fas fa-user-circle"></i> User Details</h3>
-            </div>
-            <div style="display:flex;align-items:center;gap:8px;">
-                <button type="button" class="btn btn-outline no-print" onclick="printViewUserDetails()"><i class="fas fa-print"></i> Print</button>
-                <button class="modal-close" onclick="closeViewUserModal()">&times;</button>
-            </div>
+<!-- ═══════════════════════ VIEW USER MODAL ═══════════════════════ -->
+<div class="modal-overlay" id="viewUserModal">
+    <div class="modal">
+        <div class="modal-header">
+            <h3><i class="fa fa-id-card" style="color:#c0392b"></i> User Details</h3>
+            <button class="btn-icon" onclick="closeModal('viewUserModal')"><i class="fa fa-xmark"></i></button>
         </div>
-        <div class="modal-body" id="viewUserBody">
-            <p style="text-align:center;color:#999;padding:30px;">Loading...</p>
+        <div class="modal-body" id="viewUserBody" style="grid-template-columns:1fr 1fr">
+            <!-- filled by JS -->
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-outline" onclick="closeModal('viewUserModal')">Close</button>
         </div>
     </div>
 </div>
 
-<?php require_once 'includes/footer.php'; ?>
+<!-- ═══════════════════════ DELETE CONFIRM MODAL ═══════════════════════ -->
+<div class="modal-overlay" id="deleteModal">
+    <div class="modal" style="max-width:400px">
+        <div class="confirm-body">
+            <i class="fa fa-triangle-exclamation"></i>
+            <h4>Delete User?</h4>
+            <p id="deleteMsg">This action cannot be undone.</p>
+        </div>
+        <form method="POST">
+            <input type="hidden" name="action" value="delete">
+            <input type="hidden" name="user_id" id="deleteUserId">
+            <div class="confirm-footer">
+                <button type="button" class="btn btn-outline" onclick="closeModal('deleteModal')">Cancel</button>
+                <button type="submit" class="btn btn-danger"><i class="fa fa-trash"></i> Yes, Delete</button>
+            </div>
+        </form>
+    </div>
+</div>
 
 <script>
-// Tab Switching Function
-function switchTab(tabId, btn) {
-    // Hide all tabs
-    document.querySelectorAll('.tab-content').forEach(tab => {
-        tab.classList.remove('active');
-    });
-    // Remove active from all buttons
-    document.querySelectorAll('.tab-btn').forEach(b => {
-        b.classList.remove('active');
-    });
-    // Show selected tab
-    document.getElementById(tabId).classList.add('active');
-    // Activate button
-    btn.classList.add('active');
+function openModal(id)  { document.getElementById(id).classList.add('open'); }
+function closeModal(id) { document.getElementById(id).classList.remove('open'); }
 
-    // Update URL hash for direct linking
-    if (tabId === 'recovery-tab') {
-        window.location.hash = 'recovery';
-    } else {
-        history.pushState('', document.title, window.location.pathname + window.location.search);
-    }
-}
-
-// Check URL hash on page load
-window.addEventListener('DOMContentLoaded', function() {
-    if (window.location.hash === '#recovery') {
-        const recoveryBtn = document.querySelectorAll('.tab-btn')[1];
-        if (recoveryBtn) {
-            switchTab('recovery-tab', recoveryBtn);
-        }
-    }
+// Close modal on backdrop click
+document.querySelectorAll('.modal-overlay').forEach(o => {
+    o.addEventListener('click', e => { if (e.target === o) o.classList.remove('open'); });
 });
 
-// Handle role selection change
-function handleRoleChange(roleSelect) {
-    const selectedRole = roleSelect.value;
-    const approvalNotice = document.getElementById('approvalNotice');
-    const reasonField = document.getElementById('reasonField');
-    
-    if (selectedRole === 'it_staff' || selectedRole === 'admin') {
-        approvalNotice.style.display = 'block';
-        reasonField.style.display = 'block';
-        reasonField.querySelector('textarea').setAttribute('required', 'required');
-    } else {
-        approvalNotice.style.display = 'none';
-        reasonField.style.display = 'none';
-        reasonField.querySelector('textarea').removeAttribute('required');
-    }
+function confirmDelete(id, name) {
+    document.getElementById('deleteUserId').value = id;
+    document.getElementById('deleteMsg').textContent = `Are you sure you want to delete "${name}"? This cannot be undone.`;
+    openModal('deleteModal');
 }
 
-// Add role change listener
-document.addEventListener('DOMContentLoaded', function() {
-    const roleSelect = document.querySelector('select[name="role"]');
-    if (roleSelect) {
-        roleSelect.addEventListener('change', function() {
-            handleRoleChange(this);
-        });
-    }
-});
-
-// Phone picker scripts
-const phoneCountries = [
-    {flag: '🇵🇭', name: 'Philippines', code: '+63', maxLen: 10, placeholder: '9XX XXX XXXX'},
-    {flag: '🇺🇸', name: 'United States', code: '+1', maxLen: 10, placeholder: 'XXX XXX XXXX'},
-    {flag: '🇬🇧', name: 'United Kingdom', code: '+44', maxLen: 10, placeholder: 'XXXX XXX XXXX'},
-    {flag: '🇦🇺', name: 'Australia', code: '+61', maxLen: 9, placeholder: 'XXX XXX XXX'},
-    {flag: '🇯🇵', name: 'Japan', code: '+81', maxLen: 10, placeholder: 'XX XXXX XXXX'},
-    {flag: '🇸🇬', name: 'Singapore', code: '+65', maxLen: 8, placeholder: 'XXXX XXXX'},
-    {flag: '🇰🇷', name: 'South Korea', code: '+82', maxLen: 10, placeholder: 'XX XXXX XXXX'},
-    {flag: '🇦🇪', name: 'UAE', code: '+971', maxLen: 9, placeholder: 'XX XXX XXXX'},
-];
-let selectedCountry = phoneCountries[0];
-window._phoneMaxLen = selectedCountry.maxLen;
-
-function renderPhoneList(list) {
-    const items = list.map((country, idx) => {
-        return `<div class="phone-country-item" data-index="${idx}">
-            <span>${country.flag}</span>
-            <span>${country.name}</span>
-            <span>${country.code}</span>
+function viewUser(u) {
+    const b = document.getElementById('viewUserBody');
+    const row = (label, val) => `
+        <div class="form-group">
+            <label>${label}</label>
+            <div style="padding:9px 12px;background:#f8f9fc;border-radius:7px;font-size:13px">${val || '—'}</div>
         </div>`;
-    }).join('');
-
-    document.getElementById('countryListItems').innerHTML = items;
+    b.innerHTML =
+        row('Employee ID', u.employee_id || u.id) +
+        row('Full Name', u.name) +
+        row('Email', u.email) +
+        row('Role', u.role) +
+        row('Department', u.department) +
+        row('Position', u.position) +
+        row('Status', u.status) +
+        row('Joined', u.created_at);
+    openModal('viewUserModal');
 }
 
-function togglePhonePicker() {
-    const dropdown = document.getElementById('phoneDropdown');
-    dropdown.classList.toggle('show');
-    if (dropdown.classList.contains('show')) {
-        document.getElementById('countrySearch').focus();
-    }
-}
-
-function selectPhoneCountry(idx) {
-    const country = phoneCountries[idx];
-    if (!country) {
-        return;
-    }
-
-    selectedCountry = country;
-    window._phoneMaxLen = selectedCountry.maxLen;
-    document.getElementById('flagDisplay').textContent = selectedCountry.flag;
-    document.getElementById('codeDisplay').textContent = selectedCountry.code;
-    document.getElementById('phoneNumberInput').maxLength = selectedCountry.maxLen;
-    document.getElementById('phoneNumberInput').placeholder = selectedCountry.placeholder;
-    document.getElementById('phoneNumberInput').value = '';
-    document.getElementById('phoneDropdown').classList.remove('show');
-    document.getElementById('phoneNumberInput').focus();
-}
-
-function filterPhoneCountries() {
-    const query = document.getElementById('countrySearch').value.toLowerCase();
-    renderPhoneList(phoneCountries.filter(c => c.name.toLowerCase().includes(query) || c.code.includes(query)));
-}
-
-renderPhoneList(phoneCountries);
-
-document.addEventListener('click', function (event) {
-    const wrapper = document.getElementById('phoneWrapper');
-    const dropdown = document.getElementById('phoneDropdown');
-    if (wrapper && dropdown && !wrapper.contains(event.target)) {
-        dropdown.classList.remove('show');
-    }
-});
-
-document.getElementById('countryListItems').addEventListener('click', function (event) {
-    const item = event.target.closest('.phone-country-item');
-    if (item) {
-        selectPhoneCountry(parseInt(item.dataset.index, 10));
-    }
-});
-
-document.getElementById('addUserForm').addEventListener('submit', function () {
-    const num = document.getElementById('phoneNumberInput').value;
-    document.getElementById('phoneFullInput').value = selectedCountry.code + num;
-});
-
-// ── View User & Assigned Assets ──────────────────────────────
-document.querySelectorAll('.view-user-btn').forEach(function(btn) {
-    btn.addEventListener('click', function() {
-        var userId = this.dataset.id;
-        var modal  = document.getElementById('viewUserModal');
-        var body   = document.getElementById('viewUserBody');
-
-        body.innerHTML = '<p style="text-align:center;color:#999;padding:30px;"><i class="fas fa-spinner fa-spin"></i> Loading...</p>';
-        modal.classList.add('show');
-
-        fetch('users.php?view_user=' + userId, {
-            headers: { 'X-Requested-With': 'XMLHttpRequest' }
-        })
-        .then(function(res) { return res.json(); })
-        .then(function(data) {
-            var u      = data.user;
-            var assets = data.assets;
-
-            var assetsHtml = assets.length === 0
-                ? '<p style="color:#999;text-align:center;padding:20px 0;"><i class="fas fa-box-open" style="font-size:28px;display:block;margin-bottom:8px;"></i>No assets currently assigned to this user.</p>'
-                : '<div class="data-table-wrapper"><table class="data-table"><thead><tr>'
-                    + '<th>Asset Tag</th><th>PC Name</th><th>IP Address</th><th>Name</th><th>Category</th><th>Status</th><th>Assigned At</th>'
-                    + '</tr></thead><tbody>'
-                    + assets.map(function(a) {
-                        return '<tr>'
-                            + '<td><strong>' + (a.asset_tag || 'N/A') + '</strong></td>'
-                            + '<td>' + (a.pc_name || 'N/A') + '</td>'
-                            + '<td>' + (a.ip_address || 'N/A') + '</td>'
-                            + '<td>' + (a.name || 'N/A') + '</td>'
-                            + '<td>' + (a.category || 'N/A') + '</td>'
-                            + '<td><span class="status-badge" style="background:#27AE6020;color:#27AE60;border:1px solid #27AE60;">' + (a.status || 'N/A') + '</span></td>'
-                            + '<td>' + (a.assigned_at || 'N/A') + '</td>'
-                            + '</tr>';
-                    }).join('')
-                    + '</tbody></table></div>';
-
-            body.innerHTML =
-                '<div class="form-grid" style="margin-bottom:22px;">'
-                    + '<div><span style="font-size:11px;color:#888;font-weight:700;text-transform:uppercase;letter-spacing:.5px;">Employee ID</span><p style="margin-top:5px;font-weight:600;">'  + (u.employee_id  || 'N/A') + '</p></div>'
-                    + '<div><span style="font-size:11px;color:#888;font-weight:700;text-transform:uppercase;letter-spacing:.5px;">Full Name</span><p style="margin-top:5px;font-weight:600;">'    + (u.full_name    || 'N/A') + '</p></div>'
-                    + '<div><span style="font-size:11px;color:#888;font-weight:700;text-transform:uppercase;letter-spacing:.5px;">Email</span><p style="margin-top:5px;">'                       + (u.email        || 'N/A') + '</p></div>'
-                    + '<div><span style="font-size:11px;color:#888;font-weight:700;text-transform:uppercase;letter-spacing:.5px;">Phone</span><p style="margin-top:5px;">'                       + (u.phone        || 'N/A') + '</p></div>'
-                    + '<div><span style="font-size:11px;color:#888;font-weight:700;text-transform:uppercase;letter-spacing:.5px;">Department</span><p style="margin-top:5px;">'                  + (u.department   || 'N/A') + '</p></div>'
-                    + '<div><span style="font-size:11px;color:#888;font-weight:700;text-transform:uppercase;letter-spacing:.5px;">Position</span><p style="margin-top:5px;">'                    + (u.position     || 'N/A') + '</p></div>'
-                    + '<div><span style="font-size:11px;color:#888;font-weight:700;text-transform:uppercase;letter-spacing:.5px;">Role</span><p style="margin-top:5px;">'                        + (u.role         || 'N/A') + '</p></div>'
-                    + '<div><span style="font-size:11px;color:#888;font-weight:700;text-transform:uppercase;letter-spacing:.5px;">Status</span><p style="margin-top:5px;">'
-                        + '<span class="status-badge" style="background:' + (u.status === 'active' ? '#27AE6020' : '#E74C3C20') + ';color:' + (u.status === 'active' ? '#27AE60' : '#E74C3C') + ';border:1px solid ' + (u.status === 'active' ? '#27AE60' : '#E74C3C') + ';">' + (u.status ? u.status.charAt(0).toUpperCase() + u.status.slice(1) : 'N/A') + '</span>'
-                    + '</p></div>'
-                    + '<div><span style="font-size:11px;color:#888;font-weight:700;text-transform:uppercase;letter-spacing:.5px;">Date Joined</span><p style="margin-top:5px;">'                 + (u.created_at   || 'N/A') + '</p></div>'
-                + '</div>'
-                + '<hr style="border:none;border-top:1px solid #eee;margin-bottom:18px;">'
-                + '<h4 style="font-size:14px;color:#2c3e50;margin-bottom:14px;"><i class="fas fa-laptop"></i> Assigned Assets</h4>'
-                + assetsHtml;
-        })
-        .catch(function() {
-            body.innerHTML = '<p style="color:#e74c3c;text-align:center;padding:30px;"><i class="fas fa-exclamation-circle"></i> Failed to load user data. Please try again.</p>';
-        });
-    });
-});
-
-function printViewUserDetails() {
-    var content = document.getElementById('viewUserBody').innerHTML;
-    var printWindow = window.open('', '', 'width=1000,height=800');
-    printWindow.document.write('<!DOCTYPE html><html><head><title>Print User Details</title>');
-    printWindow.document.write('<style>body{font-family:Arial,sans-serif;padding:24px;color:#222;} h1,h2,h3{margin:0 0 .75rem;} table{width:100%;border-collapse:collapse;margin-top:1rem;} th,td{border:1px solid #ccc;padding:10px;text-align:left;} th{background:#f4f4f4;} .status-badge{display:inline-block;padding:4px 8px;border-radius:4px;background:#f0f0f0;color:#333;font-size:12px;} .form-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:16px;margin-bottom:20px;} .modal-body p{margin:0;}</style>');
-    printWindow.document.write('</head><body>');
-    printWindow.document.write('<h1>User Assigned Devices</h1>');
-    printWindow.document.write(content);
-    printWindow.document.write('</body></html>');
-    printWindow.document.close();
-    printWindow.focus();
-    printWindow.print();
-}
-
-function closeViewUserModal() {
-    document.getElementById('viewUserModal').classList.remove('show');
-}
-
-// Close when clicking the overlay background
-document.getElementById('viewUserModal').addEventListener('click', function(e) {
-    if (e.target === this) closeViewUserModal();
-});
+function switchTab(t) { /* handled by page navigation */ }
 </script>
-<style>
-.phone-picker {
-    display: flex;
-    align-items: center;
-    position: relative;
-    border: 1px solid #ccc;
-    border-radius: 5px;
-    overflow: hidden;
-}
-.phone-picker-btn {
-    display: flex;
-    align-items: center;
-    gap: 5px;
-    padding: 0 10px;
-    height: 38px;
-    border: none;
-    border-right: 1px solid #ccc;
-    background: #f5f5f5;
-    cursor: pointer;
-    white-space: nowrap;
-    font-size: 14px;
-}
-.phone-picker-input {
-    border: none;
-    outline: none;
-    flex: 1;
-    padding: 0 10px;
-    height: 38px;
-    font-size: 14px;
-}
-.phone-dropdown {
-    display: none;
-    position: absolute;
-    top: calc(100% + 4px);
-    left: 0;
-    z-index: 9999;
-    width: 240px;
-    max-height: 220px;
-    overflow-y: auto;
-    background: #fff;
-    border: 1px solid #ccc;
-    border-radius: 5px;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
-}
-.phone-dropdown.show {
-    display: block;
-}
-.phone-dropdown-search {
-    padding: 8px;
-}
-.phone-country-item {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 8px 12px;
-    cursor: pointer;
-    font-size: 14px;
-}
-.phone-country-item span:last-child {
-    margin-left: auto;
-    color: #888;
-    font-size: 12px;
-}
-.phone-country-item:hover {
-    background: #f5f5f5;
-}
-</style>
+</body>
+</html>
