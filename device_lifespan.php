@@ -67,6 +67,92 @@ if ($seedCount == 0) {
 }
 
 // ============================================================
+// AUTO STATUS SYNC
+// Runs once per session every 6 hours.
+// Recalculates forecast_status based on EOL date for ALL devices
+// EXCEPT those manually set to 'extended' or 'replaced'.
+// Also fires notifications when status worsens.
+// ============================================================
+if (empty($_SESSION['last_lifespan_sync']) || (time() - $_SESSION['last_lifespan_sync']) > 21600) {
+
+    $autoRows = $pdo->query("
+        SELECT
+            d.id,
+            d.asset_tag,
+            d.purchase_date,
+            COALESCE(dlf.override_lifespan_years, d.expected_lifespan_years, dtl.default_years, 5) AS lifespan_years,
+            dlf.forecast_status   AS current_status,
+            dlf.id                AS forecast_row_id
+        FROM devices d
+        LEFT JOIN device_type_lifespans dtl      ON d.device_type_id = dtl.device_type_id
+        LEFT JOIN device_lifespan_forecast dlf   ON d.id = dlf.device_id
+    ")->fetchAll();
+
+    $today = new DateTime('today');
+
+    $upsert = $pdo->prepare("
+        INSERT INTO device_lifespan_forecast (device_id, forecast_status, last_reviewed_date)
+        VALUES (?, ?, CURDATE())
+        ON DUPLICATE KEY UPDATE
+            forecast_status    = VALUES(forecast_status),
+            last_reviewed_date = CURDATE(),
+            updated_at         = NOW()
+    ");
+
+    // Status severity order — used to detect "worsening"
+    $severity = ['good' => 0, 'monitor' => 1, 'replace_soon' => 2, 'overdue' => 3];
+
+    foreach ($autoRows as $row) {
+        // Never auto-override manually set statuses
+        if (in_array($row['current_status'], ['extended', 'replaced'])) continue;
+
+        if (!$row['purchase_date']) continue;
+
+        $purchase     = new DateTime($row['purchase_date']);
+        $eol          = (clone $purchase)->modify("+{$row['lifespan_years']} years");
+        $diff         = $today->diff($eol);
+        $daysLeft     = (int)$diff->days * ($eol >= $today ? 1 : -1);
+
+        // Calculate new status — thresholds match the legend:
+        //   Good        = more than 12 months left
+        //   Monitor     = 6–12 months left
+        //   Replace Soon= 0–6 months left
+        //   Overdue     = past EOL
+        if ($daysLeft < 0) {
+            $newStatus = 'overdue';
+        } elseif ($daysLeft <= 182) {   // 0–6 months  → Replace Soon
+            $newStatus = 'replace_soon';
+        } elseif ($daysLeft <= 365) {   // 6–12 months → Monitor
+            $newStatus = 'monitor';
+        } else {                        // > 12 months → Good
+            $newStatus = 'good';
+        }
+
+        // Only write to DB if status changed
+        if ($newStatus === $row['current_status']) continue;
+
+        $upsert->execute([$row['id'], $newStatus]);
+
+        // Fire notification only when status WORSENS (not when it recovers to 'good')
+        $oldSev = $severity[$row['current_status']] ?? -1;
+        $newSev = $severity[$newStatus]             ?? -1;
+
+        if ($newSev > $oldSev && $newStatus !== 'good') {
+            $labelMap = [
+                'monitor'      => 'Monitor',
+                'replace_soon' => 'Replace Soon',
+                'overdue'      => 'Overdue',
+            ];
+            $statusLabel = $labelMap[$newStatus];
+            $message = "Device {$row['asset_tag']} lifespan forecast has been automatically updated to '{$statusLabel}'.";
+            notifyITStaff('lifespan_' . $newStatus, "Device Lifespan: {$statusLabel}", $message, $row['id']);
+        }
+    }
+
+    $_SESSION['last_lifespan_sync'] = time();
+}
+
+// ============================================================
 // HANDLE AJAX SAVE (inline edit)
 // ============================================================
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ajax_save'])) {
@@ -89,8 +175,55 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ajax_save'])) {
         exit;
     }
 
-    $stmt = $pdo->prepare(
-        "INSERT INTO device_lifespan_forecast
+    // Fetch existing row so we can detect what changed
+    $oldRowStmt = $pdo->prepare("
+        SELECT dlf.forecast_status, dlf.override_lifespan_years,
+               d.purchase_date,
+               COALESCE(dlf.override_lifespan_years, d.expected_lifespan_years, dtl.default_years, 5) AS current_lifespan
+        FROM devices d
+        LEFT JOIN device_lifespan_forecast dlf ON d.id = dlf.device_id
+        LEFT JOIN device_type_lifespans dtl    ON d.device_type_id = dtl.device_type_id
+        WHERE d.id = ?
+    ");
+    $oldRowStmt->execute([$deviceId]);
+    $oldRow    = $oldRowStmt->fetch(PDO::FETCH_ASSOC);
+    $oldStatus = $oldRow['forecast_status'] ?? null;
+
+    // If override years changed (or status is NOT manually protected),
+    // recalculate the correct auto-status so the DB stays truthful.
+    // Exception: if IT explicitly chose 'extended' or 'replaced', honour that choice.
+    $manuallyProtected = in_array($status, ['extended', 'replaced']);
+
+    if (!$manuallyProtected) {
+        // Determine effective lifespan after this save
+        $effectiveYears = $overrideYears
+            ?? ($oldRow['current_lifespan'] ?? 5);
+
+        $purchaseDate = $oldRow['purchase_date'] ?? null;
+
+        if ($purchaseDate) {
+            $todayDt  = new DateTime('today');
+            $eolDt    = (new DateTime($purchaseDate))->modify("+{$effectiveYears} years");
+            $diffDays = (int)(new DateTime('today'))->diff($eolDt)->days
+                        * ($eolDt >= $todayDt ? 1 : -1);
+
+            if ($diffDays < 0) {
+                $status = 'overdue';
+            } elseif ($diffDays <= 182) {
+                $status = 'replace_soon';
+            } elseif ($diffDays <= 365) {
+                $status = 'monitor';
+            } else {
+                $status = 'good';
+            }
+        }
+    }
+
+    // Clear the session throttle so the full sync re-runs on next page load
+    unset($_SESSION['last_lifespan_sync']);
+
+    $stmt = $pdo->prepare("
+        INSERT INTO device_lifespan_forecast
             (device_id, reviewed_by, last_reviewed_date, override_lifespan_years, forecast_status, remarks)
         VALUES (?, ?, CURDATE(), ?, ?, ?)
         ON DUPLICATE KEY UPDATE
@@ -99,13 +232,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ajax_save'])) {
             override_lifespan_years = VALUES(override_lifespan_years),
             forecast_status         = VALUES(forecast_status),
             remarks                 = VALUES(remarks),
-            updated_at              = NOW()"
-    );
-
-    $oldStatusStmt = $pdo->prepare("SELECT forecast_status FROM device_lifespan_forecast WHERE device_id = ?");
-    $oldStatusStmt->execute([$deviceId]);
-    $oldStatus = $oldStatusStmt->fetchColumn();
-
+            updated_at              = NOW()
+    ");
     $stmt->execute([$deviceId, $_SESSION['user_id'], $overrideYears, $status, $remarks]);
 
     logAudit($_SESSION['user_id'], 'Lifespan Update', 'device_lifespan_forecast', $deviceId, null, "Status: $status");
@@ -141,8 +269,8 @@ $search          = trim($_GET['search']          ?? '');
 $typeFilter      = $_GET['type']                 ?? '';
 $deptFilter      = trim($_GET['department']      ?? '');
 $forecastFilter  = $_GET['forecast_status']      ?? '';
-$deviceIdFilter  = (int)($_GET['device_id']      ?? 0);  // Single device view from notifications
-$sortBy          = $_GET['sort']                 ?? 'eol_asc';   // eol_asc | eol_desc | purchase_asc | age_desc
+$deviceIdFilter  = (int)($_GET['device_id']      ?? 0);
+$sortBy          = $_GET['sort']                 ?? 'eol_asc';
 
 $types = $pdo->query("SELECT * FROM device_types ORDER BY type_name")->fetchAll();
 
@@ -161,18 +289,15 @@ $sql = "
         d.status          AS device_status,
         d.expected_lifespan_years,
         d.serial_number,
-        -- Department: from the currently assigned user, else device location
         COALESCE(u.department, d.location, 'Unassigned')   AS department,
         u.full_name                                         AS assigned_to,
         da.assigned_date,
-        -- Lifespan: device override > type default > 5
         COALESCE(
             dlf.override_lifespan_years,
             d.expected_lifespan_years,
             dtl.default_years,
             5
         )                                                   AS lifespan_years,
-        -- Forecast row
         dlf.forecast_status,
         dlf.remarks,
         dlf.last_reviewed_date,
@@ -180,12 +305,12 @@ $sql = "
         ru.full_name                                        AS reviewed_by_name,
         dtl.default_years                                   AS type_default_years
     FROM devices d
-    JOIN  device_types        dt  ON d.device_type_id  = dt.id
-    LEFT  JOIN device_type_lifespans dtl ON dt.id = dtl.device_type_id
-    LEFT  JOIN device_assignments   da  ON d.id = da.device_id AND da.status = 'active'
-    LEFT  JOIN users                u   ON da.employee_id = u.id
+    JOIN  device_types              dt  ON d.device_type_id  = dt.id
+    LEFT  JOIN device_type_lifespans    dtl ON dt.id = dtl.device_type_id
+    LEFT  JOIN device_assignments       da  ON d.id = da.device_id AND da.status = 'active'
+    LEFT  JOIN users                    u   ON da.employee_id = u.id
     LEFT  JOIN device_lifespan_forecast dlf ON d.id = dlf.device_id
-    LEFT  JOIN users                ru  ON dlf.reviewed_by = ru.id
+    LEFT  JOIN users                    ru  ON dlf.reviewed_by = ru.id
     WHERE 1=1
 ";
 $params = [];
@@ -213,7 +338,6 @@ if ($deviceIdFilter > 0) {
     $params[] = $deviceIdFilter;
 }
 
-// Sorting
 $orderMap = [
     'eol_asc'      => "DATE_ADD(d.purchase_date, INTERVAL COALESCE(dlf.override_lifespan_years, d.expected_lifespan_years, dtl.default_years, 5) YEAR) ASC",
     'eol_desc'     => "DATE_ADD(d.purchase_date, INTERVAL COALESCE(dlf.override_lifespan_years, d.expected_lifespan_years, dtl.default_years, 5) YEAR) DESC",
@@ -227,16 +351,19 @@ $stmt->execute($params);
 $devices = $stmt->fetchAll();
 
 // ============================================================
-// COMPUTE EOL + AUTO FORECAST for each row
+// COMPUTE EOL + DISPLAY VALUES
+// NOTE: forecast_status is now always populated by the auto-sync
+// above, so we only fall back to computed value for brand-new
+// devices that somehow missed the sync (e.g. added mid-session).
 // ============================================================
 $today = new DateTime('today');
 
 foreach ($devices as &$dev) {
-    $purchaseDate   = $dev['purchase_date'] ? new DateTime($dev['purchase_date']) : null;
-    $lifespanYears  = (int)$dev['lifespan_years'];
-    $eolDate        = $purchaseDate ? (clone $purchaseDate)->modify("+{$lifespanYears} years") : null;
-    $ageYears       = $purchaseDate ? round($today->diff($purchaseDate)->days / 365.25, 1) : null;
-    $yearsLeft      = $eolDate     ? round($eolDate->diff($today)->days / 365.25 * ($eolDate > $today ? 1 : -1), 1) : null;
+    $purchaseDate  = $dev['purchase_date'] ? new DateTime($dev['purchase_date']) : null;
+    $lifespanYears = (int)$dev['lifespan_years'];
+    $eolDate       = $purchaseDate ? (clone $purchaseDate)->modify("+{$lifespanYears} years") : null;
+    $ageYears      = $purchaseDate ? round($today->diff($purchaseDate)->days / 365.25, 1) : null;
+    $yearsLeft     = $eolDate     ? round($eolDate->diff($today)->days / 365.25 * ($eolDate > $today ? 1 : -1), 1) : null;
 
     $dev['purchase_date_fmt'] = $purchaseDate ? $purchaseDate->format('M d, Y') : 'N/A';
     $dev['eol_date']          = $eolDate      ? $eolDate->format('Y-m-d')       : null;
@@ -244,17 +371,19 @@ foreach ($devices as &$dev) {
     $dev['age_years']         = $ageYears;
     $dev['years_left']        = $yearsLeft;
 
-    // Auto-compute a suggested forecast status if none saved yet
+    // Fallback only for brand-new devices with no DB row yet (added mid-session)
+    // Thresholds mirror the legend and auto-sync above:
+    //   Good=12mo+  Monitor=6-12mo  Replace Soon=0-6mo  Overdue=past EOL
     if (!$dev['forecast_status']) {
         if (!$eolDate) {
             $dev['forecast_status'] = 'good';
         } elseif ($yearsLeft < 0) {
             $dev['forecast_status'] = 'overdue';
-        } elseif ($yearsLeft <= 1) {
+        } elseif ($yearsLeft <= 0.5) {   // 0–6 months
             $dev['forecast_status'] = 'replace_soon';
-        } elseif ($yearsLeft <= 2) {
+        } elseif ($yearsLeft <= 1) {     // 6–12 months
             $dev['forecast_status'] = 'monitor';
-        } else {
+        } else {                         // 12+ months
             $dev['forecast_status'] = 'good';
         }
     }
@@ -262,15 +391,14 @@ foreach ($devices as &$dev) {
 unset($dev);
 
 // ============================================================
-// SUMMARY COUNTS  (for stat cards)
+// SUMMARY COUNTS
 // ============================================================
-$statCounts = ['good'=>0, 'monitor'=>0, 'replace_soon'=>0, 'overdue'=>0, 'replaced'=>0, 'extended'=>0, 'no_date'=>0];
+$statCounts = ['good'=>0,'monitor'=>0,'replace_soon'=>0,'overdue'=>0,'replaced'=>0,'extended'=>0,'no_date'=>0];
 foreach ($devices as $d) {
     if (!$d['purchase_date']) { $statCounts['no_date']++; continue; }
     $statCounts[$d['forecast_status']] = ($statCounts[$d['forecast_status']] ?? 0) + 1;
 }
 
-// Distinct departments for filter dropdown
 $departments = $pdo->query(
     "SELECT DISTINCT COALESCE(u.department, d.location) AS dept
      FROM devices d
@@ -281,7 +409,6 @@ $departments = $pdo->query(
      ORDER BY dept"
 )->fetchAll(PDO::FETCH_COLUMN);
 
-// Forecast status config
 $forecastMeta = [
     'good'         => ['label'=>'Good',         'color'=>'#27AE60', 'icon'=>'fa-check-circle'],
     'monitor'      => ['label'=>'Monitor',       'color'=>'#F39C12', 'icon'=>'fa-eye'],
@@ -292,6 +419,9 @@ $forecastMeta = [
 ];
 
 $csrfToken = generateCsrfToken();
+
+// Deep-link highlight: which device_id to scroll to (from notification click)
+$highlightId = $deviceIdFilter > 0 ? $deviceIdFilter : 0;
 
 require_once 'includes/header.php';
 ?>
@@ -398,7 +528,6 @@ require_once 'includes/header.php';
      MAIN TABLE
      ============================================================ -->
 <div class="card" style="overflow:hidden;">
-    <!-- Sticky scroll container: fixed height, scrolls vertically, header stays -->
     <div id="lifespanTableWrap">
         <table id="lifespanTable">
             <thead>
@@ -436,8 +565,12 @@ require_once 'includes/header.php';
                 if ($dev['forecast_status'] === 'overdue')           { $rowBg = '#fff5f5'; }
                 elseif ($dev['forecast_status'] === 'replace_soon')  { $rowBg = '#fff8f0'; }
                 else                                                  { $rowBg = ''; }
+
+                // Highlight row if arriving from a notification deep-link
+                $isHighlighted = ($highlightId > 0 && (int)$dev['id'] === $highlightId);
             ?>
-            <tr style="<?php echo $rowBg ? 'background:'.$rowBg : ''; ?>">
+            <tr id="device-row-<?php echo $dev['id']; ?>"
+                style="<?php echo $rowBg ? 'background:'.$rowBg : ''; ?><?php echo $isHighlighted ? ';outline:2px solid #E74C3C;outline-offset:-2px;' : ''; ?>">
 
                 <td class="col-tag">
                     <a href="view_device.php?id=<?php echo $dev['id']; ?>"
@@ -484,7 +617,7 @@ require_once 'includes/header.php';
 
                 <td class="col-remarks">
                     <div style="display:flex;align-items:center;gap:8px;">
-                        <span style="flex:1;font-size:12px;color:<?php echo $dev['remarks'] ? '#4b5563' : '#d1d5db'; ?>;font-style:<?php echo $dev['remarks'] ? 'normal' : 'italic'; ?>;">
+                        <span class="remarks-text" style="flex:1;font-size:12px;color:<?php echo $dev['remarks'] ? '#4b5563' : '#d1d5db'; ?>;font-style:<?php echo $dev['remarks'] ? 'normal' : 'italic'; ?>;">
                             <?php echo $dev['remarks'] ? sanitize($dev['remarks']) : 'No remarks yet'; ?>
                         </span>
                         <button class="btn-edit-inline edit-btn"
@@ -507,7 +640,6 @@ require_once 'includes/header.php';
         </table>
     </div>
 
-    <!-- Row count footer -->
     <div style="padding:10px 16px;font-size:12px;color:#9ca3af;border-top:1px solid #f0f2f5;background:#fff;">
         Showing <strong style="color:#374151;"><?php echo count($devices); ?></strong>
         device<?php echo count($devices) !== 1 ? 's' : ''; ?>
@@ -520,7 +652,6 @@ require_once 'includes/header.php';
 <div id="editModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9999;align-items:center;justify-content:center;">
     <div style="background:#fff;border-radius:12px;width:min(520px,95vw);max-height:90vh;overflow-y:auto;box-shadow:0 8px 40px rgba(0,0,0,.25);">
 
-        <!-- Modal Header -->
         <div style="background:#2C3E50;color:#fff;padding:16px 20px;border-radius:12px 12px 0 0;display:flex;justify-content:space-between;align-items:center;">
             <div>
                 <div style="font-weight:700;font-size:15px;"><i class="fas fa-hourglass-half"></i> Edit Lifespan Forecast</div>
@@ -529,11 +660,9 @@ require_once 'includes/header.php';
             <button onclick="closeModal()" style="background:none;border:none;color:#fff;font-size:20px;cursor:pointer;line-height:1;">&times;</button>
         </div>
 
-        <!-- Modal Body -->
         <div style="padding:20px;">
             <input type="hidden" id="modal-device-id">
 
-            <!-- Forecast Status -->
             <div style="margin-bottom:16px;">
                 <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:#555;display:block;margin-bottom:8px;">
                     <i class="fas fa-signal" style="color:#3498db;"></i> Forecast Status
@@ -551,7 +680,6 @@ require_once 'includes/header.php';
                 </div>
             </div>
 
-            <!-- Lifespan Override -->
             <div style="margin-bottom:16px;">
                 <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:#555;display:block;margin-bottom:6px;">
                     <i class="fas fa-sliders-h" style="color:#3498db;"></i>
@@ -565,7 +693,6 @@ require_once 'includes/header.php';
                 </div>
             </div>
 
-            <!-- Remarks -->
             <div style="margin-bottom:20px;">
                 <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:#555;display:block;margin-bottom:6px;">
                     <i class="fas fa-comment-alt" style="color:#3498db;"></i> Remarks
@@ -574,7 +701,6 @@ require_once 'includes/header.php';
                           placeholder="Condition notes, replacement budget cycle, recommended action, vendor quote, etc."
                           style="width:100%;padding:10px 12px;border:1px solid #d6d8db;border-radius:8px;font-size:13px;box-sizing:border-box;resize:vertical;"></textarea>
 
-                <!-- Suggested remarks chips -->
                 <div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:6px;">
                     <span style="font-size:11px;color:#aaa;margin-right:2px;align-self:center;">Quick add:</span>
                     <?php
@@ -598,7 +724,6 @@ require_once 'includes/header.php';
                 </div>
             </div>
 
-            <!-- Footer -->
             <div style="display:flex;gap:10px;justify-content:flex-end;">
                 <button type="button" class="btn btn-light" onclick="closeModal()">Cancel</button>
                 <button type="button" class="btn btn-primary" id="saveBtn" onclick="saveForecast()">
@@ -606,7 +731,6 @@ require_once 'includes/header.php';
                 </button>
             </div>
 
-            <!-- Save feedback -->
             <div id="save-feedback" style="display:none;margin-top:12px;padding:10px 14px;border-radius:8px;font-size:13px;"></div>
         </div>
     </div>
@@ -624,8 +748,8 @@ require_once 'includes/header.php';
             <?php
             $legend = [
                 'good'         => 'Device is within its expected useful life. No action needed.',
-                'monitor'      => '1–2 years remaining. Begin planning for potential replacement.',
-                'replace_soon' => 'Under 1 year remaining. Raise budget request; source replacement unit.',
+                'monitor'      => '6–12 months remaining. Begin planning for potential replacement.',
+                'replace_soon' => 'Under 6 months remaining. Raise budget request; source replacement unit.',
                 'overdue'      => 'Past expected EOL. Assess daily; prioritise immediate replacement.',
                 'extended'     => 'IT has officially extended the lifespan based on current condition.',
                 'replaced'     => 'Device has been replaced or retired; kept for historical reference.',
@@ -644,30 +768,24 @@ require_once 'includes/header.php';
     </div>
 </div>
 
-<!-- ============================================================
-     HIDDEN CSRF for JS
-     ============================================================ -->
 <input type="hidden" id="csrf_token_val" value="<?php echo sanitize($csrfToken); ?>">
+<!-- Deep-link target for JS scroll -->
+<input type="hidden" id="highlight_device_id" value="<?php echo $highlightId; ?>">
 
 <style>
-/* ── Scrollable table container ─────────────────────────── */
 #lifespanTableWrap {
     width: 100%;
-    max-height: 600px;        /* vertical scroll after ~10 rows */
+    max-height: 600px;
     overflow-y: auto;
     overflow-x: auto;
     border-radius: 0;
 }
-
-/* ── Table ───────────────────────────────────────────────── */
 #lifespanTable {
     width: 100%;
-    table-layout: fixed;      /* fixed widths — no runaway columns */
+    table-layout: fixed;
     border-collapse: collapse;
     font-size: 13px;
 }
-
-/* ── Sticky header ───────────────────────────────────────── */
 #lifespanTable thead tr {
     position: sticky;
     top: 0;
@@ -686,8 +804,6 @@ require_once 'includes/header.php';
     border: none;
     text-align: left;
 }
-
-/* ── Column widths (fixed layout) ───────────────────────── */
 .col-tag     { width: 130px; }
 .col-type    { width: 100px; }
 .col-dept    { width: 130px; }
@@ -697,8 +813,6 @@ require_once 'includes/header.php';
 .col-age     { width: 90px;  }
 .col-status  { width: 130px; }
 .col-remarks { width: auto;  min-width: 180px; }
-
-/* ── Body rows ───────────────────────────────────────────── */
 #lifespanTable tbody tr {
     border-bottom: 1px solid #f0f2f5;
     transition: background .1s;
@@ -712,8 +826,6 @@ require_once 'includes/header.php';
     overflow: hidden;
     text-overflow: ellipsis;
 }
-
-/* ── Status badge ────────────────────────────────────────── */
 .ls-badge {
     display: inline-flex;
     align-items: center;
@@ -726,8 +838,6 @@ require_once 'includes/header.php';
     border-width: 1px;
     border-style: solid;
 }
-
-/* ── Edit button ─────────────────────────────────────────── */
 .btn-edit-inline {
     flex-shrink: 0;
     display: inline-flex;
@@ -750,14 +860,10 @@ require_once 'includes/header.php';
     border-color: #93c5fd;
     color: #2563eb;
 }
-
-/* ── Scrollbar styling ───────────────────────────────────── */
 #lifespanTableWrap::-webkit-scrollbar        { width: 6px; height: 6px; }
 #lifespanTableWrap::-webkit-scrollbar-track  { background: #f1f1f1; border-radius: 4px; }
 #lifespanTableWrap::-webkit-scrollbar-thumb  { background: #cbd5e1; border-radius: 4px; }
 #lifespanTableWrap::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
-
-/* ── Modal chips & pills ─────────────────────────────────── */
 .remark-chip {
     font-size: 11px;
     padding: 3px 9px;
@@ -770,9 +876,31 @@ require_once 'includes/header.php';
 }
 .remark-chip:hover  { background: #eff6ff !important; border-color: #93c5fd !important; color: #2563eb !important; }
 .status-pill:hover  { filter: brightness(.96); }
+
+/* Deep-link highlight animation */
+@keyframes rowHighlight {
+    0%   { background-color: #fdecea !important; }
+    60%  { background-color: #fdecea !important; }
+    100% { background-color: transparent; }
+}
+.row-deep-linked {
+    animation: rowHighlight 3s ease forwards;
+}
 </style>
 
 <script>
+// ---- Deep-link: scroll to highlighted row ----
+(function () {
+    var id = parseInt(document.getElementById('highlight_device_id').value, 10);
+    if (!id) return;
+    var row = document.getElementById('device-row-' + id);
+    if (!row) return;
+    setTimeout(function () {
+        row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        row.classList.add('row-deep-linked');
+    }, 350);
+})();
+
 // ---- Modal helpers ----
 function openModal(btn) {
     var id          = btn.dataset.id;
@@ -789,7 +917,6 @@ function openModal(btn) {
     document.getElementById('modal-type-default').textContent = typeDefault;
     document.getElementById('modal-override-years').value     = (parseInt(lifespan) !== parseInt(typeDefault)) ? lifespan : '';
 
-    // Select matching radio
     document.querySelectorAll('input[name="modal_status"]').forEach(function(r) {
         r.checked = (r.value === status);
     });
@@ -866,7 +993,6 @@ function saveForecast() {
                 feedback.style.background = '#f0fff4';
                 feedback.style.color = '#27AE60';
                 feedback.textContent = '✓ ' + data.msg;
-                // Reload after 900ms to show updated row
                 setTimeout(function() { location.reload(); }, 900);
             } else {
                 feedback.style.display = 'block';
@@ -885,17 +1011,14 @@ function saveForecast() {
         });
 }
 
-// Attach edit buttons
 document.querySelectorAll('.edit-btn').forEach(function(btn) {
     btn.addEventListener('click', function() { openModal(this); });
 });
 
-// Close modal on backdrop click
 document.getElementById('editModal').addEventListener('click', function(e) {
     if (e.target === this) closeModal();
 });
 
-// Filter by status via stat card click
 function filterByStatus(key) {
     var sel = document.getElementById('forecastStatusFilter');
     if (sel) {
@@ -904,7 +1027,6 @@ function filterByStatus(key) {
     }
 }
 
-// ---- Export helpers ----
 function exportLifespanCSV() {
     var rows = [];
     document.querySelectorAll('#lifespanTable tbody tr').forEach(function(row) {

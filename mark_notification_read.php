@@ -1,29 +1,60 @@
 <?php
 /**
- * AJAX handler to mark a single notification as read
+ * KBMC Asset Management — Mark Notification Read (AJAX)
+ * File: ajax/mark_notification_read.php
+ *
+ * Accepts POST with JSON body:
+ *   { "id": 42 }       → mark single notification as read
+ *   { "all": true }    → mark ALL of this user's notifications as read
  */
-session_start();
-require_once '../includes/db.php'; // adjust if your db.php path is different
+require_once __DIR__ . '/../includes/functions.php';
 
-// Check if user is logged in
-if (!isset($_SESSION['user_id'])) {
-    http_response_code(403);
-    echo 'Unauthorized';
+// Must be logged in
+if (empty($_SESSION['user_id'])) {
+    http_response_code(401);
+    echo json_encode(['success' => false, 'error' => 'Unauthorized']);
     exit;
 }
 
-// Check if notification ID is provided
-if (!isset($_GET['id']) || empty($_GET['id'])) {
-    http_response_code(400);
-    echo 'Missing notification ID';
+header('Content-Type: application/json');
+
+if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+    http_response_code(405);
+    echo json_encode(['success' => false, 'error' => 'Method not allowed']);
     exit;
 }
 
-$notifId = (int)$_GET['id'];
-$userId = (int)$_SESSION['user_id'];
+$input = json_decode(file_get_contents('php://input'), true);
 
-// Update only if the notification belongs to this user
-$stmt = $pdo->prepare("UPDATE notifications SET is_read = 1 WHERE id = ? AND user_id = ?");
-$stmt->execute([$notifId, $userId]);
+if (!$input) {
+    echo json_encode(['success' => false, 'error' => 'Invalid JSON']);
+    exit;
+}
 
-echo 'OK';
+try {
+    if (!empty($input['all'])) {
+        // Mark ALL unread notifications for this user as read
+        $stmt = $pdo->prepare(
+            "UPDATE notifications SET is_read = 1, read_at = NOW()
+             WHERE user_id = ? AND is_read = 0"
+        );
+        $stmt->execute([$_SESSION['user_id']]);
+        echo json_encode(['success' => true, 'updated' => $stmt->rowCount()]);
+
+    } elseif (!empty($input['id'])) {
+        // Mark a single notification as read — verify it belongs to this user
+        $stmt = $pdo->prepare(
+            "UPDATE notifications SET is_read = 1, read_at = NOW()
+             WHERE id = ? AND user_id = ? LIMIT 1"
+        );
+        $stmt->execute([(int)$input['id'], $_SESSION['user_id']]);
+        echo json_encode(['success' => true, 'updated' => $stmt->rowCount()]);
+
+    } else {
+        echo json_encode(['success' => false, 'error' => 'No action specified']);
+    }
+
+} catch (Exception $e) {
+    http_response_code(500);
+    echo json_encode(['success' => false, 'error' => $e->getMessage()]);
+}

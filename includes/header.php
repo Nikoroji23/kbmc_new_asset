@@ -303,6 +303,7 @@ $pageTitle = $pageTitle ?? 'KBMC Asset Management';
                                     <div class="notif-title"><?php echo sanitize($notif['title']); ?></div>
                                     <div class="notif-msg"><?php echo sanitize($notif['message']); ?></div>
                                     <div class="notif-time"><?php echo date('M d, h:i A', strtotime($notif['created_at'])); ?></div>
+                                    <div class="notif-hint" style="font-size: 12px; color: #888; margin-top: 4px;"><i class="fas fa-arrow-right"></i> Click to view</div>
                                 </div>
                             </div>
                             <?php endforeach; ?>
