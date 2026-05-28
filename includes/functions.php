@@ -192,76 +192,60 @@ function notifyITStaff($type, $title, $message, $relatedId = null) {
 function getNotificationUrl(array $notif): string {
     $type      = $notif['type']       ?? 'unknown';
     $relatedId = $notif['related_id'] ?? null;
- 
+
     switch ($type) {
-        // ── Lifespan → device_lifespan.php?device_id=X
-        //    (matches the $deviceIdFilter used in device_lifespan.php)
         case 'lifespan_monitor':
         case 'lifespan_replace_soon':
         case 'lifespan_overdue':
         case 'lifespan_replaced':
         case 'lifespan_extended':
-            return $relatedId
-                ? 'device_lifespan.php?device_id=' . urlencode($relatedId)
-                : 'device_lifespan.php';
- 
-        // ── Warranty → same lifespan page
         case 'warranty_expiring':
             return $relatedId
                 ? 'device_lifespan.php?device_id=' . urlencode($relatedId)
                 : 'device_lifespan.php';
- 
-        // ── Device requests
+
         case 'request_approved':
         case 'request_rejected':
         case 'new_device_request':
             return $relatedId
                 ? 'device_requests.php?id=' . urlencode($relatedId)
                 : 'device_requests.php';
- 
-        // ── Maintenance
+
         case 'maintenance_reminder':
         case 'maintenance_assigned':
             return $relatedId
                 ? 'maintenance.php?id=' . urlencode($relatedId)
                 : 'maintenance.php';
- 
-        // ── Repairs
+
         case 'repair_needed':
         case 'repair_completed':
             return $relatedId
                 ? 'repairs.php?id=' . urlencode($relatedId)
                 : 'repairs.php';
- 
-        // ── Deployments → view the specific device
+
         case 'device_deployed':
         case 'device_returned':
             return $relatedId
                 ? 'view_device.php?id=' . urlencode($relatedId)
                 : 'deployments.php';
- 
-        // ── Clearances / inspections
+
         case 'user_clearance_required':
         case 'user_clearance_completed':
             return $relatedId
                 ? 'inspections.php?id=' . urlencode($relatedId)
                 : 'inspections.php';
- 
-        // ── Inventory / low stock
+
         case 'low_stock':
             return 'all_devices.php';
- 
-        // ── Voluntary return
+
         case 'voluntary_return_requested':
             return $relatedId
                 ? 'view_device.php?id=' . urlencode($relatedId)
                 : 'deployments.php';
- 
-        // ── Account/user notifications
-        case 'request_approved':
+
         case 'user_creation_approved':
             return 'dashboard.php';
- 
+
         default:
             return 'dashboard.php';
     }

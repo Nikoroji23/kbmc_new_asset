@@ -165,22 +165,20 @@ function handleNotificationClick(element) {
     var url     = element.getAttribute('data-url');
     var notifId = element.getAttribute('data-id');
 
-    // Optimistic UI update
     element.classList.remove('notif-unread');
     var dot = element.querySelector('.notif-row-dot');
     if (dot) dot.remove();
     updateNavBadge(-1);
 
-    // Mark as read on server, then navigate
     fetch('ajax/mark_notification_read.php', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'same-origin',
         body: JSON.stringify({ id: notifId })
     })
-    .catch(function() { /* silent — still navigate */ })
+    .catch(function() { /* silent */ })
     .finally(function() {
-        if (url && url !== 'dashboard.php') {
+        if (url) {
             window.location.href = url;
         }
     });
@@ -194,5 +192,4 @@ function updateNavBadge(delta) {
     else { badge.textContent = next; badge.style.display = ''; }
 }
 </script>
-
 <?php require_once 'includes/footer.php'; ?>
