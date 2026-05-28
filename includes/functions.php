@@ -325,6 +325,8 @@ function getAssignedAssets($userId) {
     global $pdo;
     $stmt = $pdo->prepare(
         "SELECT d.asset_tag,
+                d.pc_name,
+                d.ip_address,
                 CONCAT(d.brand, ' ', d.model) AS name,
                 dt.type_name AS category,
                 d.status,

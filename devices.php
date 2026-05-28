@@ -276,8 +276,10 @@ function setupAssignedUserButtons() {
                     + '<div><strong>Department</strong><div>' + (u.department || 'N/A') + '</div></div>'
                     + '<div><strong>Position</strong><div>' + (u.position || 'N/A') + '</div></div>'
                     + '<div><strong>Status</strong><div>' + (u.status ? '<span class="status-badge">' + u.status.charAt(0).toUpperCase() + u.status.slice(1) + '</span>' : 'N/A') + '</div></div>'
-                    + '</div>'
+                    + '<div><strong>IP Address</strong><div>' + (assets.find(a => a.ip_address && a.ip_address !== 'N/A')?.ip_address || 'N/A') + '</div></div>'
+                    + '<div><strong>PC Name</strong><div>' + (assets.find(a => a.pc_name && a.pc_name !== 'N/A')?.pc_name || 'N/A') + '</div></div>'
                     + '<h4 class="section-title">Assigned Devices</h4>'
+                    + '</div>'
                     + assetsHtml;
             })
             .catch(function() {
