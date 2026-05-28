@@ -22,20 +22,25 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     $vendor = trim($_POST['vendor'] ?? '');
     $checked_by = $_POST['checked_by'] ?? null;
     $warranty_duration = $_POST['warranty_expiry'] ?? null;
-    $purchase_date_val = $_POST['purchase_date'] ?? null;
-    $warranty_expiry = null;
-    if ($warranty_duration && $purchase_date_val && $warranty_duration !== 'no_warranty') {
-        $pd = new DateTime($purchase_date_val);
-        switch ($warranty_duration) {
-            case '6_months': $pd->modify('+6 months');  break;
-            case '1_year':   $pd->modify('+1 year');    break;
-            case '2_years':  $pd->modify('+2 years');   break;
-            case '3_years':  $pd->modify('+3 years');   break;
-            case '5_years':  $pd->modify('+5 years');   break;
-            case 'lifetime': $pd->setDate(9999, 12, 31); break;
-        }
-        $warranty_expiry = $pd->format('Y-m-d');
+$warranty_custom   = trim($_POST['warranty_custom'] ?? '');
+$purchase_date_val = $_POST['purchase_date'] ?? null;
+$warranty_expiry   = null;
+
+if ($warranty_duration === 'custom') {
+    // store the custom text as-is (e.g. "18 months", "90 days")
+    $warranty_expiry = !empty($warranty_custom) ? $warranty_custom : null;
+} elseif ($warranty_duration && $purchase_date_val && $warranty_duration !== 'no_warranty') {
+    $pd = new DateTime($purchase_date_val);
+    switch ($warranty_duration) {
+        case '6_months': $pd->modify('+6 months');   break;
+        case '1_year':   $pd->modify('+1 year');     break;
+        case '2_years':  $pd->modify('+2 years');    break;
+        case '3_years':  $pd->modify('+3 years');    break;
+        case '5_years':  $pd->modify('+5 years');    break;
+        case 'lifetime': $pd->setDate(9999, 12, 31); break;
     }
+    $warranty_expiry = $pd->format('Y-m-d');
+}
     $purchase_price = $_POST['purchase_price'] ?? null;
     $location = trim($_POST['location'] ?? 'IT Stock Room');
     $condition_notes = trim($_POST['condition_notes'] ?? '');
@@ -290,6 +295,30 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
 
     applyState();
 
+    Put it inside your existing <script> block, right after the applyState(); line and before the asset tag submit validation, like this:
+javascript    applyState();
+
+    // ✅ ADD HERE — Warranty custom toggle
+    var warrantySelect = document.getElementById('warrantySelect');
+    var warrantyCustom = document.getElementById('warrantyCustom');
+
+    function toggleWarrantyCustom() {
+        if (warrantySelect.value === 'custom') {
+            warrantyCustom.style.display = 'block';
+            warrantyCustom.required = true;
+            warrantySelect.removeAttribute('required');
+        } else {
+            warrantyCustom.style.display = 'none';
+            warrantyCustom.required = false;
+            warrantySelect.required = true;
+        }
+    }
+
+    warrantySelect.addEventListener('change', toggleWarrantyCustom);
+    toggleWarrantyCustom();
+    // ✅ END warranty toggle
+
+    // existing asset tag submit validation (already there)
     document.getElementById('addDeviceForm').addEventListener('submit', function(e) {
         if (!input.disabled) {
             if (input.value.trim() === '') {
@@ -311,5 +340,6 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         }
     });
 
-})();
+})();  
 </script>
+
