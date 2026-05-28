@@ -163,9 +163,33 @@ function addNotification($userId, $type, $title, $message, $relatedId = null) {
     return $pdo->lastInsertId();
 }
 
+function addNotificationIfNotExists($userId, $type, $title, $message, $relatedId = null) {
+    global $pdo;
+    $stmt = $pdo->prepare(
+        "SELECT id FROM notifications WHERE user_id = ? AND type = ? AND title = ? AND message = ? " .
+        "AND ((related_id = ? ) OR (related_id IS NULL AND ? IS NULL)) LIMIT 1"
+    );
+    $stmt->execute([$userId, $type, $title, $message, $relatedId, $relatedId]);
+    $existingId = $stmt->fetchColumn();
+    if ($existingId) {
+        return $existingId;
+    }
+    return addNotification($userId, $type, $title, $message, $relatedId);
+}
+
+function notifyITStaff($type, $title, $message, $relatedId = null) {
+    global $pdo;
+    $stmt = $pdo->query("SELECT id FROM users WHERE role IN ('admin','it_staff') AND status = 'active'");
+    $staff = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    foreach ($staff as $member) {
+        addNotificationIfNotExists($member['id'], $type, $title, $message, $relatedId);
+    }
+}
+
 function getNotificationUrl(array $notification) {
     $type = $notification['type'] ?? '';
     $relatedId = !empty($notification['related_id']) ? intval($notification['related_id']) : null;
+    $role = $_SESSION['role'] ?? '';
 
     switch ($type) {
         case 'device_request':
@@ -178,17 +202,42 @@ function getNotificationUrl(array $notification) {
             return 'repairs.php' . ($relatedId ? '?repair_id=' . $relatedId : '');
         case 'device_deployed':
         case 'device_returned':
-            return $relatedId ? 'view_device.php?id=' . $relatedId : 'deployments.php';
+        case 'warranty_expiring':
+            return $relatedId ? 'view_device.php?id=' . $relatedId : 'devices.php';
         case 'low_stock':
             return 'devices.php';
         case 'maintenance_assigned':
         case 'maintenance_due':
-            return 'maintenance_reminders.php';
+            return $relatedId ? 'maintenance_reminders.php?device_id=' . $relatedId : 'maintenance_reminders.php';
         case 'user_creation_request':
             return 'security_control.php' . ($relatedId ? '#request-' . $relatedId : '');
         case 'user_creation_approved':
         case 'user_creation_rejected':
             return 'notifications.php';
+        case 'user_clearance_required':
+            return 'it_clearance.php';
+        case 'user_clearance_completed':
+            if ($role === 'employee') {
+                return $relatedId ? 'view_device.php?id=' . $relatedId : 'user_asset_dashboard.php';
+            }
+            return 'it_clearance.php';
+        case 'voluntary_return_requested':
+            if (in_array($role, ['admin', 'it_staff'], true)) {
+                return 'it_clearance.php';
+            }
+            return $relatedId ? 'view_device.php?id=' . $relatedId : 'user_asset_dashboard.php';
+        case 'lifespan_monitor':
+        case 'lifespan_replace_soon':
+        case 'lifespan_overdue':
+        case 'lifespan_replaced':
+        case 'lifespan_extended':
+            // Employees see device details view, IT staff see full lifespan dashboard
+            if ($role === 'employee') {
+                return $relatedId ? 'view_device.php?id=' . $relatedId : 'devices.php';
+            }
+            return $relatedId ? 'device_lifespan.php?device_id=' . $relatedId : 'device_lifespan.php';
+        case 'audit_reminder':
+            return 'users.php#recovery';
         default:
             return 'notifications.php';
     }

@@ -201,6 +201,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 
                 $pdo->commit();
 
+                $deviceTags = array_map(function($a) {
+                    return $a['asset_tag'];
+                }, $assignments);
+                $deviceList = implode(', ', $deviceTags);
+
+                addNotificationIfNotExists(
+                    $userId,
+                    'user_clearance_completed',
+                    'Clearance Completed',
+                    "Your device(s) {$deviceList} have been returned to stock and cleared by IT.",
+                    $singleDevId ? $singleDevId : null
+                );
+                notifyITStaff(
+                    'user_clearance_completed',
+                    'User Clearance Completed',
+                    "IT completed clearance for {$user['full_name']} ({$user['employee_id']}) and returned device(s): {$deviceList}.",
+                    $singleDevId ? $singleDevId : null
+                );
+
                 $successMessage = $singleDevId
                     ? 'Single-device clearance completed. Device returned to stock.'
                     : 'Full clearance completed. All assigned devices returned to stock.';

@@ -13,14 +13,20 @@
 
     <script src="assets/js/main.js"></script>
     <script>
+        // Setup event delegation for notification items that may be added dynamically
         document.addEventListener('DOMContentLoaded', function () {
+            console.log('DOMContentLoaded: Setting up notification handlers');
+            
             var notifToggle = document.getElementById('notifToggle');
             var notifDropdown = document.getElementById('notifDropdown');
 
             if (notifToggle && notifDropdown) {
+                console.log('✓ Notification dropdown found');
+                
                 notifToggle.addEventListener('click', function (event) {
                     event.stopPropagation();
                     notifDropdown.classList.toggle('show');
+                    console.log('Notification dropdown toggled');
                 });
 
                 document.addEventListener('click', function (event) {
@@ -29,37 +35,28 @@
                     }
                 });
 
-                notifDropdown.querySelectorAll('.notif-item').forEach(function (item) {
-                    item.addEventListener('click', function () {
-                        var id = this.dataset.id;
-                        var url = this.dataset.url || 'notifications.php';
-                        if (id) {
-                            fetch('mark_notification_read.php?id=' + encodeURIComponent(id), {
-                                headers: { 'X-Requested-With': 'XMLHttpRequest' }
-                            }).finally(function () {
-                                window.location.href = url;
-                            });
-                        } else {
-                            window.location.href = url;
-                        }
-                    });
+                // Event delegation: handle clicks on dynamically loaded notif-items
+                notifDropdown.addEventListener('click', function(event) {
+                    var notifItem = event.target.closest('.notif-item');
+                    if (notifItem) {
+                        console.log('🔔 Dropdown notification clicked');
+                        event.stopPropagation();
+                        handleNotificationClick(notifItem);
+                    }
                 });
             }
-        });
 
-        function handleNotificationClick(element) {
-            var id = element.dataset.id;
-            var url = element.dataset.url || 'requests.php';
-            if (id) {
-                fetch('mark_notification_read.php?id=' + encodeURIComponent(id), {
-                    headers: { 'X-Requested-With': 'XMLHttpRequest' }
-                }).finally(function () {
-                    window.location.href = url;
+            // Also handle static notification list items (.notif-clickable)
+            var notifClickables = document.querySelectorAll('.notif-clickable');
+            console.log('Found', notifClickables.length, 'static notification items');
+            notifClickables.forEach(function(item) {
+                item.addEventListener('click', function(event) {
+                    console.log('🔔 Static notification clicked');
+                    if (event.target.closest('a')) return; // Don't intercept links
+                    handleNotificationClick(this);
                 });
-            } else {
-                window.location.href = url;
-            }
-        }
+            });
+        });
     </script>
 <?php ob_end_flush(); ?>
 </body>

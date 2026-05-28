@@ -23,12 +23,9 @@ if (isset($_GET['action']) && $_GET['action'] == 'return' && isset($_GET['id']))
         $pdo->prepare("UPDATE devices SET status = 'in_stock', location = 'IT Stock Room' WHERE id = ?")->execute([$assignment['device_id']]);
 
         // Notify employee
-        addNotification($assignment['employee_id'], 'device_returned', 'Device Returned', "Your assigned device {$assignment['asset_tag']} has been returned.", $assignment['device_id']);
-        // Notify admin
-        $admins = $pdo->query("SELECT id FROM users WHERE role = 'admin'")->fetchAll();
-        foreach ($admins as $admin) {
-            addNotification($admin['id'], 'device_returned', 'Device Returned', "Device {$assignment['asset_tag']} has been returned to stock.", $assignment['device_id']);
-        }
+        addNotificationIfNotExists($assignment['employee_id'], 'device_returned', 'Device Returned', "Your assigned device {$assignment['asset_tag']} has been returned.", $assignment['device_id']);
+        // Notify IT staff and admins
+        notifyITStaff('device_returned', 'Device Returned', "Device {$assignment['asset_tag']} has been returned to stock.", $assignment['device_id']);
 
         logAudit($_SESSION['user_id'], 'Return', 'device_assignments', $assignmentId);
         setFlashMessage('success', 'Device returned successfully.');

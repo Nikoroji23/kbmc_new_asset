@@ -61,6 +61,24 @@ $currentAssignment = null;
 foreach ($assignments as $a) {
     if ($a['status'] == 'active') { $currentAssignment = $a; break; }
 }
+
+if (isset($_GET['mode']) && $_GET['mode'] === 'voluntary' && $currentAssignment && hasRole('employee') && isset($_SESSION['user_id']) && (int)$_SESSION['user_id'] === (int)$currentAssignment['employee_id']) {
+    $returnUrl = 'return_device.php?id=' . urlencode($currentAssignment['id']);
+    $title = 'Voluntary Return Requested';
+    $message = "Employee {$currentAssignment['employee_name']} requested voluntary return for device {$device['asset_tag']}. Please review user clearance.";
+
+    notifyITStaff('user_clearance_required', $title, $message, $device['id']);
+    addNotificationIfNotExists(
+        $_SESSION['user_id'],
+        'voluntary_return_requested',
+        'Voluntary Return Requested',
+        "Your voluntary return request for {$device['asset_tag']} has been sent to IT for clearance.",
+        $device['id']
+    );
+
+    setFlashMessage('success', 'Your voluntary return request has been sent to IT. Please complete clearance when IT contacts you.');
+    redirect($returnUrl);
+}
 ?>
 
 <div class="page-header">

@@ -22,6 +22,51 @@ $pageTitle = $pageTitle ?? 'KBMC Asset Management';
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.25/jspdf.plugin.autotable.min.js"></script>
+    
+    <!-- Global Notification Handler (must be defined before page content uses it) -->
+    <script>
+        function handleNotificationClick(element) {
+            var id = element.dataset.id;
+            var url = element.dataset.url || 'notifications.php';
+            var type = element.dataset.type || 'unknown';
+            
+            console.log('🔔 Notification clicked:', { id, url, type });
+            
+            if (!url || url.trim() === '') {
+                console.error('❌ No valid URL for notification');
+                return false;
+            }
+            
+            // Mark as read
+            if (id) {
+                fetch('mark_notification_read.php?id=' + encodeURIComponent(id), {
+                    method: 'GET',
+                    headers: { 'X-Requested-With': 'XMLHttpRequest' }
+                })
+                .then(response => {
+                    if (!response.ok) {
+                        console.warn('⚠️ Failed to mark as read:', response.statusText);
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    console.log('✓ Mark read response:', data);
+                })
+                .catch(error => {
+                    console.warn('⚠️ Error marking notification read:', error);
+                })
+                .finally(() => {
+                    console.log('➜ Navigating to:', url);
+                    window.location.href = url;
+                });
+            } else {
+                console.log('➜ No notification ID, navigating directly to:', url);
+                window.location.href = url;
+            }
+            
+            return false; // Prevent default behavior
+        }
+    </script>
 </head>
 <body>
     <!-- Sidebar -->
@@ -92,6 +137,31 @@ $pageTitle = $pageTitle ?? 'KBMC Asset Management';
             <a href="retired.php" class="nav-item <?php echo basename($_SERVER['PHP_SELF']) == 'retired.php' ? 'active' : ''; ?>">
                 <i class="fas fa-trash-alt"></i>
                 <span>Retired / Disposed</span>
+            </a>
+            <a href="device_lifespan.php" class="nav-item <?php echo basename($_SERVER['PHP_SELF']) == 'device_lifespan.php' ? 'active' : ''; ?>">
+                <i class="fas fa-hourglass-half"></i>
+                <span>Device Lifespan</span>
+                <?php
+                // Badge: count devices that are overdue or replace_soon
+                try {
+                    $urgentLifespan = $pdo->query("
+                        SELECT COUNT(DISTINCT d.id) FROM devices d
+                        LEFT JOIN device_lifespan_forecast dlf ON d.id = dlf.device_id
+                        LEFT JOIN device_type_lifespans dtl ON d.device_type_id = dtl.device_type_id
+                        WHERE d.purchase_date IS NOT NULL
+                          AND d.status NOT IN ('retired','disposed')
+                          AND (
+                              dlf.forecast_status IN ('overdue','replace_soon')
+                              OR (
+                                  dlf.forecast_status IS NULL
+                                  AND DATE_ADD(d.purchase_date, INTERVAL COALESCE(d.expected_lifespan_years, dtl.default_years, 5) YEAR) <= DATE_ADD(NOW(), INTERVAL 1 YEAR)
+                              )
+                          )
+                    ")->fetchColumn();
+                    if ($urgentLifespan > 0):
+                ?>
+                <span class="nav-badge"><?php echo $urgentLifespan; ?></span>
+                <?php endif; } catch (Exception $e) {} ?>
             </a>
             <?php endif; ?>
 
@@ -201,7 +271,12 @@ $pageTitle = $pageTitle ?? 'KBMC Asset Management';
                             ?>
                             <div class="notif-item <?php echo $notif['is_read'] ? '' : 'unread'; ?>" 
                                  data-id="<?php echo $notif['id']; ?>" 
-                                 data-url="<?php echo sanitize($notifUrl); ?>">
+                                 data-url="<?php echo sanitize($notifUrl); ?>"
+                                 data-type="<?php echo sanitize($notif['type'] ?? 'unknown'); ?>"
+                                 role="button"
+                                 tabindex="0"
+                                 style="cursor: pointer;"
+                                 title="Click to navigate">
                                 <div class="notif-icon">
                                     <i class="fas fa-<?php
                                         echo match($notif['type']) {
@@ -212,6 +287,14 @@ $pageTitle = $pageTitle ?? 'KBMC Asset Management';
                                             'request_approved' => 'check-circle',
                                             'request_rejected' => 'times-circle',
                                             'warranty_expiring' => 'clock',
+                                            'user_clearance_required' => 'file-signature',
+                                            'user_clearance_completed' => 'user-check',
+                                            'voluntary_return_requested' => 'hand-holding',
+                                            'lifespan_monitor' => 'eye',
+                                            'lifespan_replace_soon' => 'hourglass-half',
+                                            'lifespan_overdue' => 'exclamation-triangle',
+                                            'lifespan_replaced' => 'archive',
+                                            'lifespan_extended' => 'plus-circle',
                                             default => 'info-circle'
                                         };
                                     ?>"></i>

@@ -1,7 +1,8 @@
 <?php
 /**
  * KBMC Asset Management - All Notifications
- * ALL notifications redirect to Device Requests page when clicked
+ * Notification center for all notification types.
+ * Each notification will redirect to the page that matches its action.
  */
 $pageTitle = 'Notifications';
 require_once 'includes/header.php';
@@ -33,12 +34,16 @@ $notifications = $stmt->fetchAll();
             $notifUrl = getNotificationUrl($notif);
         ?>
         <div class="activity-item notif-clickable" 
-             style="padding: 15px; border-bottom: 1px solid #f5f5f5; background: <?php echo $notif['is_read'] ? 'transparent' : '#FFF5F5'; ?>; border-radius: var(--radius); margin-bottom: 5px; cursor: pointer; transition: all 0.2s;"
+             style="padding: 15px; border-bottom: 1px solid #f5f5f5; background: <?php echo $notif['is_read'] ? 'transparent' : '#FFF5F5'; ?>; border-radius: var(--radius); margin-bottom: 5px; cursor: pointer; transition: all 0.2s ease; hover: background-color: #f0f0f0;"
              data-id="<?php echo $notif['id']; ?>"
              data-url="<?php echo sanitize($notifUrl); ?>"
-             onclick="handleNotificationClick(this)">
+             data-type="<?php echo sanitize($notif['type'] ?? 'unknown'); ?>"
+             onclick="handleNotificationClick(this)"
+             role="button"
+             tabindex="0"
+             title="Click to view">
             <div class="activity-icon" style="background: var(--kbmc-red-light); color: var(--kbmc-red);">
-                <i class="fas fa-<?php echo match($notif['type']) { 'device_deployed' => 'laptop', 'device_returned' => 'undo', 'low_stock' => 'exclamation-triangle', 'repair_needed' => 'tools', 'request_approved' => 'check-circle', 'request_rejected' => 'times-circle', 'warranty_expiring' => 'clock', default => 'info-circle' }; ?>"></i>
+                <i class="fas fa-<?php echo match($notif['type']) { 'device_deployed' => 'laptop', 'device_returned' => 'undo', 'low_stock' => 'exclamation-triangle', 'repair_needed' => 'tools', 'request_approved' => 'check-circle', 'request_rejected' => 'times-circle', 'warranty_expiring' => 'clock', 'user_clearance_required' => 'file-signature', 'user_clearance_completed' => 'user-check', 'voluntary_return_requested' => 'hand-holding', 'lifespan_monitor' => 'eye', 'lifespan_replace_soon' => 'hourglass-half', 'lifespan_overdue' => 'exclamation-triangle', 'lifespan_replaced' => 'archive', 'lifespan_extended' => 'plus-circle', default => 'info-circle' }; ?>"></i>
             </div>
             <div class="activity-content" style="flex: 1;">
                 <div class="activity-title" style="font-weight: 600;"><?php echo sanitize($notif['title']); ?></div>
@@ -46,7 +51,7 @@ $notifications = $stmt->fetchAll();
                 <div style="font-size: 11px; color: #999; margin-top: 5px;">
                     <?php echo date('M d, Y h:i A', strtotime($notif['created_at'])); ?> &bull; 
                     <?php echo $notif['is_read'] ? 'Read' : '<strong style="color: var(--kbmc-red);">Unread</strong>'; ?>
-                    &bull; <span style="color: var(--kbmc-red);"><i class="fas fa-external-link-alt"></i> Click to view requests</span>
+                    &bull; <span style="color: var(--kbmc-red);"><i class="fas fa-external-link-alt"></i> Click to go to the relevant page</span>
                 </div>
             </div>
         </div>
