@@ -10,7 +10,6 @@ $emailConfigPath = __DIR__ . '/email_config.php';
 if (file_exists($emailConfigPath)) {
     require_once $emailConfigPath;
 } else {
-    // Fallback email functions if email_config.php is missing
     $email_settings = [
         'from_email' => 'noreply@kbmc.com',
         'from_name'  => 'KBMC Asset Management',
@@ -63,18 +62,15 @@ function requireITStaffOnly() {
     }
 }
 
-// Validate a role is one of the allowed values
 function isValidRole($role) {
     $allowed_roles = ['admin', 'it_staff', 'employee'];
     return in_array($role, $allowed_roles);
 }
 
-// Get all valid roles
 function getAllowedRoles() {
     return ['admin', 'it_staff', 'employee'];
 }
 
-//$pdo -  database access abstraction layer that provides a consistent and secure way
 function getUserInfo($userId) {
     global $pdo;
     $stmt = $pdo->prepare("SELECT * FROM users WHERE id = ?");
@@ -145,14 +141,14 @@ function ensureDeviceSchema() {
     }
 
     try {
-        if (!columnExists('devices', 'pc_name')) {
-            $GLOBALS['pdo']->exec("ALTER TABLE devices ADD COLUMN pc_name VARCHAR(100) DEFAULT NULL AFTER ip_address");
-        }
         if (!columnExists('devices', 'ip_address')) {
             $GLOBALS['pdo']->exec("ALTER TABLE devices ADD COLUMN ip_address VARCHAR(50) DEFAULT NULL AFTER serial_number");
         }
+        if (!columnExists('devices', 'pc_name')) {
+            $GLOBALS['pdo']->exec("ALTER TABLE devices ADD COLUMN pc_name VARCHAR(100) DEFAULT NULL AFTER ip_address");
+        }
     } catch (PDOException $e) {
-        // If ALTER TABLE fails, allow the app to continue; device listing may still fail.
+        // If ALTER TABLE fails, allow the app to continue
     }
 }
 
@@ -185,6 +181,32 @@ function ensureMaintenanceSchema() {
     }
 }
 
+function ensureUserSecuritySchema() {
+    static $checked = false;
+    if ($checked) {
+        return;
+    }
+    $checked = true;
+
+    if (!tableExists('users')) {
+        return;
+    }
+
+    try {
+        if (!columnExists('users', 'master_key')) {
+            $GLOBALS['pdo']->exec("ALTER TABLE users ADD COLUMN master_key VARCHAR(64) DEFAULT NULL");
+        }
+        if (!columnExists('users', 'master_key_hash')) {
+            $GLOBALS['pdo']->exec("ALTER TABLE users ADD COLUMN master_key_hash VARCHAR(255) DEFAULT NULL");
+        }
+        if (!columnExists('users', 'is_security_admin')) {
+            $GLOBALS['pdo']->exec("ALTER TABLE users ADD COLUMN is_security_admin TINYINT(1) DEFAULT 0");
+        }
+    } catch (PDOException $e) {
+        // If ALTER TABLE fails, continue gracefully.
+    }
+}
+
 function addNotification($userId, $type, $title, $message, $relatedId = null) {
     global $pdo;
     $stmt = $pdo->prepare("INSERT INTO notifications (user_id, type, title, message, related_id) VALUES (?, ?, ?, ?, ?)");
@@ -208,150 +230,95 @@ function addNotificationIfNotExists($userId, $type, $title, $message, $relatedId
 
 function notifyITStaff($type, $title, $message, $related_id = 0) {
     global $pdo;
-    
-    // Get all IT staff / admin users
     $itUsers = $pdo->query("SELECT id FROM users WHERE role IN ('admin', 'it_staff')")->fetchAll();
-    
     $stmt = $pdo->prepare("
         INSERT INTO notifications (user_id, type, related_id, title, message, is_read, created_at) 
         VALUES (?, ?, ?, ?, ?, 0, NOW())
     ");
-    
     foreach ($itUsers as $user) {
         $stmt->execute([$user['id'], $type, $related_id, $title, $message]);
     }
 }
-/**
- * Returns the correct URL for a notification based on its type and related_id
- */
+
 function getNotificationUrl(array $notif): string
 {
     $type  = $notif['type']         ?? '';
     $refId = (int)($notif['related_id'] ?? 0);
- 
-    // Resolve current user role from session
     $role  = $_SESSION['role'] ?? 'employee';
     $isIT  = in_array($role, ['admin', 'it_staff']);
- 
-    // ----------------------------------------------------------
-    // IT STAFF & ADMIN notifications
-    // These types are only ever sent to admin / it_staff roles.
-    // ----------------------------------------------------------
+
     if ($isIT) {
-        // --- Device Lifespan ---
-        // Sent by: device_lifespan.php auto-sync & inline-edit AJAX
-        // related_id = device_id
         if (str_starts_with($type, 'lifespan_')) {
             return $refId
                 ? 'device_lifespan.php?device_id=' . $refId
                 : 'device_lifespan.php';
         }
- 
+
         switch ($type) {
- 
-            // --- Repairs ---
-            // Sent by: api_report_device_issue.php & api_mark_repair_done.php
-        // related_id = repair_id (IT sees repair list)
-        case 'repair_needed':
-        case 'repair_pending':
-            return 'repairs.php';
- 
-        // --- Maintenance ---
-        // Sent by: api_send_maintenance_reminder.php & maintenance_reminders.php
-        // related_id = device_id
- 
-            // --- Deployments ---
-            // Sent by: deployments.php (assign & return)
-            // reference_id = device_id
+            case 'repair_needed':
+            case 'repair_pending':
+                return 'repairs.php';
+
             case 'device_deployed':
             case 'device_returned':
             case 'voluntary_return_requested':
                 return 'deployments.php';
- 
-            // --- Warranty ---
-            // reference_id = device_id → go directly to device page
+
             case 'warranty_expiring':
                 return $refId
                     ? 'view_device.php?id=' . $refId
                     : 'devices.php';
- 
-            // --- IT Clearance ---
-            // Sent by: it_clearance.php
-            // related_id = device_id (optional, may be 0 on full clearance)
+
             case 'user_clearance_completed':
             case 'user_clearance_required':
                 return 'it_clearance.php';
- 
-            // --- Audit / Account Recovery ---
-            // Sent by: submitAccountRecovery()
-            // related_id = account recovery request id
+
             case 'audit_reminder':
                 return 'users.php#recovery';
- 
-            // --- Device Requests ---
-            // Sent by: requests.php (admin/IT side)
-            // related_id = request_id
+
             case 'device_request':
                 return 'requests.php';
- 
-            // --- Low Stock ---
-            // related_id = 0 (no specific device)
+
             case 'low_stock':
                 return 'devices.php';
- 
-            // Fallback for unknown types: stay on notifications page
+
             default:
                 return 'notifications.php';
         }
     }
- 
-    // ----------------------------------------------------------
-    // EMPLOYEE notifications
-    // These are the types a normal employee will receive.
-    // ----------------------------------------------------------
+
     switch ($type) {
- 
-        // Device assigned to them → show that device
-        // related_id = device_id
         case 'device_deployed':
             return $refId
                 ? 'view_device.php?id=' . $refId
                 : 'dashboard.php';
- 
-        // Device taken back → just go to dashboard
+
         case 'device_returned':
             return 'dashboard.php';
- 
-        // Their request was approved or rejected → show requests list
-        // related_id = request_id
+
         case 'request_approved':
         case 'request_rejected':
             return 'requests.php';
- 
-        // IT completed their clearance
+
         case 'user_clearance_completed':
             return 'dashboard.php';
- 
-        // They were reminded about maintenance on their assigned device
-        // related_id = device_id
+
         case 'maintenance_due':
             return $refId
                 ? 'view_device.php?id=' . $refId
                 : 'dashboard.php';
- 
-        // They reported an issue — show their device
-        // related_id = device_id
+
         case 'repair_needed':
         case 'repair_pending':
             return $refId
                 ? 'view_device.php?id=' . $refId
                 : 'dashboard.php';
- 
-        // Fallback
+
         default:
             return 'notifications.php';
     }
 }
+
 function createPasswordResetToken($userId) {
     global $pdo;
     $token = bin2hex(random_bytes(32));
@@ -520,7 +487,6 @@ function deleteUserById($userId) {
     try {
         $pdo->beginTransaction();
 
-        // Return any active assignments for this user back to stock
         $stmt = $pdo->prepare("SELECT id, device_id FROM device_assignments WHERE employee_id = ? AND status = 'active'");
         $stmt->execute([$userId]);
         $assignments = $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -529,7 +495,6 @@ function deleteUserById($userId) {
             $pdo->prepare("UPDATE device_assignments SET status = 'returned', returned_date = CURDATE() WHERE id = ?")->execute([$a['id']]);
             $pdo->prepare("UPDATE devices SET status = 'in_stock', location = 'IT Stock Room' WHERE id = ?")->execute([$a['device_id']]);
 
-            // Notify admins about the automatic return
             $admins = $pdo->query("SELECT id FROM users WHERE role = 'admin'")->fetchAll(PDO::FETCH_ASSOC);
             foreach ($admins as $admin) {
                 if (!empty($admin['id'])) {
@@ -537,7 +502,6 @@ function deleteUserById($userId) {
                 }
             }
 
-            // Audit log
             if (session_status() == PHP_SESSION_NONE) {
                 @session_start();
             }
@@ -545,7 +509,6 @@ function deleteUserById($userId) {
             logAudit($currentUserId, 'AutoReturn', 'device_assignments', $a['id']);
         }
 
-        // Finally delete the user
         $stmt = $pdo->prepare("DELETE FROM users WHERE id = ?");
         $res = $stmt->execute([$userId]);
 
@@ -607,15 +570,14 @@ function downloadCSV($filename, $headers, $data) {
 
 // ============================================================
 // MASTER KEY & SECURITY FUNCTIONS
+// ============================================================
 
-// Check if user is a security IT approver (IT staff with security approval privileges)
+// FIXED: removed dead $user_id check, use only $userId
 function isSecurityAdmin($userId = null) {
     global $pdo;
-    if ($userId === null) {
-        $userId = $_SESSION['user_id'] ?? null;
+    if (!$userId) {
+        return false;
     }
-    if (!$userId) return false;
-    
     $stmt = $pdo->prepare("SELECT role, is_security_admin FROM users WHERE id = ?");
     $stmt->execute([$userId]);
     $result = $stmt->fetch();
@@ -628,12 +590,10 @@ function setSecurityITApprover($userId, $enabled = true) {
     return $stmt->execute([$enabled ? 1 : 0, $userId]);
 }
 
-// Generate master security key for an admin
 function generateMasterKey($length = 32) {
     return bin2hex(random_bytes($length / 2));
 }
 
-// Set master key for security IT approver
 function setMasterKey($userId, $masterKey) {
     global $pdo;
     $hashedKey = password_hash($masterKey, PASSWORD_BCRYPT);
@@ -642,27 +602,23 @@ function setMasterKey($userId, $masterKey) {
     return $stmt->rowCount() > 0;
 }
 
-// Verify master key
 function verifyMasterKey($userId, $masterKey) {
     global $pdo;
     $stmt = $pdo->prepare("SELECT master_key_hash FROM users WHERE id = ? AND is_security_admin = 1");
     $stmt->execute([$userId]);
     $result = $stmt->fetch();
-    
+
     if ($result && password_verify($masterKey, $result['master_key_hash'])) {
-        // Log successful verification
         logSecurityKeyUsage($userId, 'Key Verified', true);
         $_SESSION['master_key_verified'] = true;
         $_SESSION['master_key_verified_at'] = time();
         return true;
     }
-    
-    // Log failed verification
+
     logSecurityKeyUsage($userId, 'Key Verification Failed', false);
     return false;
 }
 
-// Log master key usage
 function logSecurityKeyUsage($userId, $action, $success = true) {
     global $pdo;
     $ipAddress = $_SERVER['REMOTE_ADDR'] ?? null;
@@ -670,37 +626,35 @@ function logSecurityKeyUsage($userId, $action, $success = true) {
     $stmt->execute([$userId, $action, $success ? 1 : 0, $ipAddress]);
 }
 
-// Check if master key is currently verified (within session timeout)
 function isMasterKeyVerified($timeoutMinutes = 30) {
     if (empty($_SESSION['master_key_verified']) || empty($_SESSION['master_key_verified_at'])) {
         return false;
     }
-    
+
     $elapsed = (time() - $_SESSION['master_key_verified_at']) / 60;
     if ($elapsed > $timeoutMinutes) {
         unset($_SESSION['master_key_verified']);
         unset($_SESSION['master_key_verified_at']);
         return false;
     }
-    
+
     return true;
 }
 
-// Request approval for IT/Admin user creation
 function createUserApprovalRequest($requestedByUserId, $fullName, $email, $requestedRole, $employeeId = '', $department = '', $position = '', $phone = '', $passwordHash = '', $reason = '') {
     global $pdo;
-    
+
     if (!in_array($requestedRole, ['it_staff', 'admin'])) {
         return false;
     }
-    
+
     try {
         $stmt = $pdo->prepare("
             INSERT INTO user_approval_requests 
             (requested_by, employee_id, full_name, email, requested_role, department, position, phone, password_hash, reason, status) 
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')
         ");
-        
+
         return $stmt->execute([
             $requestedByUserId,
             $employeeId,
@@ -718,7 +672,6 @@ function createUserApprovalRequest($requestedByUserId, $fullName, $email, $reque
     }
 }
 
-// Get pending user approval requests
 function getPendingUserApprovals() {
     global $pdo;
     $stmt = $pdo->query("
@@ -731,30 +684,27 @@ function getPendingUserApprovals() {
     return $stmt->fetchAll();
 }
 
-// Approve user creation request
 function approveUserCreation($approvalId, $approvedByUserId, $masterKey = null) {
     global $pdo;
-    
-    // Verify master key if required
+
     if ($masterKey && !verifyMasterKey($approvedByUserId, $masterKey)) {
         return ['success' => false, 'message' => 'Invalid master security key'];
     }
-    
+
     try {
         $stmt = $pdo->prepare("SELECT * FROM user_approval_requests WHERE id = ? AND status = 'pending'");
         $stmt->execute([$approvalId]);
         $request = $stmt->fetch();
-        
+
         if (!$request) {
             return ['success' => false, 'message' => 'Request not found or already processed'];
         }
-        
-        // Create the user
+
         $insertStmt = $pdo->prepare("
             INSERT INTO users (employee_id, full_name, email, password, role, department, position, phone, status) 
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active')
         ");
-        
+
         $insertStmt->execute([
             $request['employee_id'],
             $request['full_name'],
@@ -765,7 +715,7 @@ function approveUserCreation($approvalId, $approvedByUserId, $masterKey = null) 
             $request['position'],
             $request['phone']
         ]);
-        
+
         $newUserId = $pdo->lastInsertId();
 
         addNotification(
@@ -775,54 +725,50 @@ function approveUserCreation($approvalId, $approvedByUserId, $masterKey = null) 
             'Your IT/Admin account has been approved. You can now log in.',
             null
         );
-        
-        // Update approval request
+
         $updateStmt = $pdo->prepare("
             UPDATE user_approval_requests 
             SET status = 'approved', approved_by = ?, approved_at = NOW() 
             WHERE id = ?
         ");
         $updateStmt->execute([$approvedByUserId, $approvalId]);
-        
-        // Log audit
-        logAudit($approvedByUserId, 'Approve User Creation', 'user_approval_requests', $approvalId, null, 
+
+        logAudit($approvedByUserId, 'Approve User Creation', 'user_approval_requests', $approvalId, null,
             "New {$request['requested_role']} user created: {$request['full_name']}");
-        
+
         return ['success' => true, 'message' => 'User approved and created successfully', 'userId' => $newUserId];
     } catch (PDOException $e) {
         return ['success' => false, 'message' => 'Error: ' . $e->getMessage()];
     }
 }
 
-// Reject user creation request
 function rejectUserCreation($approvalId, $rejectedByUserId, $rejectionReason = '') {
     global $pdo;
-    
+
     try {
         $stmt = $pdo->prepare("
             UPDATE user_approval_requests 
             SET status = 'rejected', approved_by = ?, approved_at = NOW(), rejection_reason = ? 
             WHERE id = ? AND status = 'pending'
         ");
-        
+
         $result = $stmt->execute([$rejectedByUserId, $rejectionReason, $approvalId]);
-        
+
         if ($result) {
             logAudit($rejectedByUserId, 'Reject User Creation', 'user_approval_requests', $approvalId);
         }
-        
+
         return $result;
     } catch (PDOException $e) {
         return false;
     }
 }
 
-// Log master key audit
 function logMasterKeyAudit($userId, $action, $details = null) {
     global $pdo;
     $ipAddress = $_SERVER['REMOTE_ADDR'] ?? null;
     $userAgent = $_SERVER['HTTP_USER_AGENT'] ?? null;
-    
+
     $stmt = $pdo->prepare("
         INSERT INTO master_key_audit (user_id, action, details, ip_address, user_agent) 
         VALUES (?, ?, ?, ?, ?)
@@ -942,7 +888,7 @@ function submitAccountRecovery($userId, $reason) {
     $stmt->execute([$userId, $reason]);
     $admins = $pdo->query("SELECT id FROM users WHERE role = 'admin'")->fetchAll();
     foreach ($admins as $admin) {
-        addNotification($admin['id'], 'audit_reminder', 'Account Recovery Request', 
+        addNotification($admin['id'], 'audit_reminder', 'Account Recovery Request',
             'A user has submitted an account recovery request.', $pdo->lastInsertId());
     }
     return $pdo->lastInsertId();
@@ -992,7 +938,7 @@ function sendPendingEmailNotifications() {
     $stmt = $pdo->prepare("SELECT * FROM email_notifications WHERE status = 'pending' AND retry_count < 3 ORDER BY created_at ASC LIMIT 10");
     $stmt->execute();
     $notifications = $stmt->fetchAll();
-    
+
     foreach ($notifications as $notif) {
         if (isEmailConfigured()) {
             $result = sendEmail($notif['recipient_email'], $notif['subject'], $notif['body']);
@@ -1009,7 +955,6 @@ function createMaintenanceSchedule($deviceId, $maintenanceType, $description, $s
     global $pdo;
     ensureMaintenanceSchema();
 
-    // Build INSERT defensively: only include columns that exist
     $columns = ['device_id', 'maintenance_type', 'description', 'scheduled_date', 'next_due_date', 'assigned_to'];
     $values = [$deviceId, $maintenanceType, $description, $scheduledDate, $scheduledDate, $assignedTo];
 
@@ -1021,7 +966,7 @@ function createMaintenanceSchedule($deviceId, $maintenanceType, $description, $s
     $placeholders = implode(', ', array_fill(0, count($columns), '?'));
     $columnList = implode(', ', $columns);
     $sql = "INSERT INTO maintenance_schedules ($columnList) VALUES ($placeholders)";
-    
+
     $stmt = $pdo->prepare($sql);
     $stmt->execute($values);
     $scheduleId = $pdo->lastInsertId();
@@ -1048,7 +993,6 @@ function createMaintenanceSchedule($deviceId, $maintenanceType, $description, $s
 function getUpcomingMaintenanceReminders($daysAhead = 7) {
     global $pdo;
     $futureDate = date('Y-m-d', strtotime("+$daysAhead days"));
-    // Build query defensively: only join requested_by / completed_by if columns exist
     $selectFields = [
         'ms.*', 'd.asset_tag', 'd.model',
         "a.email AS assigned_to_email", "a.full_name AS assigned_to_name"
@@ -1085,36 +1029,30 @@ function markMaintenanceCompleted($maintenanceId, $completedBy = null, $complete
         $completedBy = $_SESSION['user_id'];
     }
 
-    // Build UPDATE dynamically depending on which columns exist in the schema
     $sets = [];
     $params = [];
 
-    if (function_exists('columnExists') && columnExists('maintenance_schedules', 'last_performed_date')) {
+    if (columnExists('maintenance_schedules', 'last_performed_date')) {
         $sets[] = 'last_performed_date = DATE(?)';
         $params[] = $completedAt;
     }
-
-    if (function_exists('columnExists') && columnExists('maintenance_schedules', 'next_due_date')) {
+    if (columnExists('maintenance_schedules', 'next_due_date')) {
         $sets[] = 'next_due_date = DATE_ADD(DATE(?), INTERVAL 6 MONTH)';
         $params[] = $completedAt;
     }
-
-    if (function_exists('columnExists') && columnExists('maintenance_schedules', 'completed_at')) {
+    if (columnExists('maintenance_schedules', 'completed_at')) {
         $sets[] = 'completed_at = ?';
         $params[] = $completedAt;
     }
-
-    if (function_exists('columnExists') && columnExists('maintenance_schedules', 'completed_by')) {
+    if (columnExists('maintenance_schedules', 'completed_by')) {
         $sets[] = 'completed_by = ?';
         $params[] = $completedBy;
     }
-
-    if (function_exists('columnExists') && columnExists('maintenance_schedules', 'completion_notes')) {
+    if (columnExists('maintenance_schedules', 'completion_notes')) {
         $sets[] = 'completion_notes = ?';
         $params[] = $completionNotes;
     }
 
-    // Fetch device_id for this maintenance so we can clear related pending notifications later
     $deviceId = null;
     try {
         $devStmt = $pdo->prepare("SELECT device_id FROM maintenance_schedules WHERE id = ? LIMIT 1");
@@ -1125,7 +1063,6 @@ function markMaintenanceCompleted($maintenanceId, $completedBy = null, $complete
     }
 
     if (empty($sets)) {
-        // Nothing to update — avoid running invalid SQL
         return false;
     }
 
@@ -1134,19 +1071,16 @@ function markMaintenanceCompleted($maintenanceId, $completedBy = null, $complete
     $stmt = $pdo->prepare($sql);
     $stmt->execute($params);
 
-    // Clear any unread maintenance notifications for this device to remove "pending" reminders
     if ($deviceId) {
         try {
             $clearStmt = $pdo->prepare("DELETE FROM notifications WHERE (type = 'maintenance_due' OR type = 'maintenance_assigned') AND related_id = ? AND is_read = 0");
             $clearStmt->execute([$deviceId]);
         } catch (Exception $e) {
-            // ignore failures here
+            // ignore
         }
     }
     return true;
 }
-    
-    // Note: function returns true on success, false if nothing to update
 
 // ============================================================
 // SERIAL NUMBER SEARCH
@@ -1261,8 +1195,7 @@ function getDeviceAssignmentHistory($deviceId) {
 
 function markRepairAsCompleted($repairId, $completionNotes = '') {
     global $pdo;
-    
-    // Get repair details
+
     $stmt = $pdo->prepare("
         SELECT dr.*, d.asset_tag, d.model, u.email, u.full_name as reporter_name, u.id as reported_by_id
         FROM device_repairs dr
@@ -1272,22 +1205,19 @@ function markRepairAsCompleted($repairId, $completionNotes = '') {
     ");
     $stmt->execute([$repairId]);
     $repair = $stmt->fetch();
-    
+
     if (!$repair) {
         return ['success' => false, 'message' => 'Repair not found'];
     }
-    
-    // Update repair status
+
     $pdo->prepare("
         UPDATE device_repairs 
         SET repair_status = 'completed', completed_date = NOW(), repair_notes = ?
         WHERE id = ?
     ")->execute([$completionNotes, $repairId]);
-    
-    // Update device status back to deployed if it was under repair
+
     $pdo->prepare("UPDATE devices SET status = 'deployed' WHERE id = ? AND status = 'under_repair'")->execute([$repair['device_id']]);
-    
-    // Create system notification for employee
+
     addNotification(
         $repair['reported_by_id'],
         'repair_completed',
@@ -1295,8 +1225,7 @@ function markRepairAsCompleted($repairId, $completionNotes = '') {
         'Your repair request for ' . $repair['asset_tag'] . ' has been completed. The device is now ready for use.',
         $repairId
     );
-    
-    // Send email to employee
+
     $subject = 'Device Repair Completed - ' . $repair['asset_tag'];
     $emailBody = emailTemplate(
         'Your Device Repair is Complete',
@@ -1313,7 +1242,7 @@ function markRepairAsCompleted($repairId, $completionNotes = '') {
         'View Device Details',
         (defined('BASE_URL') ? rtrim(BASE_URL, '/') : 'http://' . $_SERVER['HTTP_HOST'] . dirname($_SERVER['PHP_SELF'])) . '/view_device.php?id=' . $repair['device_id']
     );
-    
+
     queueEmailNotification(
         $repair['reported_by_id'],
         $repair['email'],
@@ -1323,7 +1252,7 @@ function markRepairAsCompleted($repairId, $completionNotes = '') {
         $repair['device_id'],
         $repairId
     );
-    
+
     return ['success' => true, 'message' => 'Repair marked as completed. Employee has been notified.'];
 }
 
@@ -1360,12 +1289,8 @@ function getCompletedRepairs($limit = 10) {
 
 // ============================================================
 // DEVICE DEPLOYMENT CONSISTENCY FUNCTIONS
+// ============================================================
 
-/**
- * Ensure device status matches deployment status
- * Fixes orphaned 'deployed' devices with no active assignments
- * @return array Results of consistency check
- */
 function fixDeploymentStatusConsistency() {
     global $pdo;
     $results = [
@@ -1373,10 +1298,9 @@ function fixDeploymentStatusConsistency() {
         'fixed_unassigned' => 0,
         'errors' => []
     ];
-    
+
     try {
-        // Close orphaned active assignments (those with no active user) first
-        $stmt = $pdo->prepare("            
+        $stmt = $pdo->prepare("
             UPDATE device_assignments da
             LEFT JOIN users u ON da.employee_id = u.id AND u.status = 'active'
             SET da.status = 'returned', da.returned_date = CURDATE(), da.notes = CONCAT(COALESCE(da.notes, ''), ?)
@@ -1386,8 +1310,7 @@ function fixDeploymentStatusConsistency() {
         $stmt->execute([$note]);
         $results['fixed_orphan_assignments'] = $stmt->rowCount();
 
-        // Find deployed devices with NO valid active assignments and mark as in_stock
-        $stmt = $pdo->prepare("            
+        $stmt = $pdo->prepare("
             UPDATE devices d
             SET d.status = 'in_stock', d.location = 'IT Stock Room'
             WHERE d.status = 'deployed'
@@ -1400,9 +1323,8 @@ function fixDeploymentStatusConsistency() {
         ");
         $stmt->execute();
         $results['fixed_deployed'] = $stmt->rowCount();
-        
-        // Find valid active assignments where device is NOT deployed - update device to deployed
-        $stmt = $pdo->prepare("            
+
+        $stmt = $pdo->prepare("
             UPDATE devices d
             SET d.status = 'deployed'
             WHERE d.id IN (
@@ -1415,19 +1337,14 @@ function fixDeploymentStatusConsistency() {
         ");
         $stmt->execute();
         $results['fixed_unassigned'] = $stmt->rowCount();
-        
+
     } catch (PDOException $e) {
         $results['errors'][] = $e->getMessage();
     }
-    
+
     return $results;
 }
 
-/**
- * Check if a device has any active deployment assignment
- * @param int $deviceId Device ID to check
- * @return bool True if device has active assignment, false otherwise
- */
 function hasActiveDeployment($deviceId) {
     global $pdo;
     $stmt = $pdo->prepare("SELECT COUNT(*) FROM device_assignments WHERE device_id = ? AND status = 'active'");
@@ -1435,11 +1352,6 @@ function hasActiveDeployment($deviceId) {
     return $stmt->fetchColumn() > 0;
 }
 
-/**
- * Get the active assignment for a device
- * @param int $deviceId Device ID
- * @return array|null Assignment details or null if none
- */
 function getActiveDeviceAssignment($deviceId) {
     global $pdo;
     $stmt = $pdo->prepare("

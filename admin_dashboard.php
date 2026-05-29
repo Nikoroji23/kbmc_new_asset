@@ -1,11 +1,25 @@
 <?php
 /**
  * KBMC Asset Management - Admin Dashboard
- * Exclusive dashboard for Administrators with security controls
  */
 $pageTitle = 'Admin Dashboard';
 require_once 'includes/header.php';
 requireAdmin();
+// Force-add columns if missing — runs before any SELECT
+try {
+    if (!columnExists('users', 'master_key')) {
+        $pdo->exec("ALTER TABLE users ADD COLUMN master_key VARCHAR(64) DEFAULT NULL");
+    }
+    if (!columnExists('users', 'master_key_hash')) {
+        $pdo->exec("ALTER TABLE users ADD COLUMN master_key_hash VARCHAR(255) DEFAULT NULL");
+    }
+    if (!columnExists('users', 'is_security_admin')) {
+        $pdo->exec("ALTER TABLE users ADD COLUMN is_security_admin TINYINT(1) DEFAULT 0");
+    }
+} catch (PDOException $e) { /* ignore */ }
+
+// Ensure security-related columns exist in users table
+ensureUserSecuritySchema();
 
 // Check if user is a security IT approver
 $isSecurityAdmin = isSecurityAdmin($_SESSION['user_id']);
@@ -29,7 +43,7 @@ $recentLogs = $stmt->fetchAll();
 $stmt = $pdo->query("SELECT ar.*, u.full_name, u.email FROM account_recovery_requests ar JOIN users u ON ar.user_id = u.id WHERE ar.status = 'pending' ORDER BY ar.requested_at DESC LIMIT 5");
 $recoveryRequests = $stmt->fetchAll();
 
-// FIX: Master Key: Add CSRF token verification
+// Master Key: Handle regen with CSRF verification
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'regen_master_key') {
     if (
         empty($_POST['csrf_token']) ||
@@ -39,7 +53,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'regen
         http_response_code(403);
         die('CSRF verification failed.');
     }
-    
+
     $uid    = (int)$_POST['user_id'];
     $newKey = strtoupper(bin2hex(random_bytes(4)));
     $pdo->prepare("UPDATE users SET master_key = :mk WHERE id = :id")->execute([':mk' => $newKey, ':id' => $uid]);
@@ -47,7 +61,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'regen
     exit;
 }
 
-// FIX: Generate CSRF token if not exists
+// Generate CSRF token if not exists
 if (empty($_SESSION['csrf_token'])) {
     $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
 }
@@ -79,9 +93,8 @@ $mkStmt->execute($mkParams);
 $mkUsers = $mkStmt->fetchAll();
 ?>
 
-<!-- Master Key styles (scoped, no conflict) -->
+<!-- Master Key styles -->
 <style>
-/* FIX: Constrain master key panel to viewport width */
 .mk-panel { 
     background: #fff; 
     border-radius: 8px; 
@@ -108,7 +121,6 @@ $mkUsers = $mkStmt->fetchAll();
 .mk-search input  { padding:7px 12px; border-radius:6px; border:none; font-size:13px; min-width:200px; outline:none; }
 .mk-search button { padding:7px 14px; background:rgba(0,0,0,.2); color:#fff; border:none; border-radius:6px; cursor:pointer; font-size:13px; font-weight:600; }
 .mk-search button:hover { background:rgba(0,0,0,.35); }
-/* FIX: Proper table wrapping with overflow handled at table level */
 .mk-table-wrap { 
     width: 100%; 
     overflow-x: auto;
@@ -135,7 +147,6 @@ table.mk-tbl {
 .mk-regen-btn:hover { background:#fff4e5; }
 .mk-copied-tip { position:fixed; background:#333; color:#fff; padding:4px 10px; border-radius:6px; font-size:12px; pointer-events:none; opacity:0; transition:opacity .2s; z-index:9999; }
 .mk-copied-tip.show { opacity:1; }
-/* Regen confirm modal */
 #mkRegenModal { display:none; position:fixed; inset:0; background:rgba(0,0,0,.45); z-index:500; align-items:center; justify-content:center; }
 #mkRegenModal.open { display:flex; }
 #mkRegenModal .mk-modal-box { background:#fff; border-radius:10px; width:380px; max-width:95vw; box-shadow:0 16px 48px rgba(0,0,0,.2); overflow:hidden; }
@@ -145,8 +156,6 @@ table.mk-tbl {
 #mkRegenModal .mk-modal-body i { font-size:40px; color:#e67e22; display:block; margin-bottom:12px; }
 #mkRegenModal .mk-modal-body p { font-size:13px; color:#555; margin:0; }
 #mkRegenModal .mk-modal-foot { padding:14px 20px; border-top:1px solid #eee; display:flex; justify-content:center; gap:10px; }
-
-/* FIX: Constrain all card containers */
 .card { max-width: 100%; width: 100%; }
 .data-table-wrapper { width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
 .data-table { width: 100%; min-width: 600px; }
@@ -217,7 +226,7 @@ table.mk-tbl {
     </div>
 </div>
 
-<!-- Admin Quick Actions (Reports button removed) -->
+<!-- Admin Quick Actions -->
 <div class="card" style="margin-top: 20px;">
     <div class="card-header">
         <h3><i class="fas fa-bolt"></i> Admin Controls</h3>
@@ -240,9 +249,7 @@ table.mk-tbl {
     </div>
 </div>
 
-<!-- ══════════════════════════════════════════════
-     SUPER ADMIN — MASTER KEY VAULT
-══════════════════════════════════════════════ -->
+<!-- Master Key Vault -->
 <?php if (!empty($_GET['mk_msg'])): ?>
 <div class="card" style="margin-top:16px; background:#d4edda; border:1px solid #c3e6cb; padding:12px 18px; border-radius:8px; color:#155724; font-size:13px; display:flex; align-items:center; gap:8px;">
     <i class="fas fa-check-circle"></i> <?php echo sanitize($_GET['mk_msg']); ?>
@@ -327,7 +334,7 @@ table.mk-tbl {
     </div>
 </div>
 
-<!-- Pending User Approvals (Security Alert) -->
+<!-- Pending User Approvals -->
 <?php if ($isSecurityAdmin && $pendingApprovals > 0): ?>
 <div class="card" style="margin-top: 20px; border-left: 4px solid #E74C3C;">
     <div class="card-header" style="background: #FDEDEC;">
@@ -458,7 +465,7 @@ table.mk-tbl {
 </div>
 <?php endif; ?>
 
-<!-- ══ Regen Confirm Modal ══ -->
+<!-- Regen Confirm Modal -->
 <div id="mkRegenModal">
     <div class="mk-modal-box">
         <div class="mk-modal-head">
@@ -469,7 +476,6 @@ table.mk-tbl {
             <i class="fas fa-exclamation-triangle"></i>
             <p id="mkRegenMsg">The old master key will be permanently replaced.</p>
         </div>
-        <!-- FIX: Added CSRF token to form -->
         <form method="POST">
             <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrf_token); ?>">
             <input type="hidden" name="action" value="regen_master_key">
@@ -482,11 +488,9 @@ table.mk-tbl {
     </div>
 </div>
 
-<!-- Copy tooltip -->
 <div class="mk-copied-tip" id="mkCopiedTip">Copied!</div>
 
 <script>
-// Reveal / hide key
 const mkRevealed = {};
 function mkReveal(id) {
     const span = document.getElementById('mkv-' + id);
@@ -501,7 +505,6 @@ function mkReveal(id) {
     }
 }
 
-// Copy to clipboard
 function mkCopy(key, e) {
     navigator.clipboard.writeText(key).then(() => {
         const t = document.getElementById('mkCopiedTip');
@@ -512,7 +515,6 @@ function mkCopy(key, e) {
     });
 }
 
-// Confirm regen modal
 function mkConfirmRegen(id, name) {
     document.getElementById('mkRegenUserId').value = id;
     document.getElementById('mkRegenMsg').textContent =
@@ -520,7 +522,6 @@ function mkConfirmRegen(id, name) {
     document.getElementById('mkRegenModal').classList.add('open');
 }
 
-// Close modal on backdrop click
 document.getElementById('mkRegenModal').addEventListener('click', function(e) {
     if (e.target === this) this.classList.remove('open');
 });

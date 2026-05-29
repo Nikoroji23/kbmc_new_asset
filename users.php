@@ -7,6 +7,55 @@ requireAdmin();
 global $pdo;
 
 // ═══════════════════════════════════════════════════════
+// AJAX: return JSON for the employee details modal in devices.php
+// Called by: fetch('users.php?view_user=ID&ajax=1')
+// No new file needed — handled right here.
+// ═══════════════════════════════════════════════════════
+if (isset($_GET['view_user']) && isset($_GET['ajax'])) {
+    header('Content-Type: application/json; charset=utf-8');
+    $uid = (int)($_GET['view_user'] ?? 0);
+    if (!$uid) { echo json_encode(['error' => 'Invalid user']); exit; }
+
+    $uStmt = $pdo->prepare(
+        "SELECT id, employee_id, full_name, email, department, position, status, created_at
+         FROM   users WHERE id = :id LIMIT 1"
+    );
+    $uStmt->execute([':id' => $uid]);
+    $user = $uStmt->fetch(PDO::FETCH_ASSOC);
+    if (!$user) { echo json_encode(['error' => 'User not found']); exit; }
+
+    $aStmt = $pdo->prepare(
+        "SELECT d.id, d.asset_tag, d.pc_name, d.ip_address, d.status,
+                dt.type_name AS category,
+                da.assigned_date AS assigned_at,
+                da.purpose
+         FROM   device_assignments da
+         JOIN   devices      d  ON da.device_id     = d.id
+         JOIN   device_types dt ON d.device_type_id = dt.id
+         WHERE  da.employee_id = :uid
+           AND  da.status = 'active'
+         ORDER  BY da.assigned_date DESC"
+    );
+    $aStmt->execute([':uid' => $uid]);
+    $assets = $aStmt->fetchAll(PDO::FETCH_ASSOC);
+
+    foreach ($assets as &$a) {
+        $a['pc_name']     = ($a['pc_name']     !== null && $a['pc_name']     !== '') ? $a['pc_name']     : 'N/A';
+        $a['ip_address']  = ($a['ip_address']  !== null && $a['ip_address']  !== '') ? $a['ip_address']  : 'N/A';
+        $a['asset_tag']   = ($a['asset_tag']   !== null && $a['asset_tag']   !== '') ? $a['asset_tag']   : 'N/A';
+        $a['category']    = ($a['category']    !== null && $a['category']    !== '') ? $a['category']    : 'N/A';
+        $a['status']      = ($a['status']      !== null && $a['status']      !== '') ? $a['status']      : 'N/A';
+        $a['assigned_at'] = ($a['assigned_at'] !== null && $a['assigned_at'] !== '')
+                            ? date('M d, Y', strtotime($a['assigned_at'])) : 'N/A';
+        $a['name'] = $a['category'];
+    }
+    unset($a);
+
+    echo json_encode(['user' => $user, 'assets' => $assets], JSON_UNESCAPED_UNICODE);
+    exit;
+}
+
+// ═══════════════════════════════════════════════════════
 // POST handling at TOP — before any SELECT queries or HTML
 // ═══════════════════════════════════════════════════════
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -38,17 +87,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $full_name   = trim($_POST['full_name']   ?? '');
         $department  = trim($_POST['department']  ?? '');
         $dept_map = [
-    'it'            => 'IT Department',
-    'i.t.'          => 'IT Department',
-    'it dept'       => 'IT Department',
-    'it department' => 'IT Department',
-    // add more as needed
-];
-$dept_key = strtolower($department);
-if (isset($dept_map[$dept_key])) {
-    $department = $dept_map[$dept_key];
-}
-        $password    = $_POST['password'] ?? '';
+            'it'            => 'IT Department',
+            'i.t.'          => 'IT Department',
+            'it dept'       => 'IT Department',
+            'it department' => 'IT Department',
+        ];
+        $dept_key = strtolower($department);
+        if (isset($dept_map[$dept_key])) {
+            $department = $dept_map[$dept_key];
+        }
+        $password = $_POST['password'] ?? '';
         if (!$employee_id || !$full_name || !$department || !$password) {
             header("Location: users.php?error=All+required+fields+must+be+filled");
             exit;
@@ -317,15 +365,11 @@ $recoveryCount = (int)$pdo->query("SELECT COUNT(*) FROM account_recovery_request
     /* ── Confirm Modal ── */
     .confirm-body { padding:24px; text-align:center; }
     .confirm-body i { font-size:44px; color:#c0392b; margin-bottom:14px; display:block; }
-    .confirm-body h4 { font-size:16px; font-weight:700; margin-bottom:8px; }
+    .confirm-body h4 { font-size:16px; font-weight:700; margin:8px 0 8px; }
     .confirm-body p { font-size:13px; color:#666; }
     .confirm-footer { padding:16px 24px; border-top:1px solid #e5e9f0; display:flex; justify-content:center; gap:10px; }
 </style>
 
-<!-- ══════════════════════════════════════════════
-     PAGE CONTENT — rendered inside header.php's
-     <main class="main-content"> wrapper
-     ══════════════════════════════════════════════ -->
 <div class="users-page">
 
     <div class="page-header">
@@ -401,7 +445,6 @@ $recoveryCount = (int)$pdo->query("SELECT COUNT(*) FROM account_recovery_request
         </a>
     </div>
 
-    <!-- ── Filter result info ── -->
     <?php if ($search || $dept_filter || $name_sort): ?>
     <p style="font-size:12px;color:#888;margin-bottom:12px">
         <i class="fa fa-filter"></i>
@@ -419,7 +462,6 @@ $recoveryCount = (int)$pdo->query("SELECT COUNT(*) FROM account_recovery_request
     </p>
     <?php endif; ?>
 
-    <!-- ── Table Card ── -->
     <div class="u-card">
         <div class="table-wrap">
             <?php if (empty($users)): ?>
@@ -472,16 +514,13 @@ $recoveryCount = (int)$pdo->query("SELECT COUNT(*) FROM account_recovery_request
                                     <i class="fa fa-chevron-down"></i>
                                 </button>
                                 <div class="action-menu">
-                                    <!-- View -->
                                     <button onclick="closeAllMenus();viewUser(<?= htmlspecialchars(json_encode($u), ENT_QUOTES) ?>)">
                                         <i class="fa fa-eye" style="color:#888;width:14px"></i> View Details
                                     </button>
-                                    <!-- Edit -->
                                     <button class="act-info" onclick="closeAllMenus();editUser(<?= htmlspecialchars(json_encode($u), ENT_QUOTES) ?>)">
                                         <i class="fa fa-pen" style="width:14px"></i> Edit User
                                     </button>
                                     <div class="menu-divider"></div>
-                                    <!-- Activate / Deactivate -->
                                     <?php if ($st === 'active'): ?>
                                     <button class="act-warning"
                                             onclick="closeAllMenus();confirmDeactivate(<?= $u['id'] ?>, '<?= htmlspecialchars(addslashes($u['full_name'])) ?>')">
@@ -498,7 +537,6 @@ $recoveryCount = (int)$pdo->query("SELECT COUNT(*) FROM account_recovery_request
                                     </form>
                                     <?php endif; ?>
                                     <div class="menu-divider"></div>
-                                    <!-- Delete -->
                                     <button class="act-danger"
                                             onclick="closeAllMenus();confirmDelete(<?= $u['id'] ?>, '<?= htmlspecialchars(addslashes($u['full_name'])) ?>')">
                                         <i class="fa fa-trash" style="width:14px"></i> Delete User
@@ -511,7 +549,6 @@ $recoveryCount = (int)$pdo->query("SELECT COUNT(*) FROM account_recovery_request
                 </tbody>
             </table>
 
-            <!-- ── Pagination ── -->
             <?php
             $pq = http_build_query(array_filter([
                 'search'     => $search,
@@ -729,53 +766,47 @@ $recoveryCount = (int)$pdo->query("SELECT COUNT(*) FROM account_recovery_request
 
 
 <script>
-// ── Action dropdown ──
 function toggleActionMenu(id) {
-    const wrap   = document.getElementById(id);
-    const isOpen = wrap.classList.contains('open');
+    var wrap   = document.getElementById(id);
+    var isOpen = wrap.classList.contains('open');
     closeAllMenus();
     if (!isOpen) wrap.classList.add('open');
 }
 function closeAllMenus() {
-    document.querySelectorAll('.action-wrap.open').forEach(w => w.classList.remove('open'));
+    document.querySelectorAll('.action-wrap.open').forEach(function(w){ w.classList.remove('open'); });
 }
-document.addEventListener('click', e => {
+document.addEventListener('click', function(e) {
     if (!e.target.closest('.action-wrap')) closeAllMenus();
 });
 
-// ── Modal helpers ──
 function openModal(id)  { document.getElementById(id).classList.add('open'); }
 function closeModal(id) { document.getElementById(id).classList.remove('open'); }
-document.querySelectorAll('.u-modal-overlay').forEach(o => {
-    o.addEventListener('click', e => { if (e.target === o) o.classList.remove('open'); });
+document.querySelectorAll('.u-modal-overlay').forEach(function(o) {
+    o.addEventListener('click', function(e){ if (e.target === o) o.classList.remove('open'); });
 });
 
-// ── Deactivate confirmation ──
 function confirmDeactivate(id, name) {
     document.getElementById('deactivateUserId').value = id;
     document.getElementById('deactivateMsg').textContent =
-        `Deactivate "${name}"? They will lose access immediately.`;
+        'Deactivate "' + name + '"? They will lose access immediately.';
     openModal('deactivateModal');
 }
 
-// ── Delete confirmation ──
 function confirmDelete(id, name) {
     document.getElementById('deleteUserId').value = id;
     document.getElementById('deleteMsg').textContent =
-        `Are you sure you want to delete "${name}"? This cannot be undone.`;
+        'Are you sure you want to delete "' + name + '"? This cannot be undone.';
     openModal('deleteModal');
 }
 
-// ── View user ──
 function viewUser(u) {
-    const b   = document.getElementById('viewUserBody');
-    const row = (label, val) => `
-        <div class="form-group">
-            <label>${label}</label>
-            <div style="padding:9px 12px;background:#f8f9fc;border-radius:7px;font-size:13px">
-                ${val || '—'}
-            </div>
-        </div>`;
+    var b   = document.getElementById('viewUserBody');
+    var row = function(label, val) {
+        return '<div class="form-group">'
+             + '<label>' + label + '</label>'
+             + '<div style="padding:9px 12px;background:#f8f9fc;border-radius:7px;font-size:13px">'
+             + (val || '—') + '</div></div>';
+    };
     b.innerHTML =
         row('Employee ID', u.employee_id || u.id) +
         row('Full Name',   u.full_name) +
@@ -788,7 +819,6 @@ function viewUser(u) {
     openModal('viewUserModal');
 }
 
-// ── Edit user — pre-fill modal ──
 function editUser(u) {
     document.getElementById('editUserId').value     = u.id;
     document.getElementById('editEmpId').value      = u.employee_id || u.id;
@@ -796,15 +826,15 @@ function editUser(u) {
     document.getElementById('editEmail').value      = u.email       || '';
     document.getElementById('editDepartment').value = u.department  || '';
     document.getElementById('editPosition').value   = u.position    || '';
-    const roleSelect = document.getElementById('editRole');
-    for (let opt of roleSelect.options) {
-        opt.selected = (opt.value === u.role);
+    var roleSelect = document.getElementById('editRole');
+    for (var i = 0; i < roleSelect.options.length; i++) {
+        roleSelect.options[i].selected = (roleSelect.options[i].value === u.role);
     }
     openModal('editUserModal');
 }
 </script>
 
 </main>
-</div><!-- /.main-wrapper -->
+</div>
 </body>
 </html>

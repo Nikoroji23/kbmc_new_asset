@@ -5,6 +5,18 @@
 $pageTitle = 'All Devices';
 require_once 'includes/header.php';
 requireITStaffOnly();
+// Force-add columns if missing — runs before any SELECT
+try {
+    if (!columnExists('devices', 'ip_address')) {
+        $pdo->exec("ALTER TABLE devices ADD COLUMN ip_address VARCHAR(50) DEFAULT NULL");
+    }
+    if (!columnExists('devices', 'pc_name')) {
+        $pdo->exec("ALTER TABLE devices ADD COLUMN pc_name VARCHAR(100) DEFAULT NULL");
+    }
+} catch (PDOException $e) { /* ignore */ }
+
+// Ensure pc_name and ip_address columns exist before any queries
+ensureDeviceSchema();
 
 $status = $_GET['status'] ?? '';
 $type = $_GET['type'] ?? '';
@@ -160,139 +172,296 @@ $assignedUsers = $pdo->query("SELECT DISTINCT u.full_name FROM devices d LEFT JO
 
 <!-- Assigned User Details Modal -->
 <div id="assignedUserModal" class="modal-overlay" style="display:none;">
-    <div class="modal-box" style="max-width: 900px; width: 95%;">
+    <div class="modal-box" style="max-width: 960px; width: 95%;">
         <div class="modal-header" style="display:flex;justify-content:space-between;align-items:center;gap:10px;">
-            <h3><i class="fas fa-user"></i> Assigned User Details</h3>
+            <h3><i class="fas fa-id-card"></i> Employee Details</h3>
             <div style="display:flex;gap:8px;align-items:center;">
-                <button type="button" class="btn btn-outline no-print" onclick="printAssignedUserDetails()"><i class="fas fa-print"></i> Print</button>
+                <button type="button" class="btn btn-outline no-print" onclick="printAssignedUserDetails()">
+                    <i class="fas fa-print"></i> Print
+                </button>
                 <button type="button" class="modal-close btn btn-outline no-print" onclick="closeAssignedUserModal()">&times;</button>
             </div>
         </div>
-        <div class="modal-body" id="assignedUserBody">
-            <p style="text-align:center;color:#999;padding:30px;"><i class="fas fa-spinner fa-spin"></i> Loading...</p>
+        <div class="modal-body" id="assignedUserBody" style="padding:20px;">
+            <p style="text-align:center;color:#999;padding:30px;">
+                <i class="fas fa-spinner fa-spin"></i> Loading...
+            </p>
         </div>
     </div>
 </div>
 
 <script>
-function exportDevicesCSV() {
-    const rows = [];
-    document.querySelectorAll('#devicesTable tbody tr').forEach(row => {
-        const cells = row.querySelectorAll('td');
-        if (cells.length > 1) {
-            rows.push([
-                cells[0]?.textContent.trim() || '',
-                cells[1]?.textContent.trim() || '',
-                cells[2]?.textContent.trim() || '',
-                cells[3]?.textContent.trim() || '',
-                cells[4]?.textContent.trim() || '',
-                cells[5]?.textContent.trim() || ''
-            ]);
-        }
-    });
-    exportToCSV('devices_<?php echo date('Y-m-d'); ?>.csv',
-        ['Asset Tag', 'PC Name', 'Type', 'IP Address', 'Status', 'Assigned To'],
-        rows
-    );
-}
-
-function exportDevicesPDF() {
-    const rows = [];
-    document.querySelectorAll('#devicesTable tbody tr').forEach(row => {
-        const cells = row.querySelectorAll('td');
-        if (cells.length > 1) {
-            rows.push([
-                cells[0]?.textContent.trim() || '',
-                cells[1]?.textContent.trim() || '',
-                cells[2]?.textContent.trim() || '',
-                cells[3]?.textContent.trim() || '',
-                cells[4]?.textContent.trim() || '',
-                cells[5]?.textContent.trim() || ''
-            ]);
-        }
-    });
-    exportToPDF('Device Inventory Report',
-        ['Asset Tag', 'PC Name', 'Type', 'IP', 'Status', 'Assigned'],
-        rows,
-        'devices_report_<?php echo date('Y-m-d'); ?>.pdf'
-    );
-}
-
 function closeAssignedUserModal() {
     document.getElementById('assignedUserModal').style.display = 'none';
 }
 
 function printAssignedUserDetails() {
     var content = document.getElementById('assignedUserBody').innerHTML;
-    var printWindow = window.open('', '', 'width=1000,height=800');
-    printWindow.document.write('<!DOCTYPE html><html><head><title>Print User Details</title>');
-    printWindow.document.write('<style>body{font-family:Arial,sans-serif;padding:24px;color:#222;} h1,h2,h3{margin:0 0 .75rem;} table{width:100%;border-collapse:collapse;margin-top:1rem;} th,td{border:1px solid #ccc;padding:10px;text-align:left;} th{background:#f4f4f4;} .status-badge{display:inline-block;padding:4px 8px;border-radius:4px;background:#f0f0f0;color:#333;font-size:12px;} .section-title{margin-top:20px;margin-bottom:10px;font-size:18px;}</style>');
-    printWindow.document.write('</head><body>');
-    printWindow.document.write('<h1>Assigned User Details</h1>');
-    printWindow.document.write(content);
-    printWindow.document.write('</body></html>');
-    printWindow.document.close();
-    printWindow.focus();
-    printWindow.print();
+    var w = window.open('', '', 'width=1100,height=850');
+    w.document.write('<!DOCTYPE html><html><head><title>Employee Details — KBMC</title><style>'
+        + 'body{font-family:Arial,sans-serif;padding:28px;color:#222;font-size:13px;}'
+        + 'h1{font-size:20px;margin:0 0 4px;} .sub{color:#888;font-size:12px;margin-bottom:20px;}'
+        + '.info-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:24px;'
+        +   'background:#f8f9fc;padding:16px;border-radius:8px;border:1px solid #e5e9f0;}'
+        + '.info-cell .lbl{font-size:10px;font-weight:700;color:#999;text-transform:uppercase;'
+        +   'letter-spacing:.5px;margin-bottom:3px;}'
+        + '.info-cell .val{font-size:13px;color:#1a1a1a;font-weight:600;}'
+        + '.highlight{color:#2980b9;}'
+        + 'table{width:100%;border-collapse:collapse;margin-top:8px;}'
+        + 'th{background:#c0392b;color:#fff;padding:9px 11px;font-size:11px;text-align:left;}'
+        + 'td{padding:9px 11px;border-bottom:1px solid #eee;font-size:12px;}'
+        + 'tr:nth-child(even) td{background:#f8f9fc;}'
+        + '.badge{display:inline-block;padding:2px 9px;border-radius:20px;font-size:10px;font-weight:700;}'
+        + '@media print{body{padding:16px;}}'
+        + '</style></head><body>'
+        + '<h1><img src="" style="display:none"> KBMC Asset Management</h1>'
+        + '<p class="sub">Employee Device Report &nbsp;|&nbsp; Printed: ' + new Date().toLocaleDateString('en-US',{year:'numeric',month:'long',day:'numeric'}) + '</p>'
+        + content
+        + '</body></html>');
+    w.document.close();
+    w.focus();
+    setTimeout(function(){ w.print(); }, 400);
+}
+
+function _esc(s) {
+    if (s == null || s === '') return '<span style="color:#bbb">N/A</span>';
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function _badge(s) {
+    var map = {
+        deployed:['#cce5ff','#004085'], in_stock:['#d4edda','#155724'],
+        under_repair:['#fff3cd','#856404'], retired:['#e2e3e5','#383d41'],
+        disposed:['#f8d7da','#721c24'], pending_inspection:['#fce8b2','#7d4a00'],
+        rejected:['#f8d7da','#721c24'], active:['#d4edda','#155724'],
+        inactive:['#f8d7da','#721c24']
+    };
+    var key = (s||'').toLowerCase().replace(/ /g,'_');
+    var c = map[key] || ['#e2e3e5','#383d41'];
+    var label = (s||'').replace(/_/g,' ').replace(/\b\w/g,function(x){return x.toUpperCase();});
+    return '<span class="badge" style="background:'+c[0]+';color:'+c[1]+';">'+label+'</span>';
 }
 
 function setupAssignedUserButtons() {
     document.querySelectorAll('.view-assignee-btn').forEach(function(btn) {
-        btn.addEventListener('click', function() {
+        var fresh = btn.cloneNode(true);
+        btn.parentNode.replaceChild(fresh, btn);
+        fresh.addEventListener('click', function() {
             var userId = this.dataset.userId;
             var body = document.getElementById('assignedUserBody');
-            body.innerHTML = '<p style="text-align:center;color:#999;padding:30px;"><i class="fas fa-spinner fa-spin"></i> Loading...</p>';
+            body.innerHTML = '<div style="text-align:center;padding:40px;color:#999;">'
+                + '<i class="fas fa-spinner fa-spin" style="font-size:22px;"></i>'
+                + '<p style="margin-top:10px;font-size:13px;">Loading employee details…</p></div>';
             document.getElementById('assignedUserModal').style.display = 'flex';
 
-            fetch('users.php?view_user=' + userId, {
-                headers: { 'X-Requested-With': 'XMLHttpRequest' }
+            fetch('users.php?view_user=' + encodeURIComponent(userId) + '&ajax=1', {
+                headers: {'X-Requested-With': 'XMLHttpRequest'}
             })
-            .then(function(res) { return res.json(); })
+            .then(function(res) {
+                if (!res.ok) throw new Error('HTTP ' + res.status);
+                return res.json();
+            })
             .then(function(data) {
-                var u = data.user;
-                var assets = data.assets;
-                var assetsHtml = assets.length === 0
-                    ? '<p style="color:#999;text-align:center;padding:20px 0;"><i class="fas fa-box-open" style="font-size:28px;display:block;margin-bottom:8px;"></i>No devices currently assigned to this user.</p>'
-                    : '<table class="data-table" style="width:100%;margin-top:15px;"><thead><tr>'
-                        + '<th>Asset Tag</th><th>PC Name</th><th>IP Address</th><th>Name</th><th>Category</th><th>Status</th><th>Assigned At</th>'
-                        + '</tr></thead><tbody>'
-                        + assets.map(function(a) {
-                            return '<tr>'
-                                + '<td><strong>' + (a.asset_tag || 'N/A') + '</strong></td>'
-                                + '<td>' + (a.pc_name || 'N/A') + '</td>'
-                                + '<td>' + (a.ip_address || 'N/A') + '</td>'
-                                + '<td>' + (a.name || 'N/A') + '</td>'
-                                + '<td>' + (a.category || 'N/A') + '</td>'
-                                + '<td><span class="status-badge">' + (a.status || 'N/A') + '</span></td>'
-                                + '<td>' + (a.assigned_at || 'N/A') + '</td>'
-                                + '</tr>';
-                        }).join('')
-                        + '</tbody></table>';
-
-                body.innerHTML = '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px;margin-bottom:20px;">'
-                    + '<div><strong>Employee ID</strong><div>' + (u.employee_id || 'N/A') + '</div></div>'
-                    + '<div><strong>Full Name</strong><div>' + (u.full_name || 'N/A') + '</div></div>'
-                    + '<div><strong>Email</strong><div>' + (u.email || 'N/A') + '</div></div>'
-                    + '<div><strong>Department</strong><div>' + (u.department || 'N/A') + '</div></div>'
-                    + '<div><strong>Position</strong><div>' + (u.position || 'N/A') + '</div></div>'
-                    + '<div><strong>Status</strong><div>' + (u.status ? '<span class="status-badge">' + u.status.charAt(0).toUpperCase() + u.status.slice(1) + '</span>' : 'N/A') + '</div></div>'
-                    + '<div><strong>IP Address</strong><div>' + (assets.find(a => a.ip_address && a.ip_address !== 'N/A')?.ip_address || 'N/A') + '</div></div>'
-                    + '<div><strong>PC Name</strong><div>' + (assets.find(a => a.pc_name && a.pc_name !== 'N/A')?.pc_name || 'N/A') + '</div></div>'
-                    + '<h4 class="section-title">Assigned Devices</h4>'
-                    + '</div>'
-                    + assetsHtml;
+                if (data.error) throw new Error(data.error);
+                renderUserModal(body, data.user, data.assets || []);
             })
-            .catch(function() {
-                body.innerHTML = '<p style="color:#e74c3c;text-align:center;padding:30px;"><i class="fas fa-exclamation-circle"></i> Failed to load user details. Please try again.</p>';
+            .catch(function(err) {
+                body.innerHTML = '<div style="text-align:center;padding:40px;color:#e74c3c;">'
+                    + '<i class="fas fa-exclamation-circle" style="font-size:28px;"></i>'
+                    + '<p style="margin-top:10px;font-size:13px;">Failed to load details.<br>'
+                    + '<small style="color:#aaa">' + err.message + '</small></p></div>';
             });
         });
     });
 }
 
+function renderUserModal(body, u, assets) {
+    var primaryIP = 'N/A', primaryPC = 'N/A';
+    for (var i = 0; i < assets.length; i++) {
+        if (primaryIP === 'N/A' && assets[i].ip_address && assets[i].ip_address !== 'N/A') primaryIP = assets[i].ip_address;
+        if (primaryPC === 'N/A' && assets[i].pc_name    && assets[i].pc_name    !== 'N/A') primaryPC = assets[i].pc_name;
+    }
+
+    var stColor  = (u.status||'').toLowerCase() === 'active' ? '#27ae60' : '#e74c3c';
+    var stLabel  = u.status ? u.status.charAt(0).toUpperCase() + u.status.slice(1) : 'N/A';
+    var joined   = u.created_at ? new Date(u.created_at).toLocaleDateString('en-US',{year:'numeric',month:'long',day:'numeric'}) : 'N/A';
+
+    function cell(lbl, val, highlight) {
+        return '<div class="info-cell"><div class="lbl">'+lbl+'</div>'
+             + '<div class="val' + (highlight ? ' highlight' : '') + '">'+val+'</div></div>';
+    }
+
+    var grid = '<div class="info-grid">'
+        + cell('Employee ID',  _esc(u.employee_id || u.id))
+        + cell('Full Name',    '<strong>'+_esc(u.full_name)+'</strong>')
+        + cell('Email',        _esc(u.email))
+        + cell('Department',   _esc(u.department))
+        + cell('Position',     _esc(u.position))
+        + cell('Status',       '<span style="font-weight:700;color:'+stColor+';">● '+stLabel+'</span>')
+        + cell('PC Name',      '<strong>'+_esc(primaryPC)+'</strong>', true)
+        + cell('IP Address',   '<strong>'+_esc(primaryIP)+'</strong>', true)
+        + cell('Joined',       joined)
+        + '</div>';
+
+    var table = '';
+    if (assets.length === 0) {
+        table = '<div style="text-align:center;padding:30px;color:#bbb;">'
+              + '<i class="fas fa-box-open" style="font-size:32px;display:block;margin-bottom:8px;"></i>'
+              + '<p style="font-size:13px;">No devices currently assigned.</p></div>';
+    } else {
+        var TH = 'style="padding:9px 12px;background:#c0392b;color:#fff;font-size:11px;'
+               + 'font-weight:700;text-transform:uppercase;letter-spacing:.5px;text-align:left;"';
+        var rows = assets.map(function(a) {
+            return '<tr>'
+                + '<td style="padding:10px 12px;border-bottom:1px solid #f0f2f8;">'
+                +   '<strong>'+_esc(a.asset_tag)+'</strong></td>'
+                + '<td style="padding:10px 12px;border-bottom:1px solid #f0f2f8;color:#2980b9;font-weight:600;">'
+                +   _esc(a.pc_name)+'</td>'
+                + '<td style="padding:10px 12px;border-bottom:1px solid #f0f2f8;color:#2980b9;font-weight:600;">'
+                +   _esc(a.ip_address)+'</td>'
+                + '<td style="padding:10px 12px;border-bottom:1px solid #f0f2f8;">'+_esc(a.category)+'</td>'
+                + '<td style="padding:10px 12px;border-bottom:1px solid #f0f2f8;">'+_badge(a.status)+'</td>'
+                + '<td style="padding:10px 12px;border-bottom:1px solid #f0f2f8;color:#888;font-size:12px;">'
+                +   _esc(a.assigned_at)+'</td>'
+                + '</tr>';
+        }).join('');
+
+        table = '<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">'
+              + '<i class="fas fa-laptop" style="color:#c0392b;font-size:13px;"></i>'
+              + '<strong style="font-size:14px;">Assigned Devices</strong>'
+              + '<span style="background:#e5e9f0;color:#555;border-radius:20px;padding:2px 9px;font-size:11px;">'+assets.length+'</span>'
+              + '</div>'
+              + '<div style="overflow-x:auto;border-radius:8px;border:1px solid #e5e9f0;">'
+              + '<table style="width:100%;border-collapse:collapse;font-size:13px;">'
+              + '<thead><tr>'
+              + '<th '+TH+'>Asset Tag</th>'
+              + '<th '+TH+'>PC Name</th>'
+              + '<th '+TH+'>IP Address</th>'
+              + '<th '+TH+'>Type</th>'
+              + '<th '+TH+'>Status</th>'
+              + '<th '+TH+'>Assigned Date</th>'
+              + '</tr></thead><tbody>'+rows+'</tbody></table></div>';
+    }
+
+    body.innerHTML = '<style>'
+        + '.info-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:14px;'
+        +   'margin-bottom:20px;background:#f8f9fc;padding:16px;border-radius:10px;border:1px solid #e5e9f0;}'
+        + '.info-cell .lbl{font-size:10px;font-weight:700;color:#999;text-transform:uppercase;'
+        +   'letter-spacing:.5px;margin-bottom:3px;}'
+        + '.info-cell .val{font-size:13px;color:#1a1a1a;font-weight:500;word-break:break-word;}'
+        + '.info-cell .val.highlight{color:#2980b9;}'
+        + '</style>'
+        + grid + table;
+}
+
+function exportDevicesCSV() {
+    var headers = ['Asset Tag','PC Name','Type','IP Address','Status','Assigned To'];
+    var rows = [];
+    document.querySelectorAll('#devicesTable tbody tr').forEach(function(row) {
+        var cells = row.querySelectorAll('td');
+        if (cells.length <= 1) return;
+        rows.push([
+            cells[0].textContent.trim(),
+            cells[1].textContent.trim(),
+            cells[2].textContent.trim(),
+            cells[3].textContent.trim(),
+            cells[4].textContent.trim(),
+            cells[5].textContent.trim()
+        ]);
+    });
+    var csv = [headers].concat(rows).map(function(r) {
+        return r.map(function(c) {
+            var v = String(c).replace(/"/g,'""');
+            return /[,"\n\r]/.test(v) ? '"'+v+'"' : v;
+        }).join(',');
+    }).join('\r\n');
+
+    var blob = new Blob(['\uFEFF'+csv], {type:'text/csv;charset=utf-8;'});
+    var url  = URL.createObjectURL(blob);
+    var a    = document.createElement('a');
+    a.href = url;
+    a.download = 'devices_<?php echo date('Y-m-d'); ?>.csv';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+}
+
+function exportDevicesPDF() {
+    var rows = [];
+    document.querySelectorAll('#devicesTable tbody tr').forEach(function(row) {
+        var cells = row.querySelectorAll('td');
+        if (cells.length <= 1) return;
+        rows.push([
+            cells[0].textContent.trim(),
+            cells[1].textContent.trim(),
+            cells[2].textContent.trim(),
+            cells[3].textContent.trim(),
+            cells[4].textContent.trim(),
+            cells[5].textContent.trim()
+        ]);
+    });
+    _loadJsPDF(function() {
+        var jsPDF = window.jspdf.jsPDF;
+        var doc   = new jsPDF({orientation:'landscape', unit:'pt', format:'a4'});
+        var pw    = doc.internal.pageSize.getWidth();
+
+        doc.setFillColor(192,57,43);
+        doc.rect(0,0,pw,48,'F');
+        doc.setFontSize(16); doc.setTextColor(255,255,255); doc.setFont(undefined,'bold');
+        doc.text('KBMC Asset Management', 36, 28);
+        doc.setFontSize(10); doc.setFont(undefined,'normal');
+        doc.text('Device Inventory Report', 36, 42);
+
+        doc.setFontSize(9); doc.setTextColor(120,120,120);
+        doc.text('Generated: <?php echo date('F d, Y'); ?>   |   Total records: ' + rows.length, 36, 62);
+
+        doc.autoTable({
+            head:[['Asset Tag','PC Name','Type','IP Address','Status','Assigned To']],
+            body: rows,
+            startY: 72,
+            styles:{fontSize:9, cellPadding:7, lineColor:[230,233,240], lineWidth:0.5},
+            headStyles:{fillColor:[192,57,43], textColor:255, fontStyle:'bold', halign:'left'},
+            alternateRowStyles:{fillColor:[248,249,252]},
+            columnStyles:{
+                0:{cellWidth:90, fontStyle:'bold'},
+                1:{cellWidth:105},
+                2:{cellWidth:75},
+                3:{cellWidth:95},
+                4:{cellWidth:85},
+                5:{cellWidth:'auto'}
+            },
+            margin:{left:36,right:36},
+            didDrawPage: function(d) {
+                var pg  = doc.internal.getCurrentPageInfo().pageNumber;
+                var tot = doc.internal.getNumberOfPages();
+                doc.setFontSize(8); doc.setTextColor(160,160,160);
+                doc.text('KBMC Asset Management  |  Page '+pg+' of '+tot,
+                    pw/2, doc.internal.pageSize.getHeight()-14, {align:'center'});
+            }
+        });
+        doc.save('devices_report_<?php echo date('Y-m-d'); ?>.pdf');
+    });
+}
+
+function _loadJsPDF(cb) {
+    if (window.jspdf && window.jspdf.jsPDF) { cb(); return; }
+    var s1 = document.createElement('script');
+    s1.src = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js';
+    s1.onload = function() {
+        var s2 = document.createElement('script');
+        s2.src = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js';
+        s2.onload = cb;
+        s2.onerror = function(){ alert('Could not load PDF library. Check internet connection.'); };
+        document.head.appendChild(s2);
+    };
+    s1.onerror = function(){ alert('Could not load PDF library. Check internet connection.'); };
+    document.head.appendChild(s1);
+}
+
 function enableDeviceFilterEnter() {
     var filterForm = document.getElementById('deviceFilterForm');
     if (!filterForm) return;
-
     filterForm.addEventListener('keydown', function(event) {
         if (event.key === 'Enter') {
             var target = event.target;
@@ -308,7 +477,6 @@ window.addEventListener('DOMContentLoaded', function() {
     setupAssignedUserButtons();
     enableDeviceFilterEnter();
 });
-
 </script>
 
 <?php require_once 'includes/footer.php'; ?>

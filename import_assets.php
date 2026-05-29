@@ -100,7 +100,12 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_FILES['csv_file'])) {
         
         // Get current admin
         $adminId = $_SESSION['user_id'];
-        
+        // Verify the admin user still exists
+$adminCheck = $pdo->prepare("SELECT id FROM users WHERE id = ?");
+$adminCheck->execute([$adminId]);
+if (!$adminCheck->fetch()) {
+    throw new Exception('Your session user no longer exists in the database. Please log out and log back in.');
+}
         foreach ($rows as $row) {
             $lineNumber++;
             
