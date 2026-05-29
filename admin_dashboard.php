@@ -29,8 +29,17 @@ $recentLogs = $stmt->fetchAll();
 $stmt = $pdo->query("SELECT ar.*, u.full_name, u.email FROM account_recovery_requests ar JOIN users u ON ar.user_id = u.id WHERE ar.status = 'pending' ORDER BY ar.requested_at DESC LIMIT 5");
 $recoveryRequests = $stmt->fetchAll();
 
-// Master Key: handle regeneration
+// FIX: Master Key: Add CSRF token verification
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'regen_master_key') {
+    if (
+        empty($_POST['csrf_token']) ||
+        !isset($_SESSION['csrf_token']) ||
+        !hash_equals($_SESSION['csrf_token'], $_POST['csrf_token'])
+    ) {
+        http_response_code(403);
+        die('CSRF verification failed.');
+    }
+    
     $uid    = (int)$_POST['user_id'];
     $newKey = strtoupper(bin2hex(random_bytes(4)));
     $pdo->prepare("UPDATE users SET master_key = :mk WHERE id = :id")->execute([':mk' => $newKey, ':id' => $uid]);
@@ -38,13 +47,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'regen
     exit;
 }
 
+// FIX: Generate CSRF token if not exists
+if (empty($_SESSION['csrf_token'])) {
+    $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+}
+$csrf_token = $_SESSION['csrf_token'];
+
 // Master Key: fetch all users with their keys (searchable)
 $mkSearch = trim($_GET['mk_search'] ?? '');
 $mkWhere  = "WHERE 1=1";
 $mkParams = [];
 if ($mkSearch !== '') {
-    $mkWhere .= " AND (full_name LIKE :s OR employee_id LIKE :s OR department LIKE :s)";
-    $mkParams[':s'] = "%$mkSearch%";
+    $mkWhere .= " AND (full_name LIKE :s1 OR employee_id LIKE :s2 OR department LIKE :s3)";
+    $mkParams[':s1'] = "%$mkSearch%";
+    $mkParams[':s2'] = "%$mkSearch%";
+    $mkParams[':s3'] = "%$mkSearch%";
 }
 $mkStmt = $pdo->prepare("SELECT id, employee_id, full_name, email, role, department, master_key, status FROM users $mkWhere ORDER BY full_name ASC");
 $mkStmt->execute($mkParams);
@@ -64,17 +81,46 @@ $mkUsers = $mkStmt->fetchAll();
 
 <!-- Master Key styles (scoped, no conflict) -->
 <style>
-.mk-panel { background:#fff; border-radius:8px; border:2px solid #f0c040; margin-top:20px; overflow:hidden; }
-.mk-header { background:linear-gradient(135deg,#f39c12,#d68910); color:#fff; padding:16px 20px; display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; }
+/* FIX: Constrain master key panel to viewport width */
+.mk-panel { 
+    background: #fff; 
+    border-radius: 8px; 
+    border: 2px solid #f0c040; 
+    margin-top: 20px; 
+    overflow: hidden;
+    max-width: 100%;
+    width: 100%;
+}
+.mk-header { 
+    background: linear-gradient(135deg,#f39c12,#d68910); 
+    color: #fff; 
+    padding: 16px 20px; 
+    display: flex; 
+    align-items: center; 
+    justify-content: space-between; 
+    gap: 12px; 
+    flex-wrap: wrap;
+    width: 100%;
+}
 .mk-header-text h3 { margin:0; font-size:16px; font-weight:700; }
 .mk-header-text p  { margin:4px 0 0; font-size:12px; opacity:.85; }
-.mk-search { display:flex; gap:8px; }
+.mk-search { display:flex; gap:8px; flex-shrink: 0; }
 .mk-search input  { padding:7px 12px; border-radius:6px; border:none; font-size:13px; min-width:200px; outline:none; }
 .mk-search button { padding:7px 14px; background:rgba(0,0,0,.2); color:#fff; border:none; border-radius:6px; cursor:pointer; font-size:13px; font-weight:600; }
 .mk-search button:hover { background:rgba(0,0,0,.35); }
-.mk-table-wrap { overflow-x:auto; }
-table.mk-tbl { width:100%; border-collapse:collapse; font-size:13px; }
-.mk-tbl thead th { background:#fffbf0; color:#7d6000; font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.5px; padding:10px 14px; border-bottom:1px solid #f0e0a0; }
+/* FIX: Proper table wrapping with overflow handled at table level */
+.mk-table-wrap { 
+    width: 100%; 
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+}
+table.mk-tbl { 
+    width: 100%; 
+    border-collapse: collapse; 
+    font-size: 13px;
+    min-width: 600px;
+}
+.mk-tbl thead th { background:#fffbf0; color:#7d6000; font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.5px; padding:10px 14px; border-bottom:1px solid #f0e0a0; white-space: nowrap; }
 .mk-tbl tbody tr { border-bottom:1px solid #faf5e4; }
 .mk-tbl tbody tr:last-child { border-bottom:none; }
 .mk-tbl tbody tr:hover { background:#fffef5; }
@@ -99,6 +145,11 @@ table.mk-tbl { width:100%; border-collapse:collapse; font-size:13px; }
 #mkRegenModal .mk-modal-body i { font-size:40px; color:#e67e22; display:block; margin-bottom:12px; }
 #mkRegenModal .mk-modal-body p { font-size:13px; color:#555; margin:0; }
 #mkRegenModal .mk-modal-foot { padding:14px 20px; border-top:1px solid #eee; display:flex; justify-content:center; gap:10px; }
+
+/* FIX: Constrain all card containers */
+.card { max-width: 100%; width: 100%; }
+.data-table-wrapper { width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.data-table { width: 100%; min-width: 600px; }
 </style>
 
 <!-- Admin Dashboard Header -->
@@ -220,7 +271,7 @@ table.mk-tbl { width:100%; border-collapse:collapse; font-size:13px; }
                     <th>Role</th>
                     <th>Status</th>
                     <th>Master Key <i class="fas fa-eye-slash" style="opacity:.4"></i></th>
-                    <th>Action</th>
+                    <th style="white-space: nowrap;">Action</th>
                 </tr>
             </thead>
             <tbody>
@@ -263,7 +314,7 @@ table.mk-tbl { width:100%; border-collapse:collapse; font-size:13px; }
                             <i class="fas fa-eye"></i> Reveal
                         </button>
                     </td>
-                    <td>
+                    <td style="white-space: nowrap;">
                         <button class="mk-regen-btn" onclick="mkConfirmRegen(<?php echo $mu['id']; ?>, '<?php echo addslashes(sanitize($mu['full_name'])); ?>')">
                             <i class="fas fa-sync-alt"></i> Regenerate
                         </button>
@@ -315,7 +366,7 @@ table.mk-tbl { width:100%; border-collapse:collapse; font-size:13px; }
                         </td>
                         <td><small><?php echo sanitize(substr($req['reason'] ?? '', 0, 30)); ?></small></td>
                         <td><?php echo formatDate($req['created_at']); ?></td>
-                        <td>
+                        <td style="white-space: nowrap;">
                             <form method="POST" action="security_control.php" style="display:inline;">
                                 <?php echo csrfInputField(); ?>
                                 <input type="hidden" name="action" value="quick_approve">
@@ -418,7 +469,9 @@ table.mk-tbl { width:100%; border-collapse:collapse; font-size:13px; }
             <i class="fas fa-exclamation-triangle"></i>
             <p id="mkRegenMsg">The old master key will be permanently replaced.</p>
         </div>
+        <!-- FIX: Added CSRF token to form -->
         <form method="POST">
+            <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrf_token); ?>">
             <input type="hidden" name="action" value="regen_master_key">
             <input type="hidden" name="user_id" id="mkRegenUserId">
             <div class="mk-modal-foot">
