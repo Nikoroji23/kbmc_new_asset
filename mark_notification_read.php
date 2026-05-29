@@ -1,13 +1,13 @@
 <?php
 /**
  * KBMC Asset Management — Mark Notification Read (AJAX)
- * File: ajax/mark_notification_read.php
+ * File: mark_notification_read.php
  *
  * Accepts POST with JSON body:
  *   { "id": 42 }       → mark single notification as read
  *   { "all": true }    → mark ALL of this user's notifications as read
  */
-require_once __DIR__ . '/../includes/functions.php';
+require_once __DIR__ . '/includes/functions.php';
 
 // Must be logged in
 if (empty($_SESSION['user_id'])) {

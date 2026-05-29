@@ -125,9 +125,9 @@ function tableExists($table) {
 function columnExists($table, $column) {
     global $pdo;
     try {
-        $stmt = $pdo->prepare("SHOW COLUMNS FROM `$table` LIKE ?");
-        $stmt->execute([$column]);
-        return $stmt->fetchColumn() !== false;
+        $stmt = $pdo->prepare("SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = ? AND table_name = ? AND column_name = ?");
+        $stmt->execute([DB_NAME, $table, $column]);
+        return (int)$stmt->fetchColumn() > 0;
     } catch (PDOException $e) {
         return false;
     }
@@ -156,6 +156,35 @@ function ensureDeviceSchema() {
     }
 }
 
+function ensureMaintenanceSchema() {
+    static $checked = false;
+    if ($checked) {
+        return;
+    }
+    $checked = true;
+
+    if (!tableExists('maintenance_schedules')) {
+        return;
+    }
+
+    try {
+        if (!columnExists('maintenance_schedules', 'requested_by')) {
+            $GLOBALS['pdo']->exec("ALTER TABLE maintenance_schedules ADD COLUMN requested_by INT DEFAULT NULL AFTER assigned_to");
+        }
+        if (!columnExists('maintenance_schedules', 'completed_by')) {
+            $GLOBALS['pdo']->exec("ALTER TABLE maintenance_schedules ADD COLUMN completed_by INT DEFAULT NULL AFTER requested_by");
+        }
+        if (!columnExists('maintenance_schedules', 'completed_at')) {
+            $GLOBALS['pdo']->exec("ALTER TABLE maintenance_schedules ADD COLUMN completed_at DATETIME DEFAULT NULL AFTER completed_by");
+        }
+        if (!columnExists('maintenance_schedules', 'completion_notes')) {
+            $GLOBALS['pdo']->exec("ALTER TABLE maintenance_schedules ADD COLUMN completion_notes TEXT DEFAULT NULL AFTER notes");
+        }
+    } catch (PDOException $e) {
+        // If ALTER TABLE fails, continue gracefully.
+    }
+}
+
 function addNotification($userId, $type, $title, $message, $relatedId = null) {
     global $pdo;
     $stmt = $pdo->prepare("INSERT INTO notifications (user_id, type, title, message, related_id) VALUES (?, ?, ?, ?, ?)");
@@ -177,77 +206,150 @@ function addNotificationIfNotExists($userId, $type, $title, $message, $relatedId
     return addNotification($userId, $type, $title, $message, $relatedId);
 }
 
-function notifyITStaff($type, $title, $message, $relatedId = null) {
+function notifyITStaff($type, $title, $message, $related_id = 0) {
     global $pdo;
-    $stmt = $pdo->query("SELECT id FROM users WHERE role IN ('admin','it_staff') AND status = 'active'");
-    $staff = $stmt->fetchAll(PDO::FETCH_ASSOC);
-    foreach ($staff as $member) {
-        addNotificationIfNotExists($member['id'], $type, $title, $message, $relatedId);
+    
+    // Get all IT staff / admin users
+    $itUsers = $pdo->query("SELECT id FROM users WHERE role IN ('admin', 'it_staff')")->fetchAll();
+    
+    $stmt = $pdo->prepare("
+        INSERT INTO notifications (user_id, type, related_id, title, message, is_read, created_at) 
+        VALUES (?, ?, ?, ?, ?, 0, NOW())
+    ");
+    
+    foreach ($itUsers as $user) {
+        $stmt->execute([$user['id'], $type, $related_id, $title, $message]);
     }
 }
-
 /**
  * Returns the correct URL for a notification based on its type and related_id
  */
-function getNotificationUrl(array $notif): string {
-    $type      = $notif['type']       ?? 'unknown';
-    $relatedId = $notif['related_id'] ?? null;
-
-    switch ($type) {
-        case 'lifespan_monitor':
-        case 'lifespan_replace_soon':
-        case 'lifespan_overdue':
-        case 'lifespan_replaced':
-        case 'lifespan_extended':
-        case 'warranty_expiring':
-            return $relatedId
-                ? 'device_lifespan.php?device_id=' . urlencode($relatedId)
+function getNotificationUrl(array $notif): string
+{
+    $type  = $notif['type']         ?? '';
+    $refId = (int)($notif['related_id'] ?? 0);
+ 
+    // Resolve current user role from session
+    $role  = $_SESSION['role'] ?? 'employee';
+    $isIT  = in_array($role, ['admin', 'it_staff']);
+ 
+    // ----------------------------------------------------------
+    // IT STAFF & ADMIN notifications
+    // These types are only ever sent to admin / it_staff roles.
+    // ----------------------------------------------------------
+    if ($isIT) {
+        // --- Device Lifespan ---
+        // Sent by: device_lifespan.php auto-sync & inline-edit AJAX
+        // related_id = device_id
+        if (str_starts_with($type, 'lifespan_')) {
+            return $refId
+                ? 'device_lifespan.php?device_id=' . $refId
                 : 'device_lifespan.php';
-
+        }
+ 
+        switch ($type) {
+ 
+            // --- Repairs ---
+            // Sent by: api_report_device_issue.php & api_mark_repair_done.php
+        // related_id = repair_id (IT sees repair list)
+        case 'repair_needed':
+        case 'repair_pending':
+            return 'repairs.php';
+ 
+        // --- Maintenance ---
+        // Sent by: api_send_maintenance_reminder.php & maintenance_reminders.php
+        // related_id = device_id
+ 
+            // --- Deployments ---
+            // Sent by: deployments.php (assign & return)
+            // reference_id = device_id
+            case 'device_deployed':
+            case 'device_returned':
+            case 'voluntary_return_requested':
+                return 'deployments.php';
+ 
+            // --- Warranty ---
+            // reference_id = device_id → go directly to device page
+            case 'warranty_expiring':
+                return $refId
+                    ? 'view_device.php?id=' . $refId
+                    : 'devices.php';
+ 
+            // --- IT Clearance ---
+            // Sent by: it_clearance.php
+            // related_id = device_id (optional, may be 0 on full clearance)
+            case 'user_clearance_completed':
+            case 'user_clearance_required':
+                return 'it_clearance.php';
+ 
+            // --- Audit / Account Recovery ---
+            // Sent by: submitAccountRecovery()
+            // related_id = account recovery request id
+            case 'audit_reminder':
+                return 'users.php#recovery';
+ 
+            // --- Device Requests ---
+            // Sent by: requests.php (admin/IT side)
+            // related_id = request_id
+            case 'device_request':
+                return 'requests.php';
+ 
+            // --- Low Stock ---
+            // related_id = 0 (no specific device)
+            case 'low_stock':
+                return 'devices.php';
+ 
+            // Fallback for unknown types: stay on notifications page
+            default:
+                return 'notifications.php';
+        }
+    }
+ 
+    // ----------------------------------------------------------
+    // EMPLOYEE notifications
+    // These are the types a normal employee will receive.
+    // ----------------------------------------------------------
+    switch ($type) {
+ 
+        // Device assigned to them → show that device
+        // related_id = device_id
+        case 'device_deployed':
+            return $refId
+                ? 'view_device.php?id=' . $refId
+                : 'dashboard.php';
+ 
+        // Device taken back → just go to dashboard
+        case 'device_returned':
+            return 'dashboard.php';
+ 
+        // Their request was approved or rejected → show requests list
+        // related_id = request_id
         case 'request_approved':
         case 'request_rejected':
-        case 'new_device_request':
-            return $relatedId
-                ? 'device_requests.php?id=' . urlencode($relatedId)
-                : 'device_requests.php';
-
-        case 'maintenance_reminder':
-        case 'maintenance_assigned':
-            return $relatedId
-                ? 'maintenance.php?id=' . urlencode($relatedId)
-                : 'maintenance.php';
-
-        case 'repair_needed':
-        case 'repair_completed':
-            return $relatedId
-                ? 'repairs.php?id=' . urlencode($relatedId)
-                : 'repairs.php';
-
-        case 'device_deployed':
-        case 'device_returned':
-            return $relatedId
-                ? 'view_device.php?id=' . urlencode($relatedId)
-                : 'deployments.php';
-
-        case 'user_clearance_required':
+            return 'requests.php';
+ 
+        // IT completed their clearance
         case 'user_clearance_completed':
-            return $relatedId
-                ? 'inspections.php?id=' . urlencode($relatedId)
-                : 'inspections.php';
-
-        case 'low_stock':
-            return 'all_devices.php';
-
-        case 'voluntary_return_requested':
-            return $relatedId
-                ? 'view_device.php?id=' . urlencode($relatedId)
-                : 'deployments.php';
-
-        case 'user_creation_approved':
             return 'dashboard.php';
-
+ 
+        // They were reminded about maintenance on their assigned device
+        // related_id = device_id
+        case 'maintenance_due':
+            return $refId
+                ? 'view_device.php?id=' . $refId
+                : 'dashboard.php';
+ 
+        // They reported an issue — show their device
+        // related_id = device_id
+        case 'repair_needed':
+        case 'repair_pending':
+            return $refId
+                ? 'view_device.php?id=' . $refId
+                : 'dashboard.php';
+ 
+        // Fallback
         default:
-            return 'dashboard.php';
+            return 'notifications.php';
     }
 }
 function createPasswordResetToken($userId) {
@@ -903,10 +1005,25 @@ function sendPendingEmailNotifications() {
     }
 }
 
-function createMaintenanceSchedule($deviceId, $maintenanceType, $description, $scheduledDate, $assignedTo = null) {
+function createMaintenanceSchedule($deviceId, $maintenanceType, $description, $scheduledDate, $assignedTo = null, $requestedBy = null) {
     global $pdo;
-    $stmt = $pdo->prepare("INSERT INTO maintenance_schedules (device_id, maintenance_type, description, scheduled_date, next_due_date, assigned_to) VALUES (?, ?, ?, ?, ?, ?)");
-    $stmt->execute([$deviceId, $maintenanceType, $description, $scheduledDate, $scheduledDate, $assignedTo]);
+    ensureMaintenanceSchema();
+
+    // Build INSERT defensively: only include columns that exist
+    $columns = ['device_id', 'maintenance_type', 'description', 'scheduled_date', 'next_due_date', 'assigned_to'];
+    $values = [$deviceId, $maintenanceType, $description, $scheduledDate, $scheduledDate, $assignedTo];
+
+    if (columnExists('maintenance_schedules', 'requested_by')) {
+        $columns[] = 'requested_by';
+        $values[] = $requestedBy;
+    }
+
+    $placeholders = implode(', ', array_fill(0, count($columns), '?'));
+    $columnList = implode(', ', $columns);
+    $sql = "INSERT INTO maintenance_schedules ($columnList) VALUES ($placeholders)";
+    
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute($values);
     $scheduleId = $pdo->lastInsertId();
 
     $deviceStmt = $pdo->prepare("SELECT asset_tag FROM devices WHERE id = ?");
@@ -931,22 +1048,105 @@ function createMaintenanceSchedule($deviceId, $maintenanceType, $description, $s
 function getUpcomingMaintenanceReminders($daysAhead = 7) {
     global $pdo;
     $futureDate = date('Y-m-d', strtotime("+$daysAhead days"));
-    $stmt = $pdo->prepare("
-        SELECT ms.*, d.asset_tag, d.model, u.email, u.full_name
-        FROM maintenance_schedules ms
-        JOIN devices d ON ms.device_id = d.id
-        LEFT JOIN users u ON ms.assigned_to = u.id
-        WHERE ms.next_due_date <= ? AND ms.next_due_date > NOW()
-        ORDER BY ms.next_due_date ASC
-    ");
+    // Build query defensively: only join requested_by / completed_by if columns exist
+    $selectFields = [
+        'ms.*', 'd.asset_tag', 'd.model',
+        "a.email AS assigned_to_email", "a.full_name AS assigned_to_name"
+    ];
+    $joins = [
+        "JOIN devices d ON ms.device_id = d.id",
+        "LEFT JOIN users a ON ms.assigned_to = a.id"
+    ];
+
+    if (columnExists('maintenance_schedules', 'requested_by')) {
+        $selectFields[] = "r.full_name AS requested_by_name";
+        $joins[] = "LEFT JOIN users r ON ms.requested_by = r.id";
+    }
+
+    if (columnExists('maintenance_schedules', 'completed_by')) {
+        $selectFields[] = "c.full_name AS completed_by_name";
+        $joins[] = "LEFT JOIN users c ON ms.completed_by = c.id";
+    }
+
+    $sql = "SELECT " . implode(', ', $selectFields) . " FROM maintenance_schedules ms " . implode(' ', $joins) . " WHERE ms.next_due_date <= ? AND ms.next_due_date > NOW() AND ms.last_performed_date IS NULL ORDER BY ms.next_due_date ASC";
+    $stmt = $pdo->prepare($sql);
     $stmt->execute([$futureDate]);
     return $stmt->fetchAll();
 }
 
-function markMaintenanceCompleted($maintenanceId) {
+function markMaintenanceCompleted($maintenanceId, $completedBy = null, $completedAt = null, $completionNotes = null) {
     global $pdo;
-    $pdo->prepare("UPDATE maintenance_schedules SET last_performed_date = NOW(), next_due_date = DATE_ADD(NOW(), INTERVAL 6 MONTH) WHERE id = ?")->execute([$maintenanceId]);
+    ensureMaintenanceSchema();
+    if (!$completedAt) {
+        $completedAt = date('Y-m-d H:i:s');
+    }
+
+    if (!$completedBy && isset($_SESSION['user_id'])) {
+        $completedBy = $_SESSION['user_id'];
+    }
+
+    // Build UPDATE dynamically depending on which columns exist in the schema
+    $sets = [];
+    $params = [];
+
+    if (function_exists('columnExists') && columnExists('maintenance_schedules', 'last_performed_date')) {
+        $sets[] = 'last_performed_date = DATE(?)';
+        $params[] = $completedAt;
+    }
+
+    if (function_exists('columnExists') && columnExists('maintenance_schedules', 'next_due_date')) {
+        $sets[] = 'next_due_date = DATE_ADD(DATE(?), INTERVAL 6 MONTH)';
+        $params[] = $completedAt;
+    }
+
+    if (function_exists('columnExists') && columnExists('maintenance_schedules', 'completed_at')) {
+        $sets[] = 'completed_at = ?';
+        $params[] = $completedAt;
+    }
+
+    if (function_exists('columnExists') && columnExists('maintenance_schedules', 'completed_by')) {
+        $sets[] = 'completed_by = ?';
+        $params[] = $completedBy;
+    }
+
+    if (function_exists('columnExists') && columnExists('maintenance_schedules', 'completion_notes')) {
+        $sets[] = 'completion_notes = ?';
+        $params[] = $completionNotes;
+    }
+
+    // Fetch device_id for this maintenance so we can clear related pending notifications later
+    $deviceId = null;
+    try {
+        $devStmt = $pdo->prepare("SELECT device_id FROM maintenance_schedules WHERE id = ? LIMIT 1");
+        $devStmt->execute([$maintenanceId]);
+        $deviceId = $devStmt->fetchColumn() ?: null;
+    } catch (Exception $e) {
+        // ignore
+    }
+
+    if (empty($sets)) {
+        // Nothing to update — avoid running invalid SQL
+        return false;
+    }
+
+    $sql = 'UPDATE maintenance_schedules SET ' . implode(', ', $sets) . ' WHERE id = ?';
+    $params[] = $maintenanceId;
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute($params);
+
+    // Clear any unread maintenance notifications for this device to remove "pending" reminders
+    if ($deviceId) {
+        try {
+            $clearStmt = $pdo->prepare("DELETE FROM notifications WHERE (type = 'maintenance_due' OR type = 'maintenance_assigned') AND related_id = ? AND is_read = 0");
+            $clearStmt->execute([$deviceId]);
+        } catch (Exception $e) {
+            // ignore failures here
+        }
+    }
+    return true;
 }
+    
+    // Note: function returns true on success, false if nothing to update
 
 // ============================================================
 // SERIAL NUMBER SEARCH

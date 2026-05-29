@@ -13,11 +13,17 @@ CREATE TABLE IF NOT EXISTS maintenance_schedules (
     next_due_date DATE,
     priority ENUM('low', 'medium', 'high') DEFAULT 'medium',
     assigned_to INT,
+    requested_by INT,
+    completed_by INT,
+    completed_at DATETIME DEFAULT NULL,
+    completion_notes TEXT,
     notes TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     FOREIGN KEY (device_id) REFERENCES devices(id) ON DELETE CASCADE,
     FOREIGN KEY (assigned_to) REFERENCES users(id),
+    FOREIGN KEY (requested_by) REFERENCES users(id),
+    FOREIGN KEY (completed_by) REFERENCES users(id),
     INDEX idx_device_due (device_id, next_due_date),
     INDEX idx_priority (priority)
 );

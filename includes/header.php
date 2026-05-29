@@ -37,31 +37,27 @@ $pageTitle = $pageTitle ?? 'KBMC Asset Management';
                 return false;
             }
             
-            // Mark as read
+            function navigate() {
+                console.log('➜ Navigating to:', url);
+                window.location.href = url;
+            }
+            
             if (id) {
-                fetch('mark_notification_read.php?id=' + encodeURIComponent(id), {
-                    method: 'GET',
-                    headers: { 'X-Requested-With': 'XMLHttpRequest' }
+                fetch('mark_notification_read.php', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-Requested-With': 'XMLHttpRequest'
+                    },
+                    body: JSON.stringify({ id: parseInt(id, 10) }),
+                    credentials: 'same-origin'
                 })
-                .then(response => {
-                    if (!response.ok) {
-                        console.warn('⚠️ Failed to mark as read:', response.statusText);
-                    }
-                    return response.json();
-                })
-                .then(data => {
-                    console.log('✓ Mark read response:', data);
-                })
-                .catch(error => {
+                .catch(function (error) {
                     console.warn('⚠️ Error marking notification read:', error);
                 })
-                .finally(() => {
-                    console.log('➜ Navigating to:', url);
-                    window.location.href = url;
-                });
+                .finally(navigate);
             } else {
-                console.log('➜ No notification ID, navigating directly to:', url);
-                window.location.href = url;
+                navigate();
             }
             
             return false; // Prevent default behavior

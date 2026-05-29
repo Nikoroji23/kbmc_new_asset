@@ -8,12 +8,20 @@ $pageTitle = 'Maintenance Reminders';
 require_once 'includes/header.php';
 
 requireITStaff();
+ensureMaintenanceSchema();
 
 // Handle maintenance completion
-if (isset($_POST['mark_completed']) && isset($_POST['maintenance_id'])) {
-    $maintenanceId = (int)$_POST['maintenance_id'];
-    markMaintenanceCompleted($maintenanceId);
-    setFlashMessage('success', 'Maintenance marked as completed.');
+if (isset($_POST['complete_maintenance']) && isset($_POST['maintenance_id'])) {
+    $maintenanceId   = (int)$_POST['maintenance_id'];
+    $completedBy     = !empty($_POST['completed_by']) ? (int)$_POST['completed_by'] : $_SESSION['user_id'];
+    $completedAt     = !empty($_POST['completed_at']) ? $_POST['completed_at'] : null;
+    $completionNotes = !empty($_POST['completion_notes']) ? sanitize($_POST['completion_notes']) : null;
+    $ok = markMaintenanceCompleted($maintenanceId, $completedBy, $completedAt, $completionNotes);
+    if ($ok) {
+        setFlashMessage('success', 'Maintenance completion recorded.');
+    } else {
+        setFlashMessage('error', 'Could not update maintenance record.');
+    }
     header('Location: maintenance_reminders.php');
     exit();
 }
@@ -26,7 +34,7 @@ if (isset($_POST['create_maintenance'])) {
     $scheduledDate = $_POST['scheduled_date'];
     $assignedTo = !empty($_POST['assigned_to']) ? (int)$_POST['assigned_to'] : null;
 
-    createMaintenanceSchedule($deviceId, $maintenanceType, $description, $scheduledDate, $assignedTo);
+    createMaintenanceSchedule($deviceId, $maintenanceType, $description, $scheduledDate, $assignedTo, $_SESSION['user_id']);
     setFlashMessage('success', 'Maintenance schedule created. Reminders will be sent.');
     header('Location: maintenance_reminders.php');
     exit();
@@ -34,14 +42,33 @@ if (isset($_POST['create_maintenance'])) {
 
 // Get upcoming maintenance
 $upcomingMaintenance = getUpcomingMaintenanceReminders(30);
-$allMaintenance = $pdo->query("
-    SELECT ms.*, d.asset_tag, d.model, u.full_name, u.email
-    FROM maintenance_schedules ms
-    JOIN devices d ON ms.device_id = d.id
-    LEFT JOIN users u ON ms.assigned_to = u.id
-    ORDER BY ms.next_due_date ASC
-    LIMIT 50
-")->fetchAll();
+// Build the allMaintenance query defensively in case schema columns are missing
+$select = [
+    'ms.*',
+    'd.asset_tag',
+    'd.model',
+    "a.full_name AS assigned_to_name",
+    "a.email AS assigned_to_email",
+];
+
+$joins = [
+    'FROM maintenance_schedules ms',
+    'JOIN devices d ON ms.device_id = d.id',
+    'LEFT JOIN users a ON ms.assigned_to = a.id',
+];
+
+if (function_exists('columnExists') && columnExists('maintenance_schedules', 'requested_by')) {
+    $select[] = "r.full_name AS requested_by_name";
+    $joins[]   = 'LEFT JOIN users r ON ms.requested_by = r.id';
+}
+
+if (function_exists('columnExists') && columnExists('maintenance_schedules', 'completed_by')) {
+    $select[] = "c.full_name AS completed_by_name";
+    $joins[]   = 'LEFT JOIN users c ON ms.completed_by = c.id';
+}
+
+$sql = 'SELECT ' . implode(', ', $select) . ' ' . implode(' ', $joins) . ' WHERE ms.last_performed_date IS NULL ORDER BY ms.next_due_date ASC LIMIT 50';
+$allMaintenance = $pdo->query($sql)->fetchAll();
 
 // Get IT staff for assignment
 $itStaff = $pdo->query("SELECT id, full_name, email FROM users WHERE role IN ('admin', 'it_staff') ORDER BY full_name")->fetchAll();
@@ -566,9 +593,9 @@ foreach ($upcomingMaintenance as $m) {
                     </td>
                     <td style="color:#374151;"><?php echo date('M d, Y', strtotime($maint['next_due_date'])); ?></td>
                     <td>
-                        <span style="color:#374151;"><?php echo htmlspecialchars($maint['full_name'] ?? '—'); ?></span>
-                        <?php if (!empty($maint['email'])): ?>
-                        <br><small style="color:#6b7280;"><?php echo htmlspecialchars($maint['email']); ?></small>
+                        <span style="color:#374151;"><?php echo htmlspecialchars($maint['assigned_to_name'] ?? '—'); ?></span>
+                        <?php if (!empty($maint['assigned_to_email'])): ?>
+                        <br><small style="color:#6b7280;"><?php echo htmlspecialchars($maint['assigned_to_email']); ?></small>
                         <?php endif; ?>
                     </td>
                     <td>
@@ -581,16 +608,12 @@ foreach ($upcomingMaintenance as $m) {
                         <?php endif; ?>
                     </td>
                     <td style="white-space:nowrap;">
+                        <button type="button" onclick="openCompleteModal(<?php echo $maint['id']; ?>)" class="btn btn-sm btn-success" title="Record Completion" style="margin-right:4px;">
+                            <i class="fas fa-check"></i>
+                        </button>
                         <button onclick="sendMaintenanceReminder(<?php echo $maint['id']; ?>)" class="btn btn-sm btn-primary" title="Send Reminder Email" style="margin-right:4px;">
                             <i class="fas fa-envelope"></i>
                         </button>
-                        <form method="POST" style="display:inline;">
-                            <input type="hidden" name="mark_completed" value="1">
-                            <input type="hidden" name="maintenance_id" value="<?php echo $maint['id']; ?>">
-                            <button type="submit" class="btn btn-sm btn-success" title="Mark Completed" onclick="return confirm('Mark this maintenance as completed?');">
-                                <i class="fas fa-check"></i>
-                            </button>
-                        </form>
                     </td>
                 </tr>
                 <?php endforeach; ?>
@@ -620,7 +643,8 @@ foreach ($upcomingMaintenance as $m) {
                     <th>Description</th>
                     <th>Next Due</th>
                     <th>Assigned To</th>
-                    <th>Last Performed</th>
+                    <th>Requested By</th>
+                    <th>Completed</th>
                     <th>Actions</th>
                 </tr>
             </thead>
@@ -653,9 +677,23 @@ foreach ($upcomingMaintenance as $m) {
                         </span>
                         <?php if ($isOv): ?><br><span class="urgency-badge urgency-overdue" style="font-size:10px;margin-top:3px;">Overdue</span><?php endif; ?>
                     </td>
-                    <td style="color:#374151;"><?php echo htmlspecialchars($maint['full_name'] ?? '—'); ?></td>
-                    <td style="color:#6b7280;"><?php echo $maint['last_performed_date'] ? date('M d, Y', strtotime($maint['last_performed_date'])) : '—'; ?></td>
+                    <td style="color:#374151;"><?php echo htmlspecialchars($maint['assigned_to_name'] ?? '—'); ?></td>
+                    <td style="color:#374151;"><?php echo htmlspecialchars($maint['requested_by_name'] ?? '—'); ?></td>
+                    <td style="color:#6b7280;">
+                        <?php if (!empty($maint['completed_at'])): ?>
+                            <?php echo date('M d, Y H:i', strtotime($maint['completed_at'])); ?><br>
+                            <small>by <?php echo htmlspecialchars($maint['completed_by_name'] ?? '—'); ?></small>
+                            <?php if (!empty($maint['completion_notes'])): ?>
+                                <br><small title="<?php echo htmlspecialchars($maint['completion_notes']); ?>">Proof available</small>
+                            <?php endif; ?>
+                        <?php else: ?>
+                            —
+                        <?php endif; ?>
+                    </td>
                     <td>
+                        <button type="button" onclick="openCompleteModal(<?php echo $maint['id']; ?>)" class="btn btn-sm btn-success" title="Record Completion" style="margin-right:4px;">
+                            <i class="fas fa-check"></i>
+                        </button>
                         <a href="view_device.php?id=<?php echo $maint['device_id']; ?>#maintenance" class="btn btn-sm btn-info" title="View Device">
                             <i class="fas fa-eye"></i>
                         </a>
@@ -664,7 +702,7 @@ foreach ($upcomingMaintenance as $m) {
                 <?php endforeach; ?>
                 <?php if (empty($allMaintenance)): ?>
                 <tr>
-                    <td colspan="7" style="text-align:center;padding:40px 20px;color:#9ca3af;">
+                    <td colspan="8" style="text-align:center;padding:40px 20px;color:#9ca3af;">
                         <i class="fas fa-calendar-times" style="font-size:28px;display:block;margin-bottom:10px;opacity:.4;"></i>
                         No maintenance schedules found.
                     </td>
@@ -764,6 +802,48 @@ foreach ($upcomingMaintenance as $m) {
                     <button type="button" onclick="closeCreateSchedule()" class="btn btn-outline">Cancel</button>
                     <button type="submit" name="create_maintenance" value="1" class="btn btn-primary">
                         <i class="fas fa-calendar-plus"></i> Create Schedule
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- ── Complete Maintenance Modal ────────────────────────────── -->
+<div id="completeMaintenanceModal" class="modal-overlay">
+    <div class="modal-box">
+        <div class="modal-header">
+            <h3><i class="fas fa-check-circle" style="color:#16a34a;"></i> Record Maintenance Completion</h3>
+            <button class="modal-close" onclick="closeCompleteModal()" title="Close">&times;</button>
+        </div>
+        <div class="modal-body">
+            <form method="POST" id="completeMaintenanceForm">
+                <input type="hidden" name="maintenance_id" id="completionMaintenanceId">
+                <input type="hidden" name="complete_maintenance" value="1">
+
+                <div class="form-group">
+                    <label>Completed By</label>
+                    <select name="completed_by" id="completedBySelect" class="form-control">
+                        <?php foreach ($itStaff as $staff): ?>
+                        <option value="<?php echo $staff['id']; ?>"<?php echo $staff['id'] == $_SESSION['user_id'] ? ' selected' : ''; ?>>
+                            <?php echo htmlspecialchars($staff['full_name']); ?>
+                        </option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Completion Date</label>
+                    <input type="date" name="completed_at" id="completedAtInput" class="form-control" value="<?php echo date('Y-m-d'); ?>">
+                </div>
+                <div class="form-group">
+                    <label>Proof / Notes</label>
+                    <textarea name="completion_notes" id="completionNotes" class="form-control" rows="4" placeholder="Describe what was done, findings, or attach proof URL..." style="resize:vertical;"></textarea>
+                </div>
+
+                <div class="form-footer">
+                    <button type="button" onclick="closeCompleteModal()" class="btn btn-outline">Cancel</button>
+                    <button type="submit" class="btn btn-primary">
+                        <i class="fas fa-save"></i> Save Completion
                     </button>
                 </div>
             </form>
@@ -886,8 +966,25 @@ function closeCreateSchedule() {
     document.getElementById('createScheduleModal').classList.remove('open');
 }
 
+function openCompleteModal(maintenanceId) {
+    document.getElementById('completionMaintenanceId').value = maintenanceId;
+    document.getElementById('completionNotes').value = '';
+    document.getElementById('completeMaintenanceModal').classList.add('open');
+    setTimeout(function() {
+        document.getElementById('completedAtInput').focus();
+    }, 120);
+}
+
+function closeCompleteModal() {
+    document.getElementById('completeMaintenanceModal').classList.remove('open');
+}
+
 document.getElementById('createScheduleModal').addEventListener('click', function(e) {
     if (e.target === this) closeCreateSchedule();
+});
+
+document.getElementById('completeMaintenanceModal').addEventListener('click', function(e) {
+    if (e.target === this) closeCompleteModal();
 });
 
 /* ── Form Validation ───────────────────────────────────────── */

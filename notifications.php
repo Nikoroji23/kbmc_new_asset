@@ -164,32 +164,36 @@ function getNotificationColor(string $type): string {
 function handleNotificationClick(element) {
     var url     = element.getAttribute('data-url');
     var notifId = element.getAttribute('data-id');
-
+ 
+    // Optimistically mark as read in the UI immediately
     element.classList.remove('notif-unread');
     var dot = element.querySelector('.notif-row-dot');
     if (dot) dot.remove();
     updateNavBadge(-1);
-
-    fetch('ajax/mark_notification_read.php', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+ 
+    // Tell the server, then navigate regardless of outcome
+    fetch('mark_notification_read.php', {
+        method:      'POST',
+        headers:     { 'Content-Type': 'application/json' },
         credentials: 'same-origin',
-        body: JSON.stringify({ id: notifId })
+        body:        JSON.stringify({ id: parseInt(notifId, 10) })
     })
-    .catch(function() { /* silent */ })
-    .finally(function() {
-        if (url) {
+    .catch(function () { /* silent — we still navigate */ })
+    .finally(function () {
+        if (url && url !== '' && url !== 'notifications.php') {
             window.location.href = url;
         }
+        // If url is 'notifications.php' we're already there — no redirect needed
     });
 }
-
+ 
 function updateNavBadge(delta) {
-    var badge = document.getElementById('notifBadge') || document.querySelector('.notif-badge');
+    var badge = document.getElementById('notifBadge')
+             || document.querySelector('.notif-badge');
     if (!badge) return;
     var next = (parseInt(badge.textContent, 10) || 0) + delta;
-    if (next <= 0) badge.style.display = 'none';
-    else { badge.textContent = next; badge.style.display = ''; }
+    if (next <= 0) { badge.style.display = 'none'; }
+    else           { badge.textContent = next; badge.style.display = ''; }
 }
 </script>
 <?php require_once 'includes/footer.php'; ?>

@@ -1,9 +1,14 @@
 <?php
-/**
- * KBMC Asset Management - Device Lifespan Forecast
- * Shows every device with purchase date, expected end-of-life, and IT remarks.
- * IT staff can update the forecast status and remarks inline.
- */
+
+// DEBUG: Log every redirect attempt
+register_shutdown_function(function() {
+    $headers = headers_list();
+    foreach ($headers as $h) {
+        if (stripos($h, 'Location:') !== false) {
+            error_log("REDIRECT DETECTED: $h | URI=" . ($_SERVER['REQUEST_URI'] ?? 'none'));
+        }
+    }
+});
 $pageTitle = 'Device Lifespan Forecast';
 require_once 'includes/functions.php';
 requireITStaffOnly();
