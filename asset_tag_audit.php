@@ -14,104 +14,106 @@ $start_date = $_GET['start_date'] ?? '';
 $end_date = $_GET['end_date'] ?? '';
 
 // Build comprehensive query combining multiple IT activities
-$sql = "SELECT 
-    'asset_tag_change' as activity_type,
-    al.id,
-    al.user_id,
-    al.action,
-    al.table_name,
-    al.record_id as device_id,
-    al.old_values,
-    al.new_values,
-    al.created_at,
-    u.full_name as staff_name,
-    u.employee_id as staff_emp_id,
-    d.asset_tag,
-    d.brand,
-    d.model,
-    NULL as employee_name,
-    NULL as assignment_status
-FROM audit_logs al
-JOIN users u ON al.user_id = u.id
-LEFT JOIN devices d ON al.record_id = d.id
-WHERE al.table_name = 'devices' AND (al.action = 'Asset Tag Change' OR al.action = 'Insert' OR al.action = 'Offboard User')
+$sql = "SELECT * FROM (
+    (SELECT 
+        'asset_tag_change' as activity_type,
+        al.id,
+        al.user_id,
+        al.action,
+        al.table_name,
+        al.record_id as device_id,
+        al.old_values,
+        al.new_values,
+        al.created_at,
+        u.full_name as staff_name,
+        u.employee_id as staff_emp_id,
+        d.asset_tag,
+        d.brand,
+        d.model,
+        NULL as employee_name,
+        NULL as assignment_status
+    FROM audit_logs al
+    JOIN users u ON al.user_id = u.id
+    LEFT JOIN devices d ON al.record_id = d.id
+    WHERE al.table_name = 'devices' AND (al.action = 'Asset Tag Change' OR al.action = 'Insert' OR al.action = 'Offboard User'))
 
-UNION ALL
+    UNION ALL
 
-SELECT 
-    'inspection' as activity_type,
-    di.id,
-    di.inspected_by as user_id,
-    'Device Inspection' as action,
-    'device_inspections' as table_name,
-    di.device_id,
-    NULL as old_values,
-    JSON_OBJECT('result', di.result, 'condition', di.physical_condition) as new_values,
-    di.inspection_date as created_at,
-    u.full_name as staff_name,
-    u.employee_id as staff_emp_id,
-    d.asset_tag,
-    d.brand,
-    d.model,
-    NULL as employee_name,
-    NULL as assignment_status
-FROM device_inspections di
-JOIN users u ON di.inspected_by = u.id
-JOIN devices d ON di.device_id = d.id
+    (SELECT 
+        'inspection' as activity_type,
+        di.id,
+        di.inspected_by as user_id,
+        'Device Inspection' as action,
+        'device_inspections' as table_name,
+        di.device_id,
+        NULL as old_values,
+        JSON_OBJECT('result', di.result, 'condition', di.physical_condition) as new_values,
+        di.inspection_date as created_at,
+        u.full_name as staff_name,
+        u.employee_id as staff_emp_id,
+        d.asset_tag,
+        d.brand,
+        d.model,
+        NULL as employee_name,
+        NULL as assignment_status
+    FROM device_inspections di
+    JOIN users u ON di.inspected_by = u.id
+    JOIN devices d ON di.device_id = d.id)
 
-UNION ALL
+    UNION ALL
 
-SELECT 
-    'deployment' as activity_type,
-    da.id,
-    da.assigned_by as user_id,
-    'Device Deployed' as action,
-    'device_assignments' as table_name,
-    da.device_id,
-    NULL as old_values,
-    JSON_OBJECT('status', da.status) as new_values,
-    da.assigned_date as created_at,
-    u.full_name as staff_name,
-    u.employee_id as staff_emp_id,
-    d.asset_tag,
-    d.brand,
-    d.model,
-    emp.full_name as employee_name,
-    da.status as assignment_status
-FROM device_assignments da
-JOIN users u ON da.assigned_by = u.id
-JOIN devices d ON da.device_id = d.id
-JOIN users emp ON da.employee_id = emp.id
-WHERE da.status IN ('active', 'returned')
+    (SELECT 
+        'deployment' as activity_type,
+        da.id,
+        da.assigned_by as user_id,
+        'Device Deployed' as action,
+        'device_assignments' as table_name,
+        da.device_id,
+        NULL as old_values,
+        JSON_OBJECT('status', da.status) as new_values,
+        da.assigned_date as created_at,
+        u.full_name as staff_name,
+        u.employee_id as staff_emp_id,
+        d.asset_tag,
+        d.brand,
+        d.model,
+        emp.full_name as employee_name,
+        da.status as assignment_status
+    FROM device_assignments da
+    JOIN users u ON da.assigned_by = u.id
+    JOIN devices d ON da.device_id = d.id
+    JOIN users emp ON da.employee_id = emp.id
+    WHERE da.status IN ('active', 'returned'))
 
-UNION ALL
+    UNION ALL
 
-SELECT 
-    'clearance' as activity_type,
-    al.id,
-    al.user_id,
-    al.action,
-    'device_assignments' as table_name,
-    al.record_id as device_id,
-    NULL as old_values,
-    al.new_values,
-    al.created_at,
-    u.full_name as staff_name,
-    u.employee_id as staff_emp_id,
-    d.asset_tag,
-    d.brand,
-    d.model,
-    NULL as employee_name,
-    NULL as assignment_status
-FROM audit_logs al
-JOIN users u ON al.user_id = u.id
-LEFT JOIN devices d ON al.record_id = d.id
-WHERE al.table_name = 'device_assignments' AND (al.action LIKE '%Clearance%' OR al.action LIKE '%Return%')";
+    (SELECT 
+        'clearance' as activity_type,
+        al.id,
+        al.user_id,
+        al.action,
+        'device_assignments' as table_name,
+        al.record_id as device_id,
+        NULL as old_values,
+        al.new_values,
+        al.created_at,
+        u.full_name as staff_name,
+        u.employee_id as staff_emp_id,
+        d.asset_tag,
+        d.brand,
+        d.model,
+        NULL as employee_name,
+        NULL as assignment_status
+    FROM audit_logs al
+    JOIN users u ON al.user_id = u.id
+    LEFT JOIN devices d ON al.record_id = d.id
+    WHERE al.table_name = 'device_assignments' AND (al.action LIKE '%Clearance%' OR al.action LIKE '%Return%'))
+) AS combined_activities WHERE 1=1";
 
 $params = [];
 
 if ($search) {
-    $sql .= " HAVING (asset_tag LIKE ? OR staff_name LIKE ? OR employee_name LIKE ?)";
+    $sql .= " AND (COALESCE(asset_tag, '') LIKE ? OR COALESCE(staff_name, '') LIKE ? OR COALESCE(employee_name, '') LIKE ?)";
     $searchTerm = "%$search%";
     $params[] = $searchTerm;
     $params[] = $searchTerm;
@@ -140,9 +142,16 @@ if ($end_date) {
 
 $sql .= " ORDER BY created_at DESC LIMIT 500";
 
-$stmt = $pdo->prepare($sql);
-$stmt->execute($params);
-$activities = $stmt->fetchAll();
+try {
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute($params);
+    $activities = $stmt->fetchAll();
+} catch (PDOException $e) {
+    error_log("[IT_AUDIT] SQL Error: " . $e->getMessage());
+    error_log("[IT_AUDIT] SQL: " . $sql);
+    error_log("[IT_AUDIT] Params: " . json_encode($params));
+    $activities = [];
+}
 
 // Get list of IT staff for filter
 $allITStaff = $pdo->query("
