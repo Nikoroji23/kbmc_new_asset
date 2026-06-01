@@ -103,7 +103,7 @@ if ($warranty_duration === 'custom') {
             }
 
             $displayTag = $asset_tag ?? 'N/A (No Asset Tag)';
-            setFlashMessage('success', "✓ Device added successfully! Asset Tag: <strong>$displayTag</strong> | Serial: <strong>$serial_number</strong> | Added by: <strong>" . htmlspecialchars($_SESSION['full_name']) . "</strong>");
+            setFlashMessage('success', "<i class='fas fa-check-circle'></i> <strong>✓ Device Added Successfully!</strong><br><strong>Asset Tag:</strong> $displayTag | <strong>Serial:</strong> $serial_number | <strong>Status:</strong> Pending Inspection | <strong>Added by:</strong> " . htmlspecialchars($_SESSION['full_name']));
             header('Location: devices.php');
             exit();
         } catch (PDOException $e) {

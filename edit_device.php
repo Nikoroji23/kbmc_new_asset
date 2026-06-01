@@ -88,7 +88,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             logAudit($_SESSION['user_id'], 'Asset Tag Change', 'devices', $id, json_encode(['asset_tag' => $device['asset_tag']]), $changeDetails);
         }
 
-        setFlashMessage('success', 'Device updated successfully.' . ($assetTagChanged ? ' Asset tag changed to ' . $new_asset_tag_upper : ''));
+        setFlashMessage('success', "<i class='fas fa-check-circle'></i> <strong>✓ Device Updated Successfully!</strong><br><strong>Serial:</strong> " . sanitize($device['serial_number']) . " | <strong>Asset Tag:</strong> " . ($new_asset_tag_upper ?? $device['asset_tag'] ?? 'N/A') . ($assetTagChanged ? " | <strong style='color:#e74c3c;'>Tag Changed</strong>" : "") . " | <strong>Updated by:</strong> " . htmlspecialchars($_SESSION['full_name']));
         header('Location: devices.php');
         exit();
     } catch (PDOException $e) {
