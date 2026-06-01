@@ -230,14 +230,51 @@ function addNotificationIfNotExists($userId, $type, $title, $message, $relatedId
 
 function notifyITStaff($type, $title, $message, $related_id = 0) {
     global $pdo;
+    error_log("[NOTIFY_IT_STAFF] Called with: type='$type', title='$title', related_id=$related_id");
+    
     $itUsers = $pdo->query("SELECT id FROM users WHERE role IN ('admin', 'it_staff')")->fetchAll();
+    error_log("[NOTIFY_IT_STAFF] Found " . count($itUsers) . " IT staff members");
+    
     $stmt = $pdo->prepare("
         INSERT INTO notifications (user_id, type, related_id, title, message, is_read, created_at) 
         VALUES (?, ?, ?, ?, ?, 0, NOW())
     ");
+    
     foreach ($itUsers as $user) {
-        $stmt->execute([$user['id'], $type, $related_id, $title, $message]);
+        $params = [$user['id'], $type, $related_id, $title, $message];
+        error_log("[NOTIFY_IT_STAFF] Executing with params: user_id=" . $user['id'] . ", type='$type', related_id=$related_id, title='$title'");
+        
+        try {
+            $result = $stmt->execute($params);
+            error_log("[NOTIFY_IT_STAFF] ✓ Insert successful for user {$user['id']}");
+        } catch (Exception $e) {
+            error_log("[NOTIFY_IT_STAFF] ❌ Insert failed: " . $e->getMessage());
+        }
     }
+}
+
+function resolveClearanceAssignment(int $refId): array {
+    error_log("[CLEARANCE_DEBUG] resolveClearanceAssignment called with refId=$refId");
+    
+    $stmt = $GLOBALS['pdo']->prepare("SELECT employee_id, device_id FROM device_assignments WHERE id = ? LIMIT 1");
+    $stmt->execute([$refId]);
+    $assignment = $stmt->fetch(PDO::FETCH_ASSOC);
+    if ($assignment) {
+        error_log("[CLEARANCE_DEBUG] Found assignment by ID: employee_id={$assignment['employee_id']}, device_id={$assignment['device_id']}");
+        return [(int)$assignment['employee_id'], (int)$assignment['device_id']];
+    }
+
+    error_log("[CLEARANCE_DEBUG] Assignment not found by ID, trying device_id fallback");
+    $stmt = $GLOBALS['pdo']->prepare("SELECT employee_id, device_id FROM device_assignments WHERE device_id = ? AND status = 'active' ORDER BY assigned_date DESC LIMIT 1");
+    $stmt->execute([$refId]);
+    $assignment = $stmt->fetch(PDO::FETCH_ASSOC);
+    if ($assignment) {
+        error_log("[CLEARANCE_DEBUG] Found assignment by device_id: employee_id={$assignment['employee_id']}, device_id={$assignment['device_id']}");
+        return [(int)$assignment['employee_id'], (int)$assignment['device_id']];
+    }
+
+    error_log("[CLEARANCE_DEBUG] No assignment found for refId=$refId, returning [0, 0]");
+    return [0, 0];
 }
 
 function getNotificationUrl(array $notif): string
@@ -278,6 +315,27 @@ function getNotificationUrl(array $notif): string
                 return $refId ? 'it_clearance.php?user_id=' . $refId . '&done=1' : 'it_clearance.php';
 
             case 'user_clearance_required':
+                error_log("[CLEARANCE_DEBUG] user_clearance_required: refId=$refId, isIT=" . ($isIT ? 'true' : 'false'));
+                if ($refId) {
+                    [$employeeId, $deviceId] = resolveClearanceAssignment($refId);
+                    error_log("[CLEARANCE_DEBUG] After resolution: employeeId=$employeeId, deviceId=$deviceId");
+                    if ($employeeId && $deviceId) {
+                        $url = 'it_clearance.php?user_id=' . $employeeId . '&device_id=' . $deviceId . '&assignment_id=' . $refId;
+                        error_log("[CLEARANCE_DEBUG] Generated URL (both IDs): $url");
+                        return $url;
+                    }
+                    if ($employeeId) {
+                        $url = 'it_clearance.php?user_id=' . $employeeId . '&assignment_id=' . $refId;
+                        error_log("[CLEARANCE_DEBUG] Generated URL (employeeId only): $url");
+                        return $url;
+                    }
+                    if ($deviceId) {
+                        $url = 'it_clearance.php?device_id=' . $deviceId . '&assignment_id=' . $refId;
+                        error_log("[CLEARANCE_DEBUG] Generated URL (deviceId only): $url");
+                        return $url;
+                    }
+                }
+                error_log("[CLEARANCE_DEBUG] No resolution found, using fallback");
                 return $refId ? 'it_clearance.php?user_id=' . $refId : 'it_clearance.php';
 
             case 'audit_reminder':
@@ -311,6 +369,27 @@ function getNotificationUrl(array $notif): string
             return $refId ? 'it_clearance.php?user_id=' . $refId . '&done=1' : 'dashboard.php';
 
         case 'user_clearance_required':
+            error_log("[CLEARANCE_DEBUG] user_clearance_required (employee view): refId=$refId");
+            if ($refId) {
+                [$employeeId, $deviceId] = resolveClearanceAssignment($refId);
+                error_log("[CLEARANCE_DEBUG] After resolution: employeeId=$employeeId, deviceId=$deviceId");
+                if ($employeeId && $deviceId) {
+                    $url = 'it_clearance.php?user_id=' . $employeeId . '&device_id=' . $deviceId . '&assignment_id=' . $refId;
+                    error_log("[CLEARANCE_DEBUG] Generated URL (both IDs): $url");
+                    return $url;
+                }
+                if ($employeeId) {
+                    $url = 'it_clearance.php?user_id=' . $employeeId . '&assignment_id=' . $refId;
+                    error_log("[CLEARANCE_DEBUG] Generated URL (employeeId only): $url");
+                    return $url;
+                }
+                if ($deviceId) {
+                    $url = 'it_clearance.php?device_id=' . $deviceId . '&assignment_id=' . $refId;
+                    error_log("[CLEARANCE_DEBUG] Generated URL (deviceId only): $url");
+                    return $url;
+                }
+            }
+            error_log("[CLEARANCE_DEBUG] No resolution found, using fallback");
             return $refId ? 'it_clearance.php?user_id=' . $refId : 'dashboard.php';
 
         case 'maintenance_assigned':

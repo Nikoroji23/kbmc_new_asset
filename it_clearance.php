@@ -304,8 +304,32 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 
 /* ─── GET params ────────────────────────────────────────────────────────── */
 $selectedUserId = isset($_GET['user_id']) ? (int)$_GET['user_id'] : 0;
+$preselectedAssignmentId = isset($_GET['assignment_id']) ? (int)$_GET['assignment_id'] : 0;
 if (empty($selectedUserId) && isset($_POST['user_id'])) {
     $selectedUserId = (int)$_POST['user_id'];
+}
+
+if ($preselectedAssignmentId > 0) {
+    $stmt = $pdo->prepare("SELECT employee_id, device_id FROM device_assignments WHERE id = ? LIMIT 1");
+    $stmt->execute([$preselectedAssignmentId]);
+    $assignment = $stmt->fetch(PDO::FETCH_ASSOC);
+    if ($assignment) {
+        if ($selectedUserId === 0) {
+            $selectedUserId = (int)$assignment['employee_id'];
+        }
+        if ($preselectedDevId === 0) {
+            $preselectedDevId = (int)$assignment['device_id'];
+        }
+    }
+}
+
+if ($preselectedDevId > 0 && $selectedUserId === 0) {
+    $stmt = $pdo->prepare("SELECT employee_id FROM device_assignments WHERE device_id = ? AND status = 'active' ORDER BY assigned_date DESC LIMIT 1");
+    $stmt->execute([$preselectedDevId]);
+    $assignmentUserId = $stmt->fetchColumn();
+    if ($assignmentUserId) {
+        $selectedUserId = (int)$assignmentUserId;
+    }
 }
 
 /* ─── data ──────────────────────────────────────────────────────────────── */
@@ -524,7 +548,7 @@ require_once 'includes/header.php';
                         $isTarget = $isSingleMode && $did === $preselectedDevId;
                         $rowStyle = $isTarget ? 'background:#FEF9E7;' : ($isSingleMode ? 'opacity:.6;' : '');
                     ?>
-                    <tr style="<?php echo $rowStyle; ?>">
+                    <tr id="device-row-<?php echo $did; ?>" style="<?php echo $rowStyle; ?>">
                         <?php if (!$isSingleMode): ?>
                         <td style="text-align:center;"><i class="fas fa-check-circle" style="color:#27AE60;"></i></td>
                         <?php endif; ?>
@@ -1224,6 +1248,7 @@ require_once 'includes/header.php';
 <script>
 var totalCheckItems = <?php echo $totalCheckItems; ?>;
 var totalDevices    = <?php echo $totalFormDevices; ?>;
+var preselectedDevId = <?php echo $preselectedDevId; ?>;
 
 function toggleCard(id) {
     var body = document.getElementById('body-' + id);
@@ -1295,6 +1320,25 @@ function updateOverallProgress() {
     }
     if (cnt) cnt.style.color = reviewed === totalDevices ? '#27AE60' : '#3498db';
 }
+
+window.addEventListener('DOMContentLoaded', function() {
+    if (preselectedDevId > 0) {
+        var targetCard = document.getElementById('card-' + preselectedDevId);
+        var targetRow  = document.getElementById('device-row-' + preselectedDevId);
+
+        if (targetCard) {
+            var body = document.getElementById('body-' + preselectedDevId);
+            if (body && body.style.display === 'none') {
+                toggleCard(preselectedDevId);
+            }
+            targetCard.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+
+        if (targetRow) {
+            targetRow.style.boxShadow = '0 0 0 2px rgba(243, 156, 18, 0.8)';
+        }
+    }
+});
 </script>
 
 <?php require_once 'includes/footer.php'; ?>

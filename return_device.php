@@ -7,17 +7,33 @@ $pageTitle = 'Device Details';
 require_once 'includes/header.php';
 requireLogin();
 
-$id = $_GET['id'] ?? 0;
+$assignmentId = isset($_GET['id']) ? (int)$_GET['id'] : 0;
 
-$stmt = $pdo->prepare(
-    "SELECT d.*, dt.type_name, u.full_name as created_by_name
+$assignmentStmt = $pdo->prepare(
+    "SELECT da.*, u.full_name as employee_name, u.department, u.position,
+            ub.full_name as assigned_by_name
+     FROM device_assignments da
+     JOIN users u ON da.employee_id = u.id
+     LEFT JOIN users ub ON da.assigned_by = ub.id
+     WHERE da.id = ? AND da.status = 'active'"
+);
+$assignmentStmt->execute([$assignmentId]);
+$currentAssignment = $assignmentStmt->fetch(PDO::FETCH_ASSOC);
+
+if (!$currentAssignment) {
+    setFlashMessage('error', 'Invalid return request or active assignment not found.');
+    header('Location: devices.php');
+    exit();
+}
+
+$deviceStmt = $pdo->prepare(
+    "SELECT d.*, dt.type_name
      FROM devices d
      JOIN device_types dt ON d.device_type_id = dt.id
-     LEFT JOIN users u ON d.created_by = u.id
      WHERE d.id = ?"
 );
-$stmt->execute([$id]);
-$device = $stmt->fetch();
+$deviceStmt->execute([(int)$currentAssignment['device_id']]);
+$device = $deviceStmt->fetch(PDO::FETCH_ASSOC);
 
 if (!$device) {
     setFlashMessage('error', 'Device not found.');
@@ -25,17 +41,8 @@ if (!$device) {
     exit();
 }
 
-$stmt = $pdo->prepare(
-    "SELECT da.*, u.full_name as employee_name, u.department, u.position,
-            ub.full_name as assigned_by_name
-     FROM device_assignments da
-     JOIN users u  ON da.employee_id = u.id
-     LEFT JOIN users ub ON da.assigned_by = ub.id
-     WHERE da.device_id = ?
-     ORDER BY da.created_at DESC"
-);
-$stmt->execute([$id]);
-$assignments = $stmt->fetchAll();
+$id = $device['id'];
+$assignments = [$currentAssignment];
 
 $stmt = $pdo->prepare(
     "SELECT di.*, u.full_name as inspector_name
@@ -44,7 +51,7 @@ $stmt = $pdo->prepare(
      WHERE di.device_id = ?
      ORDER BY di.inspection_date DESC"
 );
-$stmt->execute([$id]);
+$stmt->execute([$device['id']]);
 $inspections = $stmt->fetchAll();
 
 $stmt = $pdo->prepare(
@@ -54,20 +61,30 @@ $stmt = $pdo->prepare(
      WHERE dr.device_id = ?
      ORDER BY dr.created_at DESC"
 );
-$stmt->execute([$id]);
+$stmt->execute([$device['id']]);
 $repairs = $stmt->fetchAll();
 
-$currentAssignment = null;
-foreach ($assignments as $a) {
-    if ($a['status'] == 'active') { $currentAssignment = $a; break; }
+// DEBUG: Log the voluntary return attempt
+error_log("[VOLUNTARY_RETURN_DEBUG] Checking conditions...");
+error_log("[VOLUNTARY_RETURN_DEBUG] mode=" . (isset($_GET['mode']) ? $_GET['mode'] : 'NOT SET'));
+error_log("[VOLUNTARY_RETURN_DEBUG] currentAssignment exists: " . ($currentAssignment ? 'YES' : 'NO'));
+error_log("[VOLUNTARY_RETURN_DEBUG] isEmployee: " . (hasRole('employee') ? 'YES' : 'NO'));
+error_log("[VOLUNTARY_RETURN_DEBUG] session user_id: " . (isset($_SESSION['user_id']) ? $_SESSION['user_id'] : 'NOT SET'));
+error_log("[VOLUNTARY_RETURN_DEBUG] assignment employee_id: " . ($currentAssignment ? $currentAssignment['employee_id'] : 'N/A'));
+if ($currentAssignment && isset($_SESSION['user_id'])) {
+    error_log("[VOLUNTARY_RETURN_DEBUG] IDs match: " . ((int)$_SESSION['user_id'] === (int)$currentAssignment['employee_id'] ? 'YES' : 'NO'));
 }
 
 if (isset($_GET['mode']) && $_GET['mode'] === 'voluntary' && $currentAssignment && hasRole('employee') && isset($_SESSION['user_id']) && (int)$_SESSION['user_id'] === (int)$currentAssignment['employee_id']) {
-    $returnUrl = 'return_device.php?id=' . urlencode($currentAssignment['id']);
+    error_log("[VOLUNTARY_RETURN] ✓ ALL CONDITIONS MET - Creating notification");
+    $returnUrl = 'view_device.php?id=' . urlencode($device['id']);
     $title = 'Voluntary Return Requested';
     $message = "Employee {$currentAssignment['employee_name']} requested voluntary return for device {$device['asset_tag']}. Please review user clearance.";
 
-    notifyITStaff('user_clearance_required', $title, $message, $device['id']);
+    error_log("[VOLUNTARY_RETURN] Calling notifyITStaff with assignment_id=" . $currentAssignment['id']);
+    notifyITStaff('user_clearance_required', $title, $message, $currentAssignment['id']);
+    error_log("[VOLUNTARY_RETURN] notifyITStaff completed");
+    
     addNotificationIfNotExists(
         $_SESSION['user_id'],
         'voluntary_return_requested',
@@ -75,6 +92,7 @@ if (isset($_GET['mode']) && $_GET['mode'] === 'voluntary' && $currentAssignment 
         "Your voluntary return request for {$device['asset_tag']} has been sent to IT for clearance.",
         $device['id']
     );
+    error_log("[VOLUNTARY_RETURN] addNotificationIfNotExists completed");
 
     setFlashMessage('success', 'Your voluntary return request has been sent to IT. Please complete clearance when IT contacts you.');
     redirect($returnUrl);

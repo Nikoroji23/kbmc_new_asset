@@ -29,20 +29,31 @@ $pageTitle = $pageTitle ?? 'KBMC Asset Management';
             var id = element.dataset.id;
             var url = element.dataset.url || 'notifications.php';
             var type = element.dataset.type || 'unknown';
+            var title = element.querySelector('.notif-content .notif-title')?.textContent || 'Unknown';
             
-            console.log('🔔 Notification clicked:', { id, url, type });
+            console.log('🔔 Notification clicked:', { 
+                id, 
+                url, 
+                type, 
+                title,
+                urlLength: url ? url.length : 0,
+                urlTrimmed: url ? url.trim() : ''
+            });
             
             if (!url || url.trim() === '') {
-                console.error('❌ No valid URL for notification');
+                console.error('❌ No valid URL for notification. Type:', type, 'ID:', id);
+                alert('⚠️ Notification URL is empty. Type: ' + type + '\nPlease report this issue.');
                 return false;
             }
             
             function navigate() {
                 console.log('➜ Navigating to:', url);
+                console.log('🔗 Full URL would be:', window.location.origin + window.location.pathname.replace(/[^/]*$/, '') + url);
                 window.location.href = url;
             }
             
             if (id) {
+                console.log('📍 Marking notification as read:', id);
                 fetch('mark_notification_read.php', {
                     method: 'POST',
                     headers: {
@@ -52,7 +63,10 @@ $pageTitle = $pageTitle ?? 'KBMC Asset Management';
                     body: JSON.stringify({ id: parseInt(id, 10) }),
                     credentials: 'same-origin'
                 })
-                .then(function () { navigate(); })
+                .then(function (response) {
+                    console.log('✓ Notification marked as read, response:', response.status);
+                    navigate();
+                })
                 .catch(function (error) {
                     console.warn('⚠️ Error marking notification read:', error);
                     navigate();
@@ -63,6 +77,7 @@ $pageTitle = $pageTitle ?? 'KBMC Asset Management';
             
             return false; // Prevent default behavior
         }
+
     </script>
 </head>
 <body>
@@ -265,6 +280,9 @@ $pageTitle = $pageTitle ?? 'KBMC Asset Management';
                             <?php else: ?>
                             <?php foreach ($notifications as $notif):
                                 $notifUrl = getNotificationUrl($notif);
+                                if ($notif['type'] === 'user_clearance_required') {
+                                    error_log("[NOTIF_RENDER] Type: {$notif['type']}, Related ID: {$notif['related_id']}, URL: $notifUrl");
+                                }
                             ?>
                                <div class="notif-item <?php echo $notif['is_read'] ? '' : 'unread'; ?>" 
                                    data-id="<?php echo $notif['id']; ?>" 
