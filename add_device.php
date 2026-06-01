@@ -295,29 +295,6 @@ if ($warranty_duration === 'custom') {
 
     applyState();
 
-    Put it inside your existing <script> block, right after the applyState(); line and before the asset tag submit validation, like this:
-javascript    applyState();
-
-    // ✅ ADD HERE — Warranty custom toggle
-    var warrantySelect = document.getElementById('warrantySelect');
-    var warrantyCustom = document.getElementById('warrantyCustom');
-
-    function toggleWarrantyCustom() {
-        if (warrantySelect.value === 'custom') {
-            warrantyCustom.style.display = 'block';
-            warrantyCustom.required = true;
-            warrantySelect.removeAttribute('required');
-        } else {
-            warrantyCustom.style.display = 'none';
-            warrantyCustom.required = false;
-            warrantySelect.required = true;
-        }
-    }
-
-    warrantySelect.addEventListener('change', toggleWarrantyCustom);
-    toggleWarrantyCustom();
-    // ✅ END warranty toggle
-
     // existing asset tag submit validation (already there)
     document.getElementById('addDeviceForm').addEventListener('submit', function(e) {
         if (!input.disabled) {

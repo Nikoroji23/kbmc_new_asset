@@ -136,6 +136,10 @@ $pageTitle = $pageTitle ?? 'KBMC Asset Management';
                 <i class="fas fa-hand-holding"></i>
                 <span>Deployments</span>
             </a>
+            <a href="asset_tag_audit.php" class="nav-item <?php echo basename($_SERVER['PHP_SELF']) == 'asset_tag_audit.php' ? 'active' : ''; ?>">
+                <i class="fas fa-history"></i>
+                <span>IT Audit Log</span>
+            </a>
             <a href="repairs.php" class="nav-item <?php echo basename($_SERVER['PHP_SELF']) == 'repairs.php' ? 'active' : ''; ?>">
                 <i class="fas fa-tools"></i>
                 <span>Repairs</span>

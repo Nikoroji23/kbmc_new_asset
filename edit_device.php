@@ -18,6 +18,7 @@ if (!$device) {
 }
 
 $types = $pdo->query("SELECT * FROM device_types ORDER BY type_name")->fetchAll();
+$itStaff = $pdo->query("SELECT id, full_name FROM users WHERE role IN ('admin', 'it_staff') AND status = 'active' ORDER BY full_name")->fetchAll();
 
 if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     $device_type_id = $_POST['device_type_id'] ?? '';
@@ -35,16 +36,56 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     $location = trim($_POST['location'] ?? '');
     $condition_notes = trim($_POST['condition_notes'] ?? '');
     $status = $_POST['status'] ?? $device['status'];
+    $new_asset_tag = trim($_POST['asset_tag'] ?? '');
+    $asset_tag_changed_by = $_POST['asset_tag_changed_by'] ?? null;
 
     try {
+        // Check if asset tag is being changed
+        $assetTagChanged = false;
+        if (!empty($new_asset_tag) && $new_asset_tag !== $device['asset_tag']) {
+            if (!preg_match('/^[A-Za-z0-9\-_]{3,30}$/', $new_asset_tag)) {
+                throw new Exception('Invalid asset tag format. Use 3–30 characters: letters, numbers, hyphens, or underscores only.');
+            }
+            if (empty($asset_tag_changed_by)) {
+                throw new Exception('When changing the asset tag, you must select which IT staff member is making this change.');
+            }
+            
+            // Check if new tag already exists
+            $chk = $pdo->prepare("SELECT COUNT(*) FROM devices WHERE asset_tag = ? AND id != ?");
+            $chk->execute([strtoupper($new_asset_tag), $id]);
+            if ($chk->fetchColumn() > 0) {
+                throw new Exception('Asset tag "' . htmlspecialchars($new_asset_tag) . '" is already in use. Please choose a different one.');
+            }
+            $assetTagChanged = true;
+        }
+
         $oldData = json_encode($device);
-        $stmt = $pdo->prepare("UPDATE devices SET device_type_id=?, brand=?, model=?, serial_number=?, ip_address=?, pc_name=?, mac_address=?, specifications=?, purchase_date=?, vendor=?, warranty_expiry=?, purchase_price=?, location=?, condition_notes=?, status=? WHERE id=?");
-        $stmt->execute([$device_type_id, $brand, $model, $serial_number, $ip_address, $pc_name, $mac_address, $specifications, $purchase_date, $vendor, $warranty_expiry, $purchase_price, $location, $condition_notes, $status, $id]);
+        
+        // Update device
+        if ($assetTagChanged) {
+            $stmt = $pdo->prepare("UPDATE devices SET device_type_id=?, brand=?, model=?, serial_number=?, ip_address=?, pc_name=?, mac_address=?, specifications=?, purchase_date=?, vendor=?, warranty_expiry=?, purchase_price=?, location=?, condition_notes=?, status=?, asset_tag=? WHERE id=?");
+            $stmt->execute([$device_type_id, $brand, $model, $serial_number, $ip_address, $pc_name, $mac_address, $specifications, $purchase_date, $vendor, $warranty_expiry, $purchase_price, $location, $condition_notes, $status, strtoupper($new_asset_tag), $id]);
+        } else {
+            $stmt = $pdo->prepare("UPDATE devices SET device_type_id=?, brand=?, model=?, serial_number=?, ip_address=?, pc_name=?, mac_address=?, specifications=?, purchase_date=?, vendor=?, warranty_expiry=?, purchase_price=?, location=?, condition_notes=?, status=? WHERE id=?");
+            $stmt->execute([$device_type_id, $brand, $model, $serial_number, $ip_address, $pc_name, $mac_address, $specifications, $purchase_date, $vendor, $warranty_expiry, $purchase_price, $location, $condition_notes, $status, $id]);
+        }
 
         $newData = json_encode(['serial' => $serial_number, 'status' => $status, 'ip' => $ip_address]);
         logAudit($_SESSION['user_id'], 'Update', 'devices', $id, $oldData, $newData);
+        
+        // Log asset tag change if it occurred
+        if ($assetTagChanged) {
+            $changeDetails = json_encode([
+                'old_asset_tag' => $device['asset_tag'],
+                'new_asset_tag' => strtoupper($new_asset_tag),
+                'changed_by' => $_SESSION['user_id'],
+                'changed_by_id' => $asset_tag_changed_by,
+                'change_timestamp' => date('Y-m-d H:i:s')
+            ]);
+            logAudit($_SESSION['user_id'], 'Asset Tag Change', 'devices', $id, json_encode(['asset_tag' => $device['asset_tag']]), $changeDetails);
+        }
 
-        setFlashMessage('success', 'Device updated successfully.');
+        setFlashMessage('success', 'Device updated successfully.' . ($assetTagChanged ? ' Asset tag changed to ' . strtoupper($new_asset_tag) : ''));
         header('Location: devices.php');
         exit();
     } catch (PDOException $e) {
@@ -67,7 +108,26 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             <div class="form-grid">
                 <div class="form-group">
                     <label>Asset Tag</label>
-                    <input type="text" class="form-control" value="<?php echo sanitize($device['asset_tag']); ?>" disabled>
+                    <div style="display: flex; gap: 10px; align-items: flex-start;">
+                        <div style="flex: 1;">
+                            <input type="text" name="asset_tag" class="form-control" placeholder="Leave blank to keep current" value="" maxlength="30" style="text-transform: uppercase;">
+                            <small style="font-size:12px; color:#888; margin-top:4px; display:block;">
+                                Leave blank to keep: <strong><?php echo sanitize($device['asset_tag']); ?></strong><br>
+                                Custom: 3–30 chars, letters/numbers/hyphens/underscores only.
+                            </small>
+                        </div>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>Asset Tag Changed By <span class="required">*</span>
+                        <span style="font-size: 11px; color: #999;">(Required if changing asset tag)</span>
+                    </label>
+                    <select name="asset_tag_changed_by" class="form-control">
+                        <option value="">Select IT Staff (if changing tag)</option>
+                        <?php foreach ($itStaff as $staff): ?>
+                        <option value="<?php echo $staff['id']; ?>"><?php echo sanitize($staff['full_name']); ?></option>
+                        <?php endforeach; ?>
+                    </select>
                 </div>
                 <div class="form-group">
                     <label>Device Type <span class="required">*</span></label>
