@@ -6,6 +6,10 @@ $pageTitle = 'Device Inspections';
 require_once 'includes/header.php';
 requireITStaffOnly();
 
+$types = $pdo->query("SELECT * FROM device_types ORDER BY type_name")->fetchAll();
+$itStaff = $pdo->query("SELECT id, full_name FROM users WHERE role IN ('admin', 'it_staff') AND status = 'active' ORDER BY full_name")->fetchAll();
+
+
 $deviceId = $_GET['device'] ?? '';
 
 if ($_SERVER['REQUEST_METHOD'] == 'POST') {
@@ -13,6 +17,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     $physical_condition = $_POST['physical_condition'] ?? '';
     $functionality_status = $_POST['functionality_status'] ?? '';
     $result = $_POST['result'] ?? '';
+    $inspected_by = $_POST['added_by_staff'] ?? '';
     $notes = trim($_POST['notes'] ?? '');
     $rejection_reason = trim($_POST['rejection_reason'] ?? '');
 
@@ -80,6 +85,18 @@ $pendingDevices = $pdo->query("SELECT id, asset_tag, CONCAT(brand, ' ', model) a
                         <option value="rejected">Rejected - Return to Vendor</option>
                     </select>
                 </div>
+                 <div class="form-group">
+                    <label>Inspected by IT Staff <span class="required">*</span></label>
+                    <select name="added_by_staff" class="form-control" required>
+                        <option value="">Select IT Staff Member</option>
+                        <?php foreach ($itStaff as $staff): ?>
+                        <option value="<?php echo $staff['id']; ?>" <?php echo (($_POST['added_by_staff'] ?? '') == $staff['id']) ? 'selected' : ''; ?>><?php echo sanitize($staff['full_name']); ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                    <small style="font-size:11px; color:#aaa; margin-top:4px; display:block;">
+                        For audit tracking - who is adding this device to inventory.
+                    </small>
+                </div>
                 <div class="form-group full-width">
                     <label>Notes</label>
                     <textarea name="notes" class="form-control" placeholder="Inspection observations"></textarea>
@@ -101,7 +118,7 @@ $pendingDevices = $pdo->query("SELECT id, asset_tag, CONCAT(brand, ' ', model) a
     <div class="card-body">
         <div class="data-table-wrapper">
             <table class="data-table">
-                <thead><tr><th>Date</th><th>Asset Tag</th><th>Device</th><th>Condition</th><th>Functionality</th><th>Result</th><th>Inspector</th></tr></thead>
+                <thead><tr><th>Date</th><th>Asset Tag</th><th>Condition</th><th>Functionality</th><th>Result</th><th>Inspector</th></tr></thead>
                 <tbody>
                     <?php if (empty($inspections)): ?>
                     <tr><td colspan="7" class="empty-state" style="padding: 40px;"><h4>No inspections yet</h4></td></tr>
@@ -110,7 +127,6 @@ $pendingDevices = $pdo->query("SELECT id, asset_tag, CONCAT(brand, ' ', model) a
                     <tr>
                         <td><?php echo formatDate($i['inspection_date']); ?></td>
                         <td><strong><?php echo sanitize($i['asset_tag']); ?></strong></td>
-                        <td><?php echo sanitize($i['brand'] . ' ' . $i['model']); ?></td>
                         <td><?php echo ucfirst($i['physical_condition']); ?></td>
                         <td><?php echo ucwords(str_replace('_', ' ', $i['functionality_status'])); ?></td>
                         <td><?php echo getStatusBadge($i['result']); ?></td>

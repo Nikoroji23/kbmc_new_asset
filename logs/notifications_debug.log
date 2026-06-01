@@ -320,3 +320,5 @@
 [2026-06-01T09:48:32+02:00] EXCEPTION UID=93 MSG=SQLSTATE[42S22]: Column not found: 1054 Unknown column 'read_at' in 'field list'
 [2026-06-01T10:07:01+02:00] REQ IP=::1 UID=93 INPUT={"id":75}
 [2026-06-01T10:07:01+02:00] EXCEPTION UID=93 MSG=SQLSTATE[42S22]: Column not found: 1054 Unknown column 'read_at' in 'field list'
+[2026-06-01T11:51:31+02:00] REQ IP=::1 UID=93 INPUT={"id":79}
+[2026-06-01T11:51:31+02:00] EXCEPTION UID=93 MSG=SQLSTATE[42S22]: Column not found: 1054 Unknown column 'read_at' in 'field list'
