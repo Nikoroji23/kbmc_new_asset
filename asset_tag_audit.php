@@ -30,11 +30,13 @@ $sql = "SELECT * FROM (
         d.asset_tag,
         d.brand,
         d.model,
+        dt.type_name,
         NULL as employee_name,
         NULL as assignment_status
     FROM audit_logs al
     JOIN users u ON al.user_id = u.id
     LEFT JOIN devices d ON al.record_id = d.id
+    LEFT JOIN device_types dt ON d.device_type_id = dt.id
     WHERE al.table_name = 'devices' AND (al.action = 'Asset Tag Change' OR al.action = 'Insert' OR al.action = 'Offboard User'))
 
     UNION ALL
@@ -54,11 +56,13 @@ $sql = "SELECT * FROM (
         d.asset_tag,
         d.brand,
         d.model,
+        dt.type_name,
         NULL as employee_name,
         NULL as assignment_status
     FROM device_inspections di
     JOIN users u ON di.inspected_by = u.id
-    JOIN devices d ON di.device_id = d.id)
+    JOIN devices d ON di.device_id = d.id
+    LEFT JOIN device_types dt ON d.device_type_id = dt.id)
 
     UNION ALL
 
@@ -77,11 +81,13 @@ $sql = "SELECT * FROM (
         d.asset_tag,
         d.brand,
         d.model,
+        dt.type_name,
         emp.full_name as employee_name,
         da.status as assignment_status
     FROM device_assignments da
     JOIN users u ON da.assigned_by = u.id
     JOIN devices d ON da.device_id = d.id
+    LEFT JOIN device_types dt ON d.device_type_id = dt.id
     JOIN users emp ON da.employee_id = emp.id
     WHERE da.status IN ('active', 'returned'))
 
@@ -102,11 +108,13 @@ $sql = "SELECT * FROM (
         d.asset_tag,
         d.brand,
         d.model,
+        dt.type_name,
         NULL as employee_name,
         NULL as assignment_status
     FROM audit_logs al
     JOIN users u ON al.user_id = u.id
     LEFT JOIN devices d ON al.record_id = d.id
+    LEFT JOIN device_types dt ON d.device_type_id = dt.id
     WHERE al.table_name = 'device_assignments' AND (al.action LIKE '%Clearance%' OR al.action LIKE '%Return%'))
 ) AS combined_activities WHERE 1=1";
 
@@ -240,7 +248,7 @@ $allITStaff = $pdo->query("
                 <thead>
                     <tr>
                         <th>Activity Type</th>
-                        <th>Device</th>
+                        <th>Type</th>
                         <th>Asset Tag</th>
                         <th>IT Staff Member</th>
                         <th>Employee / Details</th>
@@ -293,13 +301,7 @@ $allITStaff = $pdo->query("
                         <td>
                             <div style="font-size: 12px;">
                                 <div style="font-weight: 600; color: #333;">
-                                    <?php if ($log['device_id']): ?>
-                                    <a href="view_device.php?id=<?php echo $log['device_id']; ?>" style="color: var(--kbmc-red); text-decoration: none;">
-                                        #<?php echo $log['device_id']; ?>
-                                    </a>
-                                    <?php else: ?>
-                                    <span style="color: #999;">—</span>
-                                    <?php endif; ?>
+                                    <?php echo sanitize($log['type_name'] ?? 'N/A'); ?>
                                 </div>
                             </div>
                         </td>

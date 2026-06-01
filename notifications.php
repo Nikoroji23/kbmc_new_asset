@@ -42,6 +42,7 @@ function getNotificationIcon(string $type): string {
         'lifespan_replaced'          => 'archive',
         'lifespan_extended'          => 'plus-circle',
         'device_request'             => 'hand-paper',
+        'new_device_added'           => 'plus-circle',
         default                      => 'info-circle',
     };
 }
@@ -65,6 +66,7 @@ function getNotificationColor(string $type): string {
         $type === 'device_deployed'              => '#3498DB',
         $type === 'device_returned'              => '#27AE60',
         $type === 'device_request'               => '#9B59B6',
+        $type === 'new_device_added'             => '#2ECC71',
         str_starts_with($type, 'user_clearance') => '#8E44AD',
         default                                  => '#C0392B',
     };

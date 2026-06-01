@@ -211,7 +211,14 @@ function addNotification($userId, $type, $title, $message, $relatedId = null) {
     global $pdo;
     $stmt = $pdo->prepare("INSERT INTO notifications (user_id, type, title, message, related_id) VALUES (?, ?, ?, ?, ?)");
     $stmt->execute([$userId, $type, $title, $message, $relatedId]);
-    return $pdo->lastInsertId();
+    $notificationId = $pdo->lastInsertId();
+    
+    // Send email notification if configured
+    if (isEmailConfigured()) {
+        sendEmailNotificationToUser($userId, $type, $title, $message, $relatedId);
+    }
+    
+    return $notificationId;
 }
 
 function addNotificationIfNotExists($userId, $type, $title, $message, $relatedId = null) {
@@ -253,16 +260,10 @@ function notifyITStaff($type, $title, $message, $related_id = 0) {
         }
     }
     
-    // Send email notifications for important notification types
+    // Send email notifications to all IT staff for ALL notification types
     if (isEmailConfigured() && !empty($itUsers)) {
-        error_log("[NOTIFY_IT_STAFF_EMAIL] Checking if email should be sent for type='$type'");
-        
-        $emailNotificationTypes = ['user_clearance_required', 'device_deployed', 'device_returned', 'repair_needed'];
-        
-        if (in_array($type, $emailNotificationTypes)) {
-            error_log("[NOTIFY_IT_STAFF_EMAIL] Sending email for type='$type' to " . count($itUsers) . " staff members");
-            sendEmailNotificationToITStaff($type, $title, $message, $related_id, $itUsers);
-        }
+        error_log("[NOTIFY_IT_STAFF_EMAIL] Sending email for type='$type' to " . count($itUsers) . " IT staff members");
+        sendEmailNotificationToITStaff($type, $title, $message, $related_id, $itUsers);
     }
 }
 
@@ -332,6 +333,93 @@ function sendEmailNotificationToITStaff($type, $title, $message, $related_id, $i
         } else {
             error_log("[NOTIFY_IT_STAFF_EMAIL] ❌ Email failed for " . $staff['email'] . ": " . ($result['message'] ?? 'Unknown error'));
         }
+    }
+}
+
+function sendEmailNotificationToUser($userId, $type, $title, $message, $relatedId = null) {
+    global $pdo;
+    
+    // Get user email
+    $stmt = $pdo->prepare("SELECT email, full_name FROM users WHERE id = ?");
+    $stmt->execute([$userId]);
+    $user = $stmt->fetch(PDO::FETCH_ASSOC);
+    
+    if (!$user || empty($user['email'])) {
+        error_log("[EMAIL_NOTIFICATION] Skipping - no email for user ID $userId");
+        return;
+    }
+    
+    error_log("[EMAIL_NOTIFICATION] Preparing email for user: " . $user['email'] . " (type: $type)");
+    
+    // Build context based on notification type
+    $context = '';
+    $actionUrl = '';
+    
+    // Get additional details based on notification type
+    if ($relatedId) {
+        switch ($type) {
+            case 'device_deployed':
+                $stmt = $pdo->prepare("SELECT asset_tag, brand, model FROM devices WHERE id = ?");
+                $stmt->execute([$relatedId]);
+                $device = $stmt->fetch(PDO::FETCH_ASSOC);
+                if ($device) {
+                    $context = "
+                        <div style='background: #d1ecf1; padding: 15px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #17a2b8;'>
+                            <p><strong>Device Details:</strong></p>
+                            <p><i class='fas fa-laptop'></i> <strong>Asset Tag:</strong> " . sanitize($device['asset_tag']) . "</p>
+                            <p><i class='fas fa-info-circle'></i> <strong>Model:</strong> " . sanitize($device['brand'] . " " . $device['model']) . "</p>
+                        </div>
+                    ";
+                    $actionUrl = 'view_device.php?id=' . $relatedId;
+                }
+                break;
+                
+            case 'device_returned':
+            case 'request_approved':
+            case 'request_rejected':
+                $actionUrl = 'deployments.php';
+                break;
+                
+            case 'repair_needed':
+                $stmt = $pdo->prepare("SELECT asset_tag FROM devices WHERE id = ?");
+                $stmt->execute([$relatedId]);
+                $device = $stmt->fetch(PDO::FETCH_ASSOC);
+                if ($device) {
+                    $context = "
+                        <div style='background: #f8d7da; padding: 15px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #f5c6cb;'>
+                            <p><strong>Device:</strong> " . sanitize($device['asset_tag']) . "</p>
+                        </div>
+                    ";
+                    $actionUrl = 'repairs.php';
+                }
+                break;
+                
+            case 'maintenance_assigned':
+            case 'maintenance_due':
+            case 'maintenance_completed':
+                $actionUrl = 'maintenance_reminders.php';
+                break;
+        }
+    }
+    
+    // Create email body
+    $emailBody = emailTemplate(
+        $title,
+        "<p>Hello <strong>" . sanitize($user['full_name']) . "</strong>,</p>
+        <p>" . sanitize($message) . "</p>" .
+        $context .
+        "<p style='margin-top: 20px; color: #666; font-size: 14px;'>This is an automated notification from the KBMC Asset Management System.</p>",
+        $actionUrl ? 'View Details' : '',
+        $actionUrl ? ('http://' . $_SERVER['HTTP_HOST'] . dirname($_SERVER['PHP_SELF']) . '/' . $actionUrl) : ''
+    );
+    
+    $subject = '[KBMC] ' . $title;
+    $result = sendEmail($user['email'], $subject, $emailBody);
+    
+    if ($result['success'] ?? false) {
+        error_log("[EMAIL_NOTIFICATION] ✓ Email sent to " . $user['email'] . " for $type notification");
+    } else {
+        error_log("[EMAIL_NOTIFICATION] ❌ Email failed for " . $user['email'] . ": " . ($result['message'] ?? 'Unknown error'));
     }
 }
 
@@ -428,6 +516,11 @@ function getNotificationUrl(array $notif): string
 
             case 'low_stock':
                 return 'devices.php';
+
+            case 'new_device_added':
+                return $refId
+                    ? 'view_device.php?id=' . $refId
+                    : 'devices.php';
 
             default:
                 return 'notifications.php';

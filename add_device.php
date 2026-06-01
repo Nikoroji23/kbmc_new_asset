@@ -20,7 +20,6 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     $specifications = trim($_POST['specifications'] ?? '');
     $purchase_date = $_POST['purchase_date'] ?? null;
     $vendor = trim($_POST['vendor'] ?? '');
-    $checked_by = $_POST['checked_by'] ?? null;
     $warranty_duration = $_POST['warranty_expiry'] ?? null;
 $warranty_custom   = trim($_POST['warranty_custom'] ?? '');
 $purchase_date_val = $_POST['purchase_date'] ?? null;
@@ -45,35 +44,58 @@ if ($warranty_duration === 'custom') {
     $location = trim($_POST['location'] ?? 'IT Stock Room');
     $condition_notes = trim($_POST['condition_notes'] ?? '');
     $custom_asset_tag = trim($_POST['custom_asset_tag'] ?? '');
+    $added_by_staff = $_POST['added_by_staff'] ?? null;
 
     if (empty($device_type_id) || empty($serial_number)) {
         setFlashMessage('error', 'Device type and serial number are required.');
+    } elseif (empty($added_by_staff)) {
+        setFlashMessage('error', 'Please select which IT staff member is adding this device.');
     } else {
         try {
             if (!empty($custom_asset_tag)) {
-                if (!preg_match('/^[A-Za-z0-9\-_]{3,30}$/', $custom_asset_tag)) {
-                    throw new Exception('Invalid asset tag format. Use 3–30 characters: letters, numbers, hyphens, or underscores only.');
+                // Allow standard format (letters, numbers, hyphens, underscores) or special N/A entries
+                if (!preg_match('/^[A-Za-z0-9\-_\/]{3,30}$/', $custom_asset_tag)) {
+                    throw new Exception('Invalid asset tag format. Use 3–30 characters: letters, numbers, hyphens, underscores, or forward slash (e.g., N/A) only.');
                 }
-                $chk = $pdo->prepare("SELECT COUNT(*) FROM devices WHERE asset_tag = ?");
-                $chk->execute([$custom_asset_tag]);
-                if ($chk->fetchColumn() > 0) {
-                    throw new Exception('Asset tag "' . htmlspecialchars($custom_asset_tag) . '" is already in use. Please choose a different one.');
+                $asset_tag_upper = strtoupper($custom_asset_tag);
+                
+                // Convert N/A to NULL to allow multiple items without asset tags (NULL bypasses UNIQUE constraint)
+                if ($asset_tag_upper === 'N/A') {
+                    $asset_tag = null;
+                } else {
+                    // For non-N/A tags, check for duplicates ONLY within the same device type
+                    // This allows related items (Laptop + Charger) to share the same asset tag
+                    $chk = $pdo->prepare("SELECT COUNT(*) FROM devices WHERE asset_tag = ? AND device_type_id = ?");
+                    $chk->execute([$asset_tag_upper, $device_type_id]);
+                    if ($chk->fetchColumn() > 0) {
+                        throw new Exception('Asset tag "' . htmlspecialchars($asset_tag_upper) . '" already exists for this device type. Please choose a different one.');
+                    }
+                    $asset_tag = $asset_tag_upper;
                 }
-                $asset_tag = strtoupper($custom_asset_tag);
             } else {
                 $asset_tag = generateAssetTag($device_type_id);
             }
 
             $stmt = $pdo->prepare("INSERT INTO devices 
                 (asset_tag, device_type_id, brand, model, serial_number, ip_address, pc_name, mac_address, specifications, 
-                 purchase_date, vendor, warranty_expiry, purchase_price, location, condition_notes, status, created_by, checked_by) 
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending_inspection', ?, ?)");
+                 purchase_date, vendor, warranty_expiry, purchase_price, location, condition_notes, status, created_by) 
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending_inspection', ?)");
             $stmt->execute([$asset_tag, $device_type_id, $brand, $model, $serial_number, $ip_address, $pc_name, $mac_address,
-                $specifications, $purchase_date, $vendor, $warranty_expiry, $purchase_price, $location, $condition_notes, $_SESSION['user_id'], $checked_by]);
+                $specifications, $purchase_date, $vendor, $warranty_expiry, $purchase_price, $location, $condition_notes, $_SESSION['user_id']]);
 
             $deviceId = $pdo->lastInsertId();
 
-            logAudit($_SESSION['user_id'], 'Insert', 'devices', $deviceId, null, json_encode(['asset_tag' => $asset_tag, 'serial' => $serial_number, 'checked_by' => $checked_by]));
+            logAudit($_SESSION['user_id'], 'Insert', 'devices', $deviceId, null, json_encode(['asset_tag' => $asset_tag, 'serial' => $serial_number]));
+
+            // Get device type name for notification
+            $typeStmt = $pdo->prepare("SELECT type_name FROM device_types WHERE id = ?");
+            $typeStmt->execute([$device_type_id]);
+            $typeName = $typeStmt->fetchColumn();
+
+            // Notify IT staff about the new device
+            $notifTitle = 'New Device Added';
+            $notifMessage = "New $typeName ($asset_tag) has been added and requires inspection.";
+            notifyITStaff('new_device_added', $notifTitle, $notifMessage, $deviceId);
 
             $stmt = $pdo->prepare("SELECT COUNT(*) FROM devices WHERE device_type_id = ? AND status = 'in_stock'");
             $stmt->execute([$device_type_id]);
@@ -86,7 +108,8 @@ if ($warranty_duration === 'custom') {
                 }
             }
 
-            setFlashMessage('success', "Device added successfully with Asset Tag: $asset_tag");
+            $displayTag = $asset_tag ?? 'N/A (No Asset Tag)';
+            setFlashMessage('success', "✓ Device added successfully! Asset Tag: <strong>$displayTag</strong> | Serial: <strong>$serial_number</strong> | Added by: <strong>" . htmlspecialchars($_SESSION['full_name']) . "</strong>");
             header('Location: devices.php');
             exit();
         } catch (PDOException $e) {
@@ -122,6 +145,19 @@ if ($warranty_duration === 'custom') {
                 </div>
 
                 <div class="form-group">
+                    <label>Added by IT Staff <span class="required">*</span></label>
+                    <select name="added_by_staff" class="form-control" required>
+                        <option value="">Select IT Staff Member</option>
+                        <?php foreach ($itStaff as $staff): ?>
+                        <option value="<?php echo $staff['id']; ?>" <?php echo (($_POST['added_by_staff'] ?? '') == $staff['id']) ? 'selected' : ''; ?>><?php echo sanitize($staff['full_name']); ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                    <small style="font-size:11px; color:#aaa; margin-top:4px; display:block;">
+                        For audit tracking - who is adding this device to inventory.
+                    </small>
+                </div>
+
+                <div class="form-group">
                     <label><span class="required">*</span> Asset Tag
                         <span class="asset-tag-mode-badge" id="assetTagBadge">Auto-generated</span>
                     </label>
@@ -139,7 +175,7 @@ if ($warranty_duration === 'custom') {
                         </button>
                     </div>
                     <small style="font-size:12px; color:#888; margin-top:4px; display:block;">
-                        Leave blank to auto-generate. Custom: 3–30 chars, letters/numbers/hyphens/underscores only.
+                        Leave blank to auto-generate. Custom: 3–30 chars, letters/numbers/hyphens/underscores/forward slash (e.g., N/A).
                     </small>
                 </div>
 
@@ -210,21 +246,6 @@ if ($warranty_duration === 'custom') {
                     <input type="text" name="location" class="form-control" value="<?php echo sanitize($_POST['location'] ?? 'IT Stock Room'); ?>">
                 </div>
 
-                <div class="form-group">
-                    <label>Checked By <span class="required">*</span></label>
-                    <select name="checked_by" class="form-control" required>
-                        <option value="">Select IT Staff</option>
-                        <?php foreach ($itStaff as $staff): ?>
-                        <option value="<?php echo $staff['id']; ?>" <?php echo (($_POST['checked_by'] ?? '') == $staff['id']) ? 'selected' : ''; ?>>
-                            <?php echo sanitize($staff['full_name']); ?>
-                        </option>
-                        <?php endforeach; ?>
-                    </select>
-                    <small style="font-size:12px; color:#888; margin-top:4px; display:block;">
-                        IT staff who physically inspected this device upon arrival.
-                    </small>
-                </div>
-
                 <div class="form-group full-width">
                     <label>Specifications</label>
                     <textarea name="specifications" class="form-control" placeholder="CPU, RAM, Storage, OS, etc."><?php echo sanitize($_POST['specifications'] ?? ''); ?></textarea>
@@ -289,7 +310,7 @@ if ($warranty_duration === 'custom') {
 
     input.addEventListener('input', function () {
         var pos = this.selectionStart;
-        this.value = this.value.toUpperCase().replace(/[^A-Z0-9\-_]/g, '');
+        this.value = this.value.toUpperCase().replace(/[^A-Z0-9\-_\/]/g, '');
         this.setSelectionRange(pos, pos);
     });
 
@@ -305,12 +326,12 @@ if ($warranty_duration === 'custom') {
                 alert('Please enter a custom asset tag or switch back to auto-generate.');
                 return;
             }
-            var pattern = /^[A-Za-z0-9\-_]{3,30}$/;
+            var pattern = /^[A-Za-z0-9\-_\/]{3,30}$/;
             if (!pattern.test(input.value.trim())) {
                 e.preventDefault();
                 input.style.borderColor = '#e74c3c';
                 input.focus();
-                alert('Asset tag must be 3–30 characters: letters, numbers, hyphens, or underscores only.');
+                alert('Asset tag must be 3–30 characters: letters, numbers, hyphens, underscores, or forward slash (e.g., N/A) only.');
                 return;
             }
             input.style.borderColor = '';

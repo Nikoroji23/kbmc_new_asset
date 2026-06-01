@@ -43,18 +43,26 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         // Check if asset tag is being changed
         $assetTagChanged = false;
         if (!empty($new_asset_tag) && $new_asset_tag !== $device['asset_tag']) {
-            if (!preg_match('/^[A-Za-z0-9\-_]{3,30}$/', $new_asset_tag)) {
-                throw new Exception('Invalid asset tag format. Use 3–30 characters: letters, numbers, hyphens, or underscores only.');
+            if (!preg_match('/^[A-Za-z0-9\-_\/]{3,30}$/', $new_asset_tag)) {
+                throw new Exception('Invalid asset tag format. Use 3–30 characters: letters, numbers, hyphens, underscores, or forward slash (e.g., N/A) only.');
             }
             if (empty($asset_tag_changed_by)) {
-                throw new Exception('When changing the asset tag, you must select which IT staff member is making this change.');
+                throw new Exception('Asset tag change requires IT staff member selection. Please select who is making this change.');
             }
             
-            // Check if new tag already exists
-            $chk = $pdo->prepare("SELECT COUNT(*) FROM devices WHERE asset_tag = ? AND id != ?");
-            $chk->execute([strtoupper($new_asset_tag), $id]);
-            if ($chk->fetchColumn() > 0) {
-                throw new Exception('Asset tag "' . htmlspecialchars($new_asset_tag) . '" is already in use. Please choose a different one.');
+            // Allow multiple N/A entries, but prevent duplicate custom tags WITHIN SAME DEVICE TYPE
+            // This allows related items (Laptop + Charger) to share the same asset tag across types
+            $new_asset_tag_upper = strtoupper($new_asset_tag);
+            if ($new_asset_tag_upper === 'N/A') {
+                // Convert N/A to NULL to allow multiple items without asset tags
+                $new_asset_tag_upper = null;
+            } else {
+                // Check for duplicates only within the same device type
+                $chk = $pdo->prepare("SELECT COUNT(*) FROM devices WHERE asset_tag = ? AND device_type_id = ? AND id != ?");
+                $chk->execute([$new_asset_tag_upper, $device_type_id, $id]);
+                if ($chk->fetchColumn() > 0) {
+                    throw new Exception('Asset tag "' . htmlspecialchars($new_asset_tag_upper) . '" already exists for this device type. Please choose a different one.');
+                }
             }
             $assetTagChanged = true;
         }
@@ -64,7 +72,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         // Update device
         if ($assetTagChanged) {
             $stmt = $pdo->prepare("UPDATE devices SET device_type_id=?, brand=?, model=?, serial_number=?, ip_address=?, pc_name=?, mac_address=?, specifications=?, purchase_date=?, vendor=?, warranty_expiry=?, purchase_price=?, location=?, condition_notes=?, status=?, asset_tag=? WHERE id=?");
-            $stmt->execute([$device_type_id, $brand, $model, $serial_number, $ip_address, $pc_name, $mac_address, $specifications, $purchase_date, $vendor, $warranty_expiry, $purchase_price, $location, $condition_notes, $status, strtoupper($new_asset_tag), $id]);
+            $stmt->execute([$device_type_id, $brand, $model, $serial_number, $ip_address, $pc_name, $mac_address, $specifications, $purchase_date, $vendor, $warranty_expiry, $purchase_price, $location, $condition_notes, $status, $new_asset_tag_upper, $id]);
         } else {
             $stmt = $pdo->prepare("UPDATE devices SET device_type_id=?, brand=?, model=?, serial_number=?, ip_address=?, pc_name=?, mac_address=?, specifications=?, purchase_date=?, vendor=?, warranty_expiry=?, purchase_price=?, location=?, condition_notes=?, status=? WHERE id=?");
             $stmt->execute([$device_type_id, $brand, $model, $serial_number, $ip_address, $pc_name, $mac_address, $specifications, $purchase_date, $vendor, $warranty_expiry, $purchase_price, $location, $condition_notes, $status, $id]);
@@ -77,7 +85,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         if ($assetTagChanged) {
             $changeDetails = json_encode([
                 'old_asset_tag' => $device['asset_tag'],
-                'new_asset_tag' => strtoupper($new_asset_tag),
+                'new_asset_tag' => $new_asset_tag_upper,
                 'changed_by' => $_SESSION['user_id'],
                 'changed_by_id' => $asset_tag_changed_by,
                 'change_timestamp' => date('Y-m-d H:i:s')
@@ -85,7 +93,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             logAudit($_SESSION['user_id'], 'Asset Tag Change', 'devices', $id, json_encode(['asset_tag' => $device['asset_tag']]), $changeDetails);
         }
 
-        setFlashMessage('success', 'Device updated successfully.' . ($assetTagChanged ? ' Asset tag changed to ' . strtoupper($new_asset_tag) : ''));
+        setFlashMessage('success', 'Device updated successfully.' . ($assetTagChanged ? ' Asset tag changed to ' . $new_asset_tag_upper : ''));
         header('Location: devices.php');
         exit();
     } catch (PDOException $e) {
@@ -113,21 +121,24 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                             <input type="text" name="asset_tag" class="form-control" placeholder="Leave blank to keep current" value="" maxlength="30" style="text-transform: uppercase;">
                             <small style="font-size:12px; color:#888; margin-top:4px; display:block;">
                                 Leave blank to keep: <strong><?php echo sanitize($device['asset_tag']); ?></strong><br>
-                                Custom: 3–30 chars, letters/numbers/hyphens/underscores only.
+                                Custom: 3–30 chars, letters/numbers/hyphens/underscores/forward slash (e.g., N/A).
                             </small>
                         </div>
                     </div>
                 </div>
                 <div class="form-group">
-                    <label>Asset Tag Changed By <span class="required">*</span>
-                        <span style="font-size: 11px; color: #999;">(Required if changing asset tag)</span>
+                    <label>Asset Tag Changed By <span class="required" id="staffRequiredSpan" style="display:none;">*</span>
+                        <span style="font-size: 11px; color: #999;">(Only required if changing asset tag)</span>
                     </label>
-                    <select name="asset_tag_changed_by" class="form-control">
+                    <select name="asset_tag_changed_by" id="assetTagChangedBy" class="form-control">
                         <option value="">Select IT Staff (if changing tag)</option>
                         <?php foreach ($itStaff as $staff): ?>
                         <option value="<?php echo $staff['id']; ?>"><?php echo sanitize($staff['full_name']); ?></option>
                         <?php endforeach; ?>
                     </select>
+                    <small style="font-size:11px; color:#aaa; margin-top:4px; display:block;" id="staffHelp" style="display:none;">
+                        Required when changing the asset tag for audit tracking.
+                    </small>
                 </div>
                 <div class="form-group">
                     <label>Device Type <span class="required">*</span></label>
@@ -209,5 +220,61 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         </form>
     </div>
 </div>
+
+<script>
+// Make IT staff field conditional - only require if asset tag is actually being changed
+(function() {
+    const currentAssetTag = '<?php echo sanitize($device['asset_tag']); ?>';
+    const assetTagInput = document.querySelector('input[name="asset_tag"]');
+    const staffSelect = document.getElementById('assetTagChangedBy');
+    const staffRequired = document.getElementById('staffRequiredSpan');
+    const staffHelp = document.getElementById('staffHelp');
+    const form = assetTagInput.closest('form');
+
+    function updateStaffFieldRequirement() {
+        const newAssetTag = assetTagInput.value.trim().toUpperCase();
+        const isChanging = newAssetTag !== '' && newAssetTag !== currentAssetTag;
+
+        if (isChanging) {
+            // Asset tag is being changed - require IT staff selection
+            staffSelect.required = true;
+            staffRequired.style.display = 'inline';
+            staffHelp.style.display = 'block';
+            staffSelect.parentElement.style.opacity = '1';
+        } else {
+            // Asset tag is not being changed - don't require IT staff
+            staffSelect.required = false;
+            staffSelect.value = '';
+            staffRequired.style.display = 'none';
+            staffHelp.style.display = 'none';
+            staffSelect.parentElement.style.opacity = '0.7';
+        }
+    }
+
+    // Update on asset tag input change
+    if (assetTagInput) {
+        assetTagInput.addEventListener('input', updateStaffFieldRequirement);
+        assetTagInput.addEventListener('change', updateStaffFieldRequirement);
+    }
+
+    // Form submission validation
+    if (form) {
+        form.addEventListener('submit', function(e) {
+            const newAssetTag = assetTagInput.value.trim().toUpperCase();
+            const isChanging = newAssetTag !== '' && newAssetTag !== currentAssetTag;
+            
+            if (isChanging && !staffSelect.value) {
+                e.preventDefault();
+                alert('Please select which IT staff member is making this asset tag change.');
+                staffSelect.focus();
+                return false;
+            }
+        });
+    }
+
+    // Initialize on page load
+    updateStaffFieldRequirement();
+})();
+</script>
 
 <?php require_once 'includes/footer.php'; ?>

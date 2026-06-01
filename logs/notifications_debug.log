@@ -268,3 +268,55 @@
 [2026-06-01T08:31:06+02:00] EXCEPTION UID=93 MSG=SQLSTATE[42S22]: Column not found: 1054 Unknown column 'read_at' in 'field list'
 [2026-06-01T08:34:44+02:00] REQ IP=::1 UID=93 INPUT={"id":69}
 [2026-06-01T08:34:44+02:00] EXCEPTION UID=93 MSG=SQLSTATE[42S22]: Column not found: 1054 Unknown column 'read_at' in 'field list'
+[2026-06-01T09:01:31+02:00] REQ IP=::1 UID=93 INPUT={"id":69}
+[2026-06-01T09:01:31+02:00] EXCEPTION UID=93 MSG=SQLSTATE[42S22]: Column not found: 1054 Unknown column 'read_at' in 'field list'
+[2026-06-01T09:01:31+02:00] REQ IP=::1 UID=93 INPUT={"id":69}
+[2026-06-01T09:01:31+02:00] EXCEPTION UID=93 MSG=SQLSTATE[42S22]: Column not found: 1054 Unknown column 'read_at' in 'field list'
+[2026-06-01T09:01:35+02:00] REQ IP=::1 UID=93 INPUT={"id":65}
+[2026-06-01T09:01:35+02:00] EXCEPTION UID=93 MSG=SQLSTATE[42S22]: Column not found: 1054 Unknown column 'read_at' in 'field list'
+[2026-06-01T09:01:35+02:00] REQ IP=::1 UID=93 INPUT={"id":65}
+[2026-06-01T09:01:35+02:00] EXCEPTION UID=93 MSG=SQLSTATE[42S22]: Column not found: 1054 Unknown column 'read_at' in 'field list'
+[2026-06-01T09:31:41+02:00] REQ IP=::1 UID=2 INPUT={"id":74}
+[2026-06-01T09:31:41+02:00] EXCEPTION UID=2 MSG=SQLSTATE[42S22]: Column not found: 1054 Unknown column 'read_at' in 'field list'
+[2026-06-01T09:31:41+02:00] REQ IP=::1 UID=2 INPUT={"id":74}
+[2026-06-01T09:31:41+02:00] EXCEPTION UID=2 MSG=SQLSTATE[42S22]: Column not found: 1054 Unknown column 'read_at' in 'field list'
+[2026-06-01T09:32:10+02:00] REQ IP=::1 UID=2 INPUT={"id":74}
+[2026-06-01T09:32:10+02:00] EXCEPTION UID=2 MSG=SQLSTATE[42S22]: Column not found: 1054 Unknown column 'read_at' in 'field list'
+[2026-06-01T09:33:00+02:00] REQ IP=::1 UID=2 INPUT={"id":5}
+[2026-06-01T09:33:00+02:00] EXCEPTION UID=2 MSG=SQLSTATE[42S22]: Column not found: 1054 Unknown column 'read_at' in 'field list'
+[2026-06-01T09:33:08+02:00] REQ IP=::1 UID=2 INPUT={"id":74}
+[2026-06-01T09:33:08+02:00] EXCEPTION UID=2 MSG=SQLSTATE[42S22]: Column not found: 1054 Unknown column 'read_at' in 'field list'
+[2026-06-01T09:34:53+02:00] REQ IP=::1 UID=2 INPUT={"id":74}
+[2026-06-01T09:34:53+02:00] EXCEPTION UID=2 MSG=SQLSTATE[42S22]: Column not found: 1054 Unknown column 'read_at' in 'field list'
+[2026-06-01T09:35:01+02:00] REQ IP=::1 UID=2 INPUT={"id":68}
+[2026-06-01T09:35:01+02:00] EXCEPTION UID=2 MSG=SQLSTATE[42S22]: Column not found: 1054 Unknown column 'read_at' in 'field list'
+[2026-06-01T09:35:12+02:00] REQ IP=::1 UID=2 INPUT={"id":33}
+[2026-06-01T09:35:12+02:00] EXCEPTION UID=2 MSG=SQLSTATE[42S22]: Column not found: 1054 Unknown column 'read_at' in 'field list'
+[2026-06-01T09:37:50+02:00] REQ IP=::1 UID=2 INPUT={"id":78}
+[2026-06-01T09:37:50+02:00] EXCEPTION UID=2 MSG=SQLSTATE[42S22]: Column not found: 1054 Unknown column 'read_at' in 'field list'
+[2026-06-01T09:38:07+02:00] REQ IP=::1 UID=2 INPUT={"id":78}
+[2026-06-01T09:38:07+02:00] EXCEPTION UID=2 MSG=SQLSTATE[42S22]: Column not found: 1054 Unknown column 'read_at' in 'field list'
+[2026-06-01T09:38:07+02:00] REQ IP=::1 UID=2 INPUT={"id":78}
+[2026-06-01T09:38:07+02:00] EXCEPTION UID=2 MSG=SQLSTATE[42S22]: Column not found: 1054 Unknown column 'read_at' in 'field list'
+[2026-06-01T09:38:15+02:00] REQ IP=::1 UID=93 INPUT={"id":79}
+[2026-06-01T09:38:15+02:00] EXCEPTION UID=93 MSG=SQLSTATE[42S22]: Column not found: 1054 Unknown column 'read_at' in 'field list'
+[2026-06-01T09:38:28+02:00] REQ IP=::1 UID=93 INPUT={"id":75}
+[2026-06-01T09:38:28+02:00] EXCEPTION UID=93 MSG=SQLSTATE[42S22]: Column not found: 1054 Unknown column 'read_at' in 'field list'
+[2026-06-01T09:38:29+02:00] REQ IP=::1 UID=93 INPUT={"id":75}
+[2026-06-01T09:38:29+02:00] EXCEPTION UID=93 MSG=SQLSTATE[42S22]: Column not found: 1054 Unknown column 'read_at' in 'field list'
+[2026-06-01T09:38:32+02:00] REQ IP=::1 UID=93 INPUT={"id":55}
+[2026-06-01T09:38:32+02:00] EXCEPTION UID=93 MSG=SQLSTATE[42S22]: Column not found: 1054 Unknown column 'read_at' in 'field list'
+[2026-06-01T09:38:35+02:00] REQ IP=::1 UID=93 INPUT={"id":6}
+[2026-06-01T09:38:35+02:00] EXCEPTION UID=93 MSG=SQLSTATE[42S22]: Column not found: 1054 Unknown column 'read_at' in 'field list'
+[2026-06-01T09:38:36+02:00] REQ IP=::1 UID=93 INPUT={"id":69}
+[2026-06-01T09:38:36+02:00] EXCEPTION UID=93 MSG=SQLSTATE[42S22]: Column not found: 1054 Unknown column 'read_at' in 'field list'
+[2026-06-01T09:42:35+02:00] REQ IP=::1 UID=89 INPUT={"id":84}
+[2026-06-01T09:42:35+02:00] EXCEPTION UID=89 MSG=SQLSTATE[42S22]: Column not found: 1054 Unknown column 'read_at' in 'field list'
+[2026-06-01T09:42:35+02:00] REQ IP=::1 UID=89 INPUT={"id":84}
+[2026-06-01T09:42:35+02:00] EXCEPTION UID=89 MSG=SQLSTATE[42S22]: Column not found: 1054 Unknown column 'read_at' in 'field list'
+[2026-06-01T09:42:53+02:00] REQ IP=::1 UID=93 INPUT={"id":83}
+[2026-06-01T09:42:53+02:00] EXCEPTION UID=93 MSG=SQLSTATE[42S22]: Column not found: 1054 Unknown column 'read_at' in 'field list'
+[2026-06-01T09:48:32+02:00] REQ IP=::1 UID=93 INPUT={"id":83}
+[2026-06-01T09:48:32+02:00] EXCEPTION UID=93 MSG=SQLSTATE[42S22]: Column not found: 1054 Unknown column 'read_at' in 'field list'
+[2026-06-01T10:07:01+02:00] REQ IP=::1 UID=93 INPUT={"id":75}
+[2026-06-01T10:07:01+02:00] EXCEPTION UID=93 MSG=SQLSTATE[42S22]: Column not found: 1054 Unknown column 'read_at' in 'field list'
