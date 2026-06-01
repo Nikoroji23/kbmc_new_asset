@@ -142,10 +142,10 @@ $assignedUsers = $pdo->query("SELECT DISTINCT u.full_name FROM devices d LEFT JO
                         <td><?php echo getStatusBadge($dev['status']); ?></td>
                         <td>
                             <?php if ($dev['assigned_to']): ?>
-                            <button type="button" class="btn btn-link view-assignee-btn" data-user-id="<?php echo $dev['assigned_user_id']; ?>" style="padding:0; margin:0; color:#007bff; display:flex; align-items:center; gap:6px; font-size: 0.95rem;">
+                            <a href="it_user_details.php?id=<?php echo $dev['assigned_user_id']; ?>" class="btn btn-link" style="padding:0; margin:0; color:#007bff; display:flex; align-items:center; gap:6px; font-size: 0.95rem;">
                                 <i class="fas fa-user" style="font-size: 11px; color: #999;"></i>
                                 <?php echo sanitize($dev['assigned_to']); ?>
-                            </button>
+                            </a>
                             <?php else: ?>
                             <span style="color: #999; font-size: 12px;">Unassigned</span>
                             <?php endif; ?>
@@ -176,6 +176,9 @@ $assignedUsers = $pdo->query("SELECT DISTINCT u.full_name FROM devices d LEFT JO
         <div class="modal-header" style="display:flex;justify-content:space-between;align-items:center;gap:10px;">
             <h3><i class="fas fa-id-card"></i> Employee Details</h3>
             <div style="display:flex;gap:8px;align-items:center;">
+                <button type="button" class="btn btn-outline no-print" onclick="exportAssignedUserPDF()">
+                    <i class="fas fa-file-pdf"></i> Export PDF
+                </button>
                 <button type="button" class="btn btn-outline no-print" onclick="printAssignedUserDetails()">
                     <i class="fas fa-print"></i> Print
                 </button>
@@ -223,6 +226,74 @@ function printAssignedUserDetails() {
     setTimeout(function(){ w.print(); }, 400);
 }
 
+function exportAssignedUserPDF() {
+    var data = window._currentAssignedUserData;
+    if (!data || !data.user) {
+        alert('No employee data available to export.');
+        return;
+    }
+    var user = data.user;
+    var assets = data.assets || [];
+
+    _loadJsPDF(function() {
+        var jsPDF = window.jspdf.jsPDF;
+        var doc = new jsPDF({orientation:'portrait', unit:'pt', format:'a4'});
+        var margin = 36;
+        var y = 36;
+
+        doc.setFontSize(16); doc.setTextColor(34,34,34); doc.setFont(undefined,'bold');
+        doc.text('KBMC Asset Management', margin, y);
+        doc.setFontSize(11); doc.setFont(undefined,'normal');
+        y += 20;
+        doc.text('Employee Device Report', margin, y);
+        y += 18;
+        var printedAt = new Date().toLocaleDateString('en-US',{year:'numeric',month:'long',day:'numeric'});
+        doc.setFontSize(9); doc.setTextColor(120,120,120);
+        doc.text('Generated: ' + printedAt, margin, y);
+        y += 18;
+
+        // User summary box
+        doc.setDrawColor(230,233,240);
+        doc.setFillColor(248,249,252);
+        doc.rect(margin, y, doc.internal.pageSize.getWidth() - margin*2, 62, 'F');
+        var ux = margin + 10;
+        var uy = y + 16;
+        doc.setFontSize(10); doc.setTextColor(80,80,80);
+        doc.text('Employee ID: ' + (user.employee_id || user.id || 'N/A'), ux, uy);
+        doc.text('Full Name: ' + (user.full_name || 'N/A'), ux + 220, uy);
+        uy += 14;
+        doc.text('Email: ' + (user.email || 'N/A'), ux, uy);
+        doc.text('Department: ' + (user.department || 'N/A'), ux + 220, uy);
+        uy += 14;
+        doc.text('Position: ' + (user.position || 'N/A'), ux, uy);
+        doc.text('Status: ' + (user.status || 'N/A'), ux + 220, uy);
+        y += 82;
+
+        // Assets table
+        var rows = assets.map(function(a) {
+            return [a.asset_tag || 'N/A', a.pc_name || 'N/A', a.ip_address || 'N/A', a.category || 'N/A', a.status || 'N/A', a.assigned_at || 'N/A'];
+        });
+
+        if (rows.length === 0) {
+            doc.setFontSize(12); doc.setTextColor(120,120,120);
+            doc.text('No devices currently assigned to this employee.', margin, y + 10);
+        } else {
+            doc.autoTable({
+                head: [['Asset Tag','PC Name','IP Address','Type','Status','Assigned Date']],
+                body: rows,
+                startY: y,
+                styles:{fontSize:9, cellPadding:6},
+                headStyles:{fillColor:[192,57,43], textColor:255, fontStyle:'bold'},
+                alternateRowStyles:{fillColor:[248,249,252]},
+                margin:{left:margin,right:margin}
+            });
+        }
+
+        var safeName = (user.full_name || 'employee').replace(/[^a-z0-9\-_]/ig, '_');
+        doc.save('employee_' + safeName + '_devices_<?php echo date('Y-m-d'); ?>.pdf');
+    });
+}
+
 function _esc(s) {
     if (s == null || s === '') return '<span style="color:#bbb">N/A</span>';
     return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
@@ -263,7 +334,8 @@ function setupAssignedUserButtons() {
             })
             .then(function(data) {
                 if (data.error) throw new Error(data.error);
-                renderUserModal(body, data.user, data.assets || []);
+                 window._currentAssignedUserData = data; // store for printing/export
+                 renderUserModal(body, data.user, data.assets || []);
             })
             .catch(function(err) {
                 body.innerHTML = '<div style="text-align:center;padding:40px;color:#e74c3c;">'

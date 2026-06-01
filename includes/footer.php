@@ -11,7 +11,26 @@
         </footer>
     </div>
 
+    <!-- Global modal for assigned-user details (used when clicking legacy it_user_details.php links) -->
+    <div id="globalAssignedUserModal" class="modal-overlay" style="display:none;">
+        <div class="modal-box" style="max-width:960px;width:95%;">
+            <div class="modal-header" style="display:flex;justify-content:space-between;align-items:center;gap:10px;">
+                <h3><i class="fas fa-id-card"></i> Employee Details</h3>
+                <div style="display:flex;gap:8px;align-items:center;">
+                    <button type="button" class="btn btn-primary" id="globalAssignedUserPDF" style="display:flex;align-items:center;gap:6px;">
+                        <i class="fas fa-file-pdf"></i> PDF
+                    </button>
+                    <button class="modal-close btn btn-outline" id="globalAssignedUserClose">&times;</button>
+                </div>
+            </div>
+            <div class="modal-body" id="globalAssignedUserBody" style="padding:20px;">
+                <p style="text-align:center;color:#999;padding:30px;"><i class="fas fa-spinner fa-spin"></i> Loading...</p>
+            </div>
+        </div>
+    </div>
+
     <script src="assets/js/main.js"></script>
+    <script src="assets/js/it_user_modal.js"></script>
     <script>
         // Setup event delegation for notification items that may be added dynamically
         document.addEventListener('DOMContentLoaded', function () {

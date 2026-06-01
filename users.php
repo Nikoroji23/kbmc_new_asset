@@ -1,8 +1,7 @@
 <?php
 // ── Bootstrap ──
 $pageTitle = 'Manage Users';
-require_once __DIR__ . '/includes/header.php';
-requireAdmin();
+require_once __DIR__ . '/includes/functions.php';
 
 global $pdo;
 
@@ -12,6 +11,13 @@ global $pdo;
 // No new file needed — handled right here.
 // ═══════════════════════════════════════════════════════
 if (isset($_GET['view_user']) && isset($_GET['ajax'])) {
+    // Avoid redirecting for AJAX; return JSON 403 when not authorized
+    if (!isLoggedIn() || (!hasRole('it_staff') && !hasRole('admin'))) {
+        http_response_code(403);
+        header('Content-Type: application/json; charset=utf-8');
+        echo json_encode(['error' => 'Unauthorized']);
+        exit;
+    }
     header('Content-Type: application/json; charset=utf-8');
     $uid = (int)($_GET['view_user'] ?? 0);
     if (!$uid) { echo json_encode(['error' => 'Invalid user']); exit; }
@@ -54,6 +60,9 @@ if (isset($_GET['view_user']) && isset($_GET['ajax'])) {
     echo json_encode(['user' => $user, 'assets' => $assets], JSON_UNESCAPED_UNICODE);
     exit;
 }
+
+require_once __DIR__ . '/includes/header.php';
+requireAdmin();
 
 // ═══════════════════════════════════════════════════════
 // POST handling at TOP — before any SELECT queries or HTML
