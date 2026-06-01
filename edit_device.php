@@ -50,19 +50,14 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                 throw new Exception('Asset tag change requires IT staff member selection. Please select who is making this change.');
             }
             
-            // Allow multiple N/A entries, but prevent duplicate custom tags WITHIN SAME DEVICE TYPE
-            // This allows related items (Laptop + Charger) to share the same asset tag across types
+            // Allow multiple N/A entries and allow duplicate custom tags (same asset tag for related items like Laptop + Charger)
             $new_asset_tag_upper = strtoupper($new_asset_tag);
             if ($new_asset_tag_upper === 'N/A') {
                 // Convert N/A to NULL to allow multiple items without asset tags
                 $new_asset_tag_upper = null;
             } else {
-                // Check for duplicates only within the same device type
-                $chk = $pdo->prepare("SELECT COUNT(*) FROM devices WHERE asset_tag = ? AND device_type_id = ? AND id != ?");
-                $chk->execute([$new_asset_tag_upper, $device_type_id, $id]);
-                if ($chk->fetchColumn() > 0) {
-                    throw new Exception('Asset tag "' . htmlspecialchars($new_asset_tag_upper) . '" already exists for this device type. Please choose a different one.');
-                }
+                // Allow duplicate asset tags - same tag can be used for multiple devices
+                $new_asset_tag_upper = $new_asset_tag_upper;
             }
             $assetTagChanged = true;
         }

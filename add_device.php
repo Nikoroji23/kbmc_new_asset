@@ -63,13 +63,7 @@ if ($warranty_duration === 'custom') {
                 if ($asset_tag_upper === 'N/A') {
                     $asset_tag = null;
                 } else {
-                    // For non-N/A tags, check for duplicates ONLY within the same device type
-                    // This allows related items (Laptop + Charger) to share the same asset tag
-                    $chk = $pdo->prepare("SELECT COUNT(*) FROM devices WHERE asset_tag = ? AND device_type_id = ?");
-                    $chk->execute([$asset_tag_upper, $device_type_id]);
-                    if ($chk->fetchColumn() > 0) {
-                        throw new Exception('Asset tag "' . htmlspecialchars($asset_tag_upper) . '" already exists for this device type. Please choose a different one.');
-                    }
+                    // Allow duplicate asset tags - same tag can be used for multiple devices (e.g., Laptop + Charger as a set)
                     $asset_tag = $asset_tag_upper;
                 }
             } else {
