@@ -223,14 +223,61 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                         'user_clearance_completed',
                         'Clearance Completed',
                         "Your device(s) {$deviceList} have been returned to stock and cleared by IT.",
-                        $singleDevId ? $singleDevId : null
+                        $userId
                     );
+                    
+                    // Send email notification to employee about clearance
+                    if (isEmailConfigured()) {
+                        $emailBody = emailTemplate(
+                            'User Clearance Completed',
+                            "<p>Hello <strong>" . sanitize($user['full_name']) . "</strong>,</p>
+                            <p>Your IT clearance has been completed successfully. All assigned device(s) have been processed.</p>
+                            <div style='background: #d4edda; padding: 15px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #27ae60;'>
+                                <p><strong>Clearance Summary:</strong></p>
+                                <p><i class='fas fa-check'></i> <strong>Devices Processed:</strong> " . count($assignments) . " device(s)</p>
+                                <p><i class='fas fa-laptop'></i> <strong>Device List:</strong> " . sanitize($deviceList) . "</p>
+                                <p><i class='fas fa-calendar'></i> <strong>Clearance Date:</strong> " . date('F d, Y') . "</p>" .
+                                ($isSingleMode ? "<p><i class='fas fa-info-circle'></i> <strong>Mode:</strong> Single-Device Clearance</p>" : "<p><i class='fas fa-info-circle'></i> <strong>Mode:</strong> Full Employee Clearance</p>") .
+                            "</div>
+                            <p>Thank you for your cooperation. If you have any questions regarding your clearance, please contact the IT department.</p>",
+                            'View Clearance',
+                            'http://' . $_SERVER['HTTP_HOST'] . dirname($_SERVER['PHP_SELF']) . '/it_clearance.php'
+                        );
+                        sendEmail($user['email'], 'IT Clearance Completed', $emailBody);
+                    }
+                    
                     notifyITStaff(
                         'user_clearance_completed',
                         'User Clearance Completed',
                         "IT completed clearance for {$user['full_name']} ({$user['employee_id']}) and returned device(s): {$deviceList}.",
-                        $singleDevId ? $singleDevId : null
+                        $user['id']
                     );
+                    
+                    // Send email notification to IT staff about clearance completion
+                    if (isEmailConfigured()) {
+                        $itStaff = $pdo->query("SELECT email, full_name FROM users WHERE role IN ('admin', 'it_staff') AND status = 'active'")->fetchAll();
+                        
+                        foreach ($itStaff as $staff) {
+                            $emailBody = emailTemplate(
+                                'User Clearance Completed',
+                                "<p>Hello <strong>" . sanitize($staff['full_name']) . "</strong>,</p>
+                                <p>A user has completed their IT clearance process.</p>
+                                <div style='background: #e3f2fd; padding: 15px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #3498db;'>
+                                    <p><strong>Clearance Details:</strong></p>
+                                    <p><i class='fas fa-user'></i> <strong>Employee:</strong> " . sanitize($user['full_name']) . " (ID: " . sanitize($user['employee_id']) . ")</p>
+                                    <p><i class='fas fa-building'></i> <strong>Department:</strong> " . sanitize($user['department']) . "</p>
+                                    <p><i class='fas fa-laptop'></i> <strong>Devices Processed:</strong> " . count($assignments) . " device(s)</p>
+                                    <p><i class='fas fa-list'></i> <strong>Device List:</strong> " . sanitize($deviceList) . "</p>
+                                    <p><i class='fas fa-calendar'></i> <strong>Completion Date:</strong> " . date('F d, Y g:i A') . "</p>" .
+                                    ($deactivate ? "<p><i class='fas fa-times-circle' style='color: #e74c3c;'></i> <strong>Employee Status:</strong> <span style='color: #e74c3c;'>Deactivated</span></p>" : '') .
+                                "</div>
+                                <p>All devices have been appropriately routed for stock return or repair. Please verify the status in the system.</p>",
+                                'View Clearance Details',
+                                'http://' . $_SERVER['HTTP_HOST'] . dirname($_SERVER['PHP_SELF']) . '/it_clearance.php'
+                            );
+                            sendEmail($staff['email'], 'User Clearance Completed - ' . sanitize($user['full_name']), $emailBody);
+                        }
+                    }
 
                     if ($repairNeeded) {
                         $successMessage = $singleDevId

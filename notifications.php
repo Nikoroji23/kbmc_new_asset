@@ -26,17 +26,22 @@ function getNotificationIcon(string $type): string {
         'device_returned'            => 'undo',
         'low_stock'                  => 'exclamation-triangle',
         'repair_needed'              => 'tools',
+        'repair_pending'             => 'tools',
         'request_approved'           => 'check-circle',
         'request_rejected'           => 'times-circle',
         'warranty_expiring'          => 'clock',
         'user_clearance_required'    => 'file-signature',
         'user_clearance_completed'   => 'user-check',
         'voluntary_return_requested' => 'hand-holding',
+        'maintenance_assigned'       => 'tools',
+        'maintenance_completed'      => 'check-circle',
+        'maintenance_due'            => 'calendar-alt',
         'lifespan_monitor'           => 'eye',
         'lifespan_replace_soon'      => 'hourglass-half',
         'lifespan_overdue'           => 'exclamation-triangle',
         'lifespan_replaced'          => 'archive',
         'lifespan_extended'          => 'plus-circle',
+        'device_request'             => 'hand-paper',
         default                      => 'info-circle',
     };
 }
@@ -52,7 +57,14 @@ function getNotificationColor(string $type): string {
         $type === 'request_approved'             => '#27AE60',
         $type === 'request_rejected'             => '#E74C3C',
         $type === 'repair_needed'                => '#E67E22',
+        $type === 'repair_pending'               => '#F39C12',
         $type === 'warranty_expiring'            => '#F39C12',
+        $type === 'maintenance_assigned'         => '#3498DB',
+        $type === 'maintenance_completed'        => '#27AE60',
+        $type === 'maintenance_due'              => '#E67E22',
+        $type === 'device_deployed'              => '#3498DB',
+        $type === 'device_returned'              => '#27AE60',
+        $type === 'device_request'               => '#9B59B6',
         str_starts_with($type, 'user_clearance') => '#8E44AD',
         default                                  => '#C0392B',
     };
@@ -178,12 +190,16 @@ function handleNotificationClick(element) {
         credentials: 'same-origin',
         body:        JSON.stringify({ id: parseInt(notifId, 10) })
     })
-    .catch(function () { /* silent — we still navigate */ })
-    .finally(function () {
-        if (url && url !== '' && url !== 'notifications.php') {
+    .then(function () {
+        if (url && url !== '') {
             window.location.href = url;
         }
-        // If url is 'notifications.php' we're already there — no redirect needed
+    })
+    .catch(function () {
+        // On error still navigate
+        if (url && url !== '') {
+            window.location.href = url;
+        }
     });
 }
  

@@ -24,7 +24,31 @@ if (isset($_GET['action']) && $_GET['action'] == 'return' && isset($_GET['id']))
 
         // Notify employee
         addNotificationIfNotExists($assignment['employee_id'], 'device_returned', 'Device Returned', "Your assigned device {$assignment['asset_tag']} has been returned.", $assignment['device_id']);
-        // Notify IT staff and admins
+        
+        // Send email notification to employee
+        $empStmt = $pdo->prepare("SELECT email, full_name FROM users WHERE id = ?");
+        $empStmt->execute([$assignment['employee_id']]);
+        $employee = $empStmt->fetch();
+        
+        if ($employee && isEmailConfigured()) {
+            $emailBody = emailTemplate(
+                'Device Return Processed',
+                "<p>Hello <strong>" . sanitize($employee['full_name']) . "</strong>,</p>
+                <p>Your assigned device has been returned and processed by the IT department.</p>
+                <div style='background: #c8e6c9; padding: 15px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #27ae60;'>
+                    <p><strong>Device Details:</strong></p>
+                    <p><i class='fas fa-laptop'></i> <strong>Asset Tag:</strong> " . sanitize($assignment['asset_tag']) . "</p>
+                    <p><i class='fas fa-check'></i> <strong>Status:</strong> Returned to Stock</p>
+                    <p><i class='fas fa-calendar'></i> <strong>Return Date:</strong> " . date('F d, Y') . "</p>
+                </div>
+                <p>Thank you for taking care of this device. If you have any questions, please contact the IT department.</p>",
+                'View Details',
+                'http://' . $_SERVER['HTTP_HOST'] . dirname($_SERVER['PHP_SELF']) . '/deployments.php'
+            );
+            sendEmail($employee['email'], 'Device Return Confirmation - ' . sanitize($assignment['asset_tag']), $emailBody);
+        }
+        
+        // Notify IT staff
         notifyITStaff('device_returned', 'Device Returned', "Device {$assignment['asset_tag']} has been returned to stock.", $assignment['device_id']);
 
         logAudit($_SESSION['user_id'], 'Return', 'device_assignments', $assignmentId);
@@ -63,7 +87,31 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['assign_device'])) {
             // Notify employee
             addNotification($employee_id, 'device_deployed', 'Device Deployed', "A device ({$device['asset_tag']}) has been assigned to you.", $device_id);
 
-            logAudit($_SESSION['user_id'], 'Insert', 'device_assignments', $pdo->lastInsertId());
+        // Send email notification to employee
+        $empStmt = $pdo->prepare("SELECT email, full_name, department FROM users WHERE id = ?");
+        $empStmt->execute([$employee_id]);
+        $employee = $empStmt->fetch();
+        
+        if ($employee && isEmailConfigured()) {
+            $emailBody = emailTemplate(
+                'Device Assigned to You',
+                "<p>Hello <strong>" . sanitize($employee['full_name']) . "</strong>,</p>
+                <p>A new device has been assigned to you. Please check your dashboard or the deployments page for details.</p>
+                <div style='background: #e3f2fd; padding: 15px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #3498db;'>
+                    <p><strong>Device Details:</strong></p>
+                    <p><i class='fas fa-laptop'></i> <strong>Asset Tag:</strong> " . sanitize($device['asset_tag']) . "</p>
+                    <p><i class='fas fa-microchip'></i> <strong>Model:</strong> " . sanitize($device['model'] ?? 'N/A') . "</p>" .
+                    (!empty($purpose) ? "<p><i class='fas fa-align-left'></i> <strong>Purpose:</strong> " . sanitize($purpose) . "</p>" : '') .
+                "</div>
+                <p>Please ensure you follow company device policies and keep this device secure. If you have any questions, contact the IT department.</p>",
+                'View Deployment',
+                'http://' . $_SERVER['HTTP_HOST'] . dirname($_SERVER['PHP_SELF']) . '/deployments.php'
+            );
+            sendEmail($employee['email'], 'Device Assignment Notification - ' . sanitize($device['asset_tag']), $emailBody);
+        }
+
+        // Notify IT staff
+        notifyITStaff('device_deployed', 'Device Deployed', "Device {$device['asset_tag']} has been assigned to {$employee['full_name']} ({$employee['department']}).", $device_id);
             setFlashMessage('success', 'Device assigned successfully.');
             header('Location: deployments.php');
             exit();

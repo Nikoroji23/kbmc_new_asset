@@ -52,10 +52,11 @@ $pageTitle = $pageTitle ?? 'KBMC Asset Management';
                     body: JSON.stringify({ id: parseInt(id, 10) }),
                     credentials: 'same-origin'
                 })
+                .then(function () { navigate(); })
                 .catch(function (error) {
                     console.warn('⚠️ Error marking notification read:', error);
-                })
-                .finally(navigate);
+                    navigate();
+                });
             } else {
                 navigate();
             }
@@ -265,14 +266,15 @@ $pageTitle = $pageTitle ?? 'KBMC Asset Management';
                             <?php foreach ($notifications as $notif):
                                 $notifUrl = getNotificationUrl($notif);
                             ?>
-                            <div class="notif-item <?php echo $notif['is_read'] ? '' : 'unread'; ?>" 
-                                 data-id="<?php echo $notif['id']; ?>" 
-                                 data-url="<?php echo sanitize($notifUrl); ?>"
-                                 data-type="<?php echo sanitize($notif['type'] ?? 'unknown'); ?>"
-                                 role="button"
-                                 tabindex="0"
-                                 style="cursor: pointer;"
-                                 title="Click to navigate">
+                               <div class="notif-item <?php echo $notif['is_read'] ? '' : 'unread'; ?>" 
+                                   data-id="<?php echo $notif['id']; ?>" 
+                                   data-url="<?php echo sanitize($notifUrl); ?>"
+                                   data-type="<?php echo sanitize($notif['type'] ?? 'unknown'); ?>"
+                                   role="button"
+                                   tabindex="0"
+                                   style="cursor: pointer;"
+                                   title="Click to navigate"
+                                   onclick="handleNotificationClick(this)">
                                 <div class="notif-icon">
                                     <i class="fas fa-<?php
                                         echo match($notif['type']) {

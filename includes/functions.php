@@ -264,14 +264,21 @@ function getNotificationUrl(array $notif): string
             case 'voluntary_return_requested':
                 return 'deployments.php';
 
+            case 'maintenance_assigned':
+            case 'maintenance_completed':
+            case 'maintenance_due':
+                return 'maintenance_reminders.php';
+
             case 'warranty_expiring':
                 return $refId
                     ? 'view_device.php?id=' . $refId
                     : 'devices.php';
 
             case 'user_clearance_completed':
+                return $refId ? 'it_clearance.php?user_id=' . $refId . '&done=1' : 'it_clearance.php';
+
             case 'user_clearance_required':
-                return 'it_clearance.php';
+                return $refId ? 'it_clearance.php?user_id=' . $refId : 'it_clearance.php';
 
             case 'audit_reminder':
                 return 'users.php#recovery';
@@ -291,22 +298,27 @@ function getNotificationUrl(array $notif): string
         case 'device_deployed':
             return $refId
                 ? 'view_device.php?id=' . $refId
-                : 'dashboard.php';
+                : 'deployments.php';
 
         case 'device_returned':
-            return 'dashboard.php';
+            return 'deployments.php';
 
         case 'request_approved':
         case 'request_rejected':
             return 'requests.php';
 
         case 'user_clearance_completed':
-            return 'dashboard.php';
+            return $refId ? 'it_clearance.php?user_id=' . $refId . '&done=1' : 'dashboard.php';
 
+        case 'user_clearance_required':
+            return $refId ? 'it_clearance.php?user_id=' . $refId : 'dashboard.php';
+
+        case 'maintenance_assigned':
         case 'maintenance_due':
-            return $refId
-                ? 'view_device.php?id=' . $refId
-                : 'dashboard.php';
+            return 'maintenance_reminders.php';
+
+        case 'maintenance_completed':
+            return 'dashboard.php';
 
         case 'repair_needed':
         case 'repair_pending':
@@ -979,11 +991,55 @@ function createMaintenanceSchedule($deviceId, $maintenanceType, $description, $s
 
     if ($assignedTo) {
         addNotification($assignedTo, 'maintenance_assigned', 'Maintenance Assigned', "You have been assigned maintenance for {$assetTag} due {$dueDate}.", $deviceId);
+        
+        // Send email notification
+        $userStmt = $pdo->prepare("SELECT email, full_name FROM users WHERE id = ? AND status = 'active'");
+        $userStmt->execute([$assignedTo]);
+        $staffMember = $userStmt->fetch();
+        
+        if ($staffMember && isEmailConfigured()) {
+            $emailBody = emailTemplate(
+                'Maintenance Task Assigned',
+                "<p>Hello <strong>" . sanitize($staffMember['full_name']) . "</strong>,</p>
+                <p>A new maintenance task has been assigned to you.</p>
+                <div style='background: #f8f9fa; padding: 15px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #3498db;'>
+                    <p><strong>Maintenance Details:</strong></p>
+                    <p><i class='fas fa-laptop'></i> <strong>Device:</strong> " . sanitize($assetTag) . "</p>
+                    <p><i class='fas fa-tools'></i> <strong>Type:</strong> " . sanitize(ucfirst($maintenanceType)) . "</p>
+                    <p><i class='fas fa-calendar'></i> <strong>Due Date:</strong> " . sanitize($dueDate) . "</p>
+                    <p><i class='fas fa-align-left'></i> <strong>Description:</strong> " . nl2br(sanitize($description)) . "</p>
+                </div>
+                <p>Please log in to the system to view more details and mark the maintenance as complete when finished.</p>",
+                'View Task',
+                'http://' . $_SERVER['HTTP_HOST'] . dirname($_SERVER['PHP_SELF']) . '/maintenance_reminders.php'
+            );
+            sendEmail($staffMember['email'], 'Maintenance Task Assigned - ' . sanitize($assetTag), $emailBody);
+        }
     } else {
-        $staffStmt = $pdo->query("SELECT id FROM users WHERE role IN ('admin','it_staff') AND status = 'active'");
+        $staffStmt = $pdo->query("SELECT id, email, full_name FROM users WHERE role IN ('admin','it_staff') AND status = 'active'");
         $staffMembers = $staffStmt->fetchAll();
         foreach ($staffMembers as $member) {
             addNotification($member['id'], 'maintenance_assigned', 'Maintenance Task Pending', "Maintenance for {$assetTag} is scheduled for {$dueDate} and needs IT assignment.", $deviceId);
+            
+            // Send email notification for unassigned maintenance
+            if (isEmailConfigured()) {
+                $emailBody = emailTemplate(
+                    'Maintenance Task Awaiting Assignment',
+                    "<p>Hello <strong>" . sanitize($member['full_name']) . "</strong>,</p>
+                    <p>A new maintenance task has been created and is awaiting assignment.</p>
+                    <div style='background: #fff3cd; padding: 15px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #f39c12;'>
+                        <p><strong>Maintenance Details:</strong></p>
+                        <p><i class='fas fa-laptop'></i> <strong>Device:</strong> " . sanitize($assetTag) . "</p>
+                        <p><i class='fas fa-tools'></i> <strong>Type:</strong> " . sanitize(ucfirst($maintenanceType)) . "</p>
+                        <p><i class='fas fa-calendar'></i> <strong>Due Date:</strong> " . sanitize($dueDate) . "</p>
+                        <p><i class='fas fa-align-left'></i> <strong>Description:</strong> " . nl2br(sanitize($description)) . "</p>
+                    </div>
+                    <p>Please log in to the system to assign this task to a team member.</p>",
+                    'Review Task',
+                    'http://' . $_SERVER['HTTP_HOST'] . dirname($_SERVER['PHP_SELF']) . '/maintenance_reminders.php'
+                );
+                sendEmail($member['email'], 'Maintenance Task Pending Assignment - ' . sanitize($assetTag), $emailBody);
+            }
         }
     }
 
@@ -1054,10 +1110,22 @@ function markMaintenanceCompleted($maintenanceId, $completedBy = null, $complete
     }
 
     $deviceId = null;
+    $assignedTo = null;
+    $assetTag = '';
+    
     try {
-        $devStmt = $pdo->prepare("SELECT device_id FROM maintenance_schedules WHERE id = ? LIMIT 1");
+        $devStmt = $pdo->prepare("SELECT device_id, assigned_to FROM maintenance_schedules WHERE id = ? LIMIT 1");
         $devStmt->execute([$maintenanceId]);
-        $deviceId = $devStmt->fetchColumn() ?: null;
+        $maint = $devStmt->fetch();
+        $deviceId = $maint['device_id'] ?? null;
+        $assignedTo = $maint['assigned_to'] ?? null;
+        
+        // Get device asset tag
+        if ($deviceId) {
+            $assetStmt = $pdo->prepare("SELECT asset_tag FROM devices WHERE id = ? LIMIT 1");
+            $assetStmt->execute([$deviceId]);
+            $assetTag = $assetStmt->fetchColumn() ?: '';
+        }
     } catch (Exception $e) {
         // ignore
     }
@@ -1078,7 +1146,42 @@ function markMaintenanceCompleted($maintenanceId, $completedBy = null, $complete
         } catch (Exception $e) {
             // ignore
         }
+        
+        // Notify IT staff about completion
+        notifyITStaff('maintenance_completed', 'Maintenance Completed', "Maintenance for {$assetTag} has been marked as complete.", $deviceId);
+        
+        // Send email notification to IT staff
+        if (isEmailConfigured()) {
+            $completedByName = 'System';
+            if ($completedBy) {
+                $userStmt = $pdo->prepare("SELECT full_name FROM users WHERE id = ?");
+                $userStmt->execute([$completedBy]);
+                $completedByName = $userStmt->fetchColumn() ?: 'System';
+            }
+            
+            $itStaff = $pdo->query("SELECT email, full_name FROM users WHERE role IN ('admin', 'it_staff') AND status = 'active'")->fetchAll();
+            
+            foreach ($itStaff as $staff) {
+                $emailBody = emailTemplate(
+                    'Maintenance Task Completed',
+                    "<p>Hello <strong>" . sanitize($staff['full_name']) . "</strong>,</p>
+                    <p>A maintenance task has been marked as complete.</p>
+                    <div style='background: #d4edda; padding: 15px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #27ae60;'>
+                        <p><strong>Maintenance Details:</strong></p>
+                        <p><i class='fas fa-laptop'></i> <strong>Device:</strong> " . sanitize($assetTag) . "</p>
+                        <p><i class='fas fa-check'></i> <strong>Completed By:</strong> " . sanitize($completedByName) . "</p>
+                        <p><i class='fas fa-calendar'></i> <strong>Completion Date:</strong> " . date('F d, Y g:i A', strtotime($completedAt)) . "</p>" .
+                        ($completionNotes ? "<p><i class='fas fa-align-left'></i> <strong>Notes:</strong> " . nl2br(sanitize($completionNotes)) . "</p>" : '') .
+                    "</div>
+                    <p>The device is now cleared for deployment. Check the system for more details.</p>",
+                    'View Details',
+                    'http://' . $_SERVER['HTTP_HOST'] . dirname($_SERVER['PHP_SELF']) . '/maintenance_reminders.php'
+                );
+                sendEmail($staff['email'], 'Maintenance Completed - ' . sanitize($assetTag), $emailBody);
+            }
+        }
     }
+    
     return true;
 }
 
