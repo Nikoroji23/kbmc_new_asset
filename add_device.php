@@ -36,6 +36,7 @@ if ($warranty_duration === 'custom') {
         case '2_years':  $pd->modify('+2 years');    break;
         case '3_years':  $pd->modify('+3 years');    break;
         case '5_years':  $pd->modify('+5 years');    break;
+        case '10_years': $pd->modify('+10 years');   break;
         case 'lifetime': $pd->setDate(9999, 12, 31); break;
     }
     $warranty_expiry = $pd->format('Y-m-d');
@@ -57,14 +58,12 @@ if ($warranty_duration === 'custom') {
                 if (!preg_match('/^[A-Za-z0-9\-_\/]{3,30}$/', $custom_asset_tag)) {
                     throw new Exception('Invalid asset tag format. Use 3–30 characters: letters, numbers, hyphens, underscores, or forward slash (e.g., N/A) only.');
                 }
-                $asset_tag_upper = strtoupper($custom_asset_tag);
-                
-                // Convert N/A to NULL to allow multiple items without asset tags (NULL bypasses UNIQUE constraint)
-                if ($asset_tag_upper === 'N/A') {
+                // Convert N/A (case-insensitive) to NULL to allow multiple items without asset tags (NULL bypasses UNIQUE constraint)
+                if (strtoupper($custom_asset_tag) === 'N/A') {
                     $asset_tag = null;
                 } else {
                     // Allow duplicate asset tags - same tag can be used for multiple devices (e.g., Laptop + Charger as a set)
-                    $asset_tag = $asset_tag_upper;
+                    $asset_tag = $custom_asset_tag;
                 }
             } else {
                 $asset_tag = generateAssetTag($device_type_id);
@@ -222,6 +221,7 @@ if ($warranty_duration === 'custom') {
                         <option value="2_years"    <?php echo (($_POST['warranty_expiry'] ?? '') == '2_years')    ? 'selected' : ''; ?>>2 Years</option>
                         <option value="3_years"    <?php echo (($_POST['warranty_expiry'] ?? '') == '3_years')    ? 'selected' : ''; ?>>3 Years</option>
                         <option value="5_years"    <?php echo (($_POST['warranty_expiry'] ?? '') == '5_years')    ? 'selected' : ''; ?>>5 Years</option>
+                        <option value="10_years"   <?php echo (($_POST['warranty_expiry'] ?? '') == '10_years')   ? 'selected' : ''; ?>>10 Years</option>
                         <option value="lifetime"   <?php echo (($_POST['warranty_expiry'] ?? '') == 'lifetime')   ? 'selected' : ''; ?>>Lifetime</option>
                         <option value="no_warranty"<?php echo (($_POST['warranty_expiry'] ?? '') == 'no_warranty')? 'selected' : ''; ?>>No Warranty</option>
                     </select>

@@ -51,13 +51,13 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             }
             
             // Allow multiple N/A entries and allow duplicate custom tags (same asset tag for related items like Laptop + Charger)
-            $new_asset_tag_upper = strtoupper($new_asset_tag);
-            if ($new_asset_tag_upper === 'N/A') {
+            // Preserve the case the user typed - only use uppercase for comparison
+            if (strtoupper($new_asset_tag) === 'N/A') {
                 // Convert N/A to NULL to allow multiple items without asset tags
-                $new_asset_tag_upper = null;
+                $new_asset_tag = null;
             } else {
-                // Allow duplicate asset tags - same tag can be used for multiple devices
-                $new_asset_tag_upper = $new_asset_tag_upper;
+                // Allow duplicate asset tags - same tag can be used for multiple devices (keep original case)
+                // $new_asset_tag stays as typed
             }
             $assetTagChanged = true;
         }
@@ -67,7 +67,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         // Update device
         if ($assetTagChanged) {
             $stmt = $pdo->prepare("UPDATE devices SET device_type_id=?, brand=?, model=?, serial_number=?, ip_address=?, pc_name=?, mac_address=?, specifications=?, purchase_date=?, vendor=?, warranty_expiry=?, purchase_price=?, location=?, condition_notes=?, status=?, asset_tag=? WHERE id=?");
-            $stmt->execute([$device_type_id, $brand, $model, $serial_number, $ip_address, $pc_name, $mac_address, $specifications, $purchase_date, $vendor, $warranty_expiry, $purchase_price, $location, $condition_notes, $status, $new_asset_tag_upper, $id]);
+            $stmt->execute([$device_type_id, $brand, $model, $serial_number, $ip_address, $pc_name, $mac_address, $specifications, $purchase_date, $vendor, $warranty_expiry, $purchase_price, $location, $condition_notes, $status, $new_asset_tag, $id]);
         } else {
             $stmt = $pdo->prepare("UPDATE devices SET device_type_id=?, brand=?, model=?, serial_number=?, ip_address=?, pc_name=?, mac_address=?, specifications=?, purchase_date=?, vendor=?, warranty_expiry=?, purchase_price=?, location=?, condition_notes=?, status=? WHERE id=?");
             $stmt->execute([$device_type_id, $brand, $model, $serial_number, $ip_address, $pc_name, $mac_address, $specifications, $purchase_date, $vendor, $warranty_expiry, $purchase_price, $location, $condition_notes, $status, $id]);
@@ -80,7 +80,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         if ($assetTagChanged) {
             $changeDetails = json_encode([
                 'old_asset_tag' => $device['asset_tag'],
-                'new_asset_tag' => $new_asset_tag_upper,
+                'new_asset_tag' => $new_asset_tag,
                 'changed_by' => $_SESSION['user_id'],
                 'changed_by_id' => $asset_tag_changed_by,
                 'change_timestamp' => date('Y-m-d H:i:s')
@@ -88,7 +88,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             logAudit($_SESSION['user_id'], 'Asset Tag Change', 'devices', $id, json_encode(['asset_tag' => $device['asset_tag']]), $changeDetails);
         }
 
-        setFlashMessage('success', "<i class='fas fa-check-circle'></i> <strong>✓ Device Updated Successfully!</strong><br><strong>Serial:</strong> " . sanitize($device['serial_number']) . " | <strong>Asset Tag:</strong> " . ($new_asset_tag_upper ?? $device['asset_tag'] ?? 'N/A') . ($assetTagChanged ? " | <strong style='color:#e74c3c;'>Tag Changed</strong>" : "") . " | <strong>Updated by:</strong> " . htmlspecialchars($_SESSION['full_name']));
+        setFlashMessage('success', "<i class='fas fa-check-circle'></i> <strong>✓ Device Updated Successfully!</strong><br><strong>Serial:</strong> " . sanitize($device['serial_number']) . " | <strong>Asset Tag:</strong> " . ($new_asset_tag ?? $device['asset_tag'] ?? 'N/A') . ($assetTagChanged ? " | <strong style='color:#e74c3c;'>Tag Changed</strong>" : "") . " | <strong>Updated by:</strong> " . htmlspecialchars($_SESSION['full_name']));
         header('Location: devices.php');
         exit();
     } catch (PDOException $e) {

@@ -135,7 +135,7 @@ $assignedUsers = $pdo->query("SELECT DISTINCT u.full_name FROM devices d LEFT JO
                     <?php else: ?>
                     <?php foreach ($devices as $dev): ?>
                     <tr>
-                        <td><strong><?php echo sanitize($dev['asset_tag']); ?></strong></td>
+                        <td><strong><?php echo sanitize($dev['asset_tag'] ?: 'N/A'); ?></strong></td>
                         <td><?php echo sanitize($dev['pc_name'] ?: 'N/A'); ?></td>
                         <td><?php echo sanitize($dev['type_name']); ?></td>
                         <td><?php echo sanitize($dev['ip_address'] ?: 'N/A'); ?></td>
@@ -386,7 +386,7 @@ function renderUserModal(body, u, assets) {
         var rows = assets.map(function(a) {
             return '<tr>'
                 + '<td style="padding:10px 12px;border-bottom:1px solid #f0f2f8;">'
-                +   '<strong>'+_esc(a.asset_tag)+'</strong></td>'
+                +   '<strong>'+_esc(a.asset_tag || 'N/A')+'</strong></td>'
                 + '<td style="padding:10px 12px;border-bottom:1px solid #f0f2f8;color:#2980b9;font-weight:600;">'
                 +   _esc(a.pc_name)+'</td>'
                 + '<td style="padding:10px 12px;border-bottom:1px solid #f0f2f8;color:#2980b9;font-weight:600;">'
