@@ -232,7 +232,8 @@ function notifyITStaff($type, $title, $message, $related_id = 0) {
     global $pdo;
     error_log("[NOTIFY_IT_STAFF] Called with: type='$type', title='$title', related_id=$related_id");
     
-    $itUsers = $pdo->query("SELECT id FROM users WHERE role IN ('admin', 'it_staff')")->fetchAll();
+    // Fetch IT staff with their email addresses
+    $itUsers = $pdo->query("SELECT id, email, full_name FROM users WHERE role IN ('admin', 'it_staff') AND status = 'active'")->fetchAll();
     error_log("[NOTIFY_IT_STAFF] Found " . count($itUsers) . " IT staff members");
     
     $stmt = $pdo->prepare("
@@ -249,6 +250,87 @@ function notifyITStaff($type, $title, $message, $related_id = 0) {
             error_log("[NOTIFY_IT_STAFF] ✓ Insert successful for user {$user['id']}");
         } catch (Exception $e) {
             error_log("[NOTIFY_IT_STAFF] ❌ Insert failed: " . $e->getMessage());
+        }
+    }
+    
+    // Send email notifications for important notification types
+    if (isEmailConfigured() && !empty($itUsers)) {
+        error_log("[NOTIFY_IT_STAFF_EMAIL] Checking if email should be sent for type='$type'");
+        
+        $emailNotificationTypes = ['user_clearance_required', 'device_deployed', 'device_returned', 'repair_needed'];
+        
+        if (in_array($type, $emailNotificationTypes)) {
+            error_log("[NOTIFY_IT_STAFF_EMAIL] Sending email for type='$type' to " . count($itUsers) . " staff members");
+            sendEmailNotificationToITStaff($type, $title, $message, $related_id, $itUsers);
+        }
+    }
+}
+
+function sendEmailNotificationToITStaff($type, $title, $message, $related_id, $itUsers) {
+    global $pdo;
+    
+    // Get additional context based on notification type
+    $context = '';
+    $deviceInfo = '';
+    $employeeInfo = '';
+    $actionUrl = '';
+    
+    if ($type === 'user_clearance_required' && $related_id > 0) {
+        // Resolve assignment to get device and employee info
+        $stmt = $pdo->prepare("
+            SELECT da.id, da.employee_id, da.device_id, 
+                   u.full_name, u.email, u.employee_id as emp_id, u.department,
+                   d.asset_tag, d.brand, d.model
+            FROM device_assignments da
+            JOIN users u ON da.employee_id = u.id
+            JOIN devices d ON da.device_id = d.id
+            WHERE da.id = ?
+            LIMIT 1
+        ");
+        $stmt->execute([$related_id]);
+        $assignment = $stmt->fetch(PDO::FETCH_ASSOC);
+        
+        if ($assignment) {
+            $employeeInfo = $assignment['full_name'] . " (ID: " . $assignment['emp_id'] . ", Dept: " . $assignment['department'] . ")";
+            $deviceInfo = $assignment['asset_tag'] . " - " . $assignment['brand'] . " " . $assignment['model'];
+            $actionUrl = 'it_clearance.php?user_id=' . $assignment['employee_id'] . '&device_id=' . $assignment['device_id'] . '&assignment_id=' . $related_id;
+            
+            $context = "
+                <div style='background: #fff3cd; padding: 15px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #ffc107;'>
+                    <p><strong>Clearance Request Details:</strong></p>
+                    <p><i class='fas fa-user'></i> <strong>Employee:</strong> " . sanitize($employeeInfo) . "</p>
+                    <p><i class='fas fa-laptop'></i> <strong>Device:</strong> " . sanitize($deviceInfo) . "</p>
+                    <p><i class='fas fa-clock'></i> <strong>Requested:</strong> " . date('F d, Y g:i A') . "</p>
+                </div>
+            ";
+        }
+    }
+    
+    error_log("[NOTIFY_IT_STAFF_EMAIL] Preparing email body for " . count($itUsers) . " recipients");
+    
+    foreach ($itUsers as $staff) {
+        if (empty($staff['email'])) {
+            error_log("[NOTIFY_IT_STAFF_EMAIL] Skipping staff member (no email): " . $staff['full_name']);
+            continue;
+        }
+        
+        $emailBody = emailTemplate(
+            $title,
+            "<p>Hello <strong>" . sanitize($staff['full_name']) . "</strong>,</p>
+            <p>" . sanitize($message) . "</p>" .
+            $context .
+            "<p style='margin-top: 20px; color: #666; font-size: 14px;'>This is an automated notification from the KBMC Asset Management System. Please review and take action as needed.</p>",
+            $actionUrl ? 'Review in System' : '',
+            $actionUrl ? ('http://' . $_SERVER['HTTP_HOST'] . dirname($_SERVER['PHP_SELF']) . '/' . $actionUrl) : ''
+        );
+        
+        $subject = '[KBMC Alert] ' . $title;
+        $result = sendEmail($staff['email'], $subject, $emailBody);
+        
+        if ($result['success'] ?? false) {
+            error_log("[NOTIFY_IT_STAFF_EMAIL] ✓ Email sent to " . $staff['email']);
+        } else {
+            error_log("[NOTIFY_IT_STAFF_EMAIL] ❌ Email failed for " . $staff['email'] . ": " . ($result['message'] ?? 'Unknown error'));
         }
     }
 }
