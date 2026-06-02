@@ -215,11 +215,6 @@ $pendingReqCount = $pdo->query("SELECT COUNT(*) FROM device_requests WHERE statu
         <a href="requests.php?action=new" class="btn btn-warning">
             <i class="fas fa-hand-paper"></i> Request Device
         </a>
-        <?php if (hasRole('admin') || hasRole('it_staff')): ?>
-        <a href="reports.php" class="btn btn-outline">
-            <i class="fas fa-download"></i> Generate Report
-        </a>
-        <?php endif; ?>
         <?php if ($pendingReqCount > 0 && (hasRole('admin') || hasRole('it_staff'))): ?>
         <a href="requests.php" class="btn btn-danger">
             <i class="fas fa-bell"></i> <?php echo $pendingReqCount; ?> Pending Request<?php echo $pendingReqCount > 1 ? 's' : ''; ?>

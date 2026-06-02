@@ -125,6 +125,30 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             ':pw'        => $hashedPw,
             ':mk'        => $masterKey,
         ]);
+        $newUserId = $pdo->lastInsertId();
+        
+        // Send notifications if IT user or admin was created
+        if (in_array($role, ['it_staff', 'admin'])) {
+            try {
+                $ch = curl_init();
+                $sessionCookie = session_name() . '=' . session_id();
+                curl_setopt_array($ch, [
+                    CURLOPT_URL => 'http://' . $_SERVER['HTTP_HOST'] . dirname($_SERVER['PHP_SELF']) . '/api_send_it_user_creation_notification.php',
+                    CURLOPT_RETURNTRANSFER => true,
+                    CURLOPT_POST => true,
+                    CURLOPT_COOKIE => $sessionCookie,
+                    CURLOPT_HTTPHEADER => ['Content-Type: application/json'],
+                    CURLOPT_POSTFIELDS => json_encode(['user_id' => (int)$newUserId]),
+                    CURLOPT_TIMEOUT => 5
+                ]);
+                $response = curl_exec($ch);
+                curl_close($ch);
+                error_log("IT user creation notification sent for user {$newUserId}");
+            } catch (Exception $e) {
+                error_log("Failed to send IT user creation notification: " . $e->getMessage());
+            }
+        }
+        
         header("Location: users.php?success=User+added+successfully");
         exit;
     }

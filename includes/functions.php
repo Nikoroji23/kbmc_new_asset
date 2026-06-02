@@ -80,16 +80,166 @@ function getUserInfo($userId) {
 
 function getUnreadNotificationCount($userId) {
     global $pdo;
-    $stmt = $pdo->prepare("SELECT COUNT(*) FROM notifications WHERE user_id = ? AND is_read = 0");
-    $stmt->execute([$userId]);
+    
+    // Get user role
+    $userStmt = $pdo->prepare("SELECT role FROM users WHERE id = ?");
+    $userStmt->execute([$userId]);
+    $user = $userStmt->fetch();
+    $userRole = $user['role'] ?? 'employee';
+    
+    // IT staff see ALL unread notifications
+    if ($userRole === 'it_staff') {
+        $stmt = $pdo->prepare("SELECT COUNT(*) FROM notifications WHERE user_id = ? AND is_read = 0");
+        $stmt->execute([$userId]);
+    } 
+    // Admins only count admin-relevant notifications
+    else if ($userRole === 'admin') {
+        $adminTypes = [
+            'audit_reminder',
+            'user_approval_pending',
+            'user_approval_requested',
+            'request_approved',
+            'request_rejected',
+            'account_recovery_requested',
+            'account_recovery_approved',
+            'account_recovery_rejected',
+            'it_user_created',
+            'it_user_security_granted'
+        ];
+        $placeholders = implode(',', array_fill(0, count($adminTypes), '?'));
+        $stmt = $pdo->prepare("SELECT COUNT(*) FROM notifications WHERE user_id = ? AND is_read = 0 AND type IN ($placeholders)");
+        $params = [$userId];
+        foreach ($adminTypes as $type) {
+            $params[] = $type;
+        }
+        $stmt->execute($params);
+    } else {
+        // Regular employees see all their unread notifications
+        $stmt = $pdo->prepare("SELECT COUNT(*) FROM notifications WHERE user_id = ? AND is_read = 0");
+        $stmt->execute([$userId]);
+    }
+    
     return $stmt->fetchColumn();
 }
 
 function getNotifications($userId, $limit = 5) {
     global $pdo;
-    $stmt = $pdo->prepare("SELECT * FROM notifications WHERE user_id = ? ORDER BY created_at DESC LIMIT ?");
-    $stmt->execute([$userId, $limit]);
+    
+    // Get user role to determine notification filtering
+    $userStmt = $pdo->prepare("SELECT role FROM users WHERE id = ?");
+    $userStmt->execute([$userId]);
+    $user = $userStmt->fetch();
+    $userRole = $user['role'] ?? 'employee';
+    
+    // IT staff see ALL notifications (device, maintenance, repairs, etc.)
+    if ($userRole === 'it_staff') {
+        $stmt = $pdo->prepare("SELECT * FROM notifications WHERE user_id = ? ORDER BY created_at DESC LIMIT ?");
+        $stmt->execute([$userId, $limit]);
+    } 
+    // Admins only retrieve admin-relevant notifications
+    else if ($userRole === 'admin') {
+        $adminTypes = [
+            'audit_reminder',
+            'user_approval_pending',
+            'user_approval_requested',
+            'request_approved',
+            'request_rejected',
+            'account_recovery_requested',
+            'account_recovery_approved',
+            'account_recovery_rejected',
+            'it_user_created',
+            'it_user_security_granted'
+        ];
+        $placeholders = implode(',', array_fill(0, count($adminTypes), '?'));
+        $stmt = $pdo->prepare("SELECT * FROM notifications WHERE user_id = ? AND type IN ($placeholders) ORDER BY created_at DESC LIMIT ?");
+        $params = [$userId];
+        foreach ($adminTypes as $type) {
+            $params[] = $type;
+        }
+        $params[] = $limit;
+        $stmt->execute($params);
+    } else {
+        // Regular employees see all their notifications
+        $stmt = $pdo->prepare("SELECT * FROM notifications WHERE user_id = ? ORDER BY created_at DESC LIMIT ?");
+        $stmt->execute([$userId, $limit]);
+    }
+    
     return $stmt->fetchAll();
+}
+
+function isAdminRelevantNotification($type) {
+    $adminTypes = [
+        'low_stock',
+        'audit_reminder',
+        'user_approval_pending',
+        'user_approval_requested',
+        'request_approved',
+        'request_rejected',
+        'account_recovery_requested',
+        'account_recovery_approved',
+        'account_recovery_rejected',
+        'it_user_created',
+        'it_user_security_granted'
+    ];
+    return in_array($type, $adminTypes);
+}
+
+/**
+ * Get notification types for the 3 main admin features
+ * 1. Security Features (master keys, recovery, security alerts)
+ * 2. Request Approval (device requests)
+ * 3. User Management (user accounts, approvals)
+ */
+function getAdminMainFeatureNotificationTypes() {
+    return [
+        // Security Features
+        'account_recovery_requested',
+        'account_recovery_approved',
+        'account_recovery_rejected',
+        'admin_alert_failed_logins',
+        'admin_alert_security_warning',
+        'admin_alert_system_alert',
+        
+        // Request Approval
+        'request_approved',
+        'request_rejected',
+        
+        // User Management
+        'user_approval_requested',
+        'user_creation_approved',
+        'user_creation_rejected',
+        'new_user_account_created'
+    ];
+}
+
+/**
+ * Categorize admin notifications by feature
+ */
+function categorizeAdminNotifications($notifications) {
+    $categories = [
+        'security' => [],
+        'requests' => [],
+        'users' => []
+    ];
+    
+    foreach ($notifications as $notif) {
+        $type = $notif['type'] ?? '';
+        
+        // Security Features
+        if (in_array($type, ['account_recovery_requested', 'account_recovery_approved', 'account_recovery_rejected', 'admin_alert_failed_logins', 'admin_alert_security_warning', 'admin_alert_system_alert'])) {
+            $categories['security'][] = $notif;
+        }
+        // Request Approval
+        elseif (in_array($type, ['request_approved', 'request_rejected'])) {
+            $categories['requests'][] = $notif;
+        }
+        // User Management
+        elseif (in_array($type, ['user_approval_requested', 'user_creation_approved', 'user_creation_rejected', 'new_user_account_created'])) {
+            $categories['users'][] = $notif;
+        }
+    }
+    
+    return $categories;
 }
 
 function filterUniqueEmails(array $recipients) {
@@ -510,8 +660,49 @@ function getNotificationUrl(array $notif): string
     $type  = $notif['type']         ?? '';
     $refId = (int)($notif['related_id'] ?? 0);
     $role  = $_SESSION['role'] ?? 'employee';
-    $isIT  = in_array($role, ['admin', 'it_staff']);
+    $isAdmin = $role === 'admin';
+    $isIT  = $role === 'it_staff';
 
+    // ADMIN-SPECIFIC NOTIFICATIONS
+    if ($isAdmin) {
+        switch ($type) {
+            case 'account_recovery_requested':
+            case 'account_recovery_approved':
+            case 'account_recovery_rejected':
+                return 'recovery_requests.php?status=pending';
+
+            case 'user_approval_requested':
+            case 'user_creation_approved':
+            case 'user_creation_rejected':
+                return 'users.php?tab=approvals';
+
+            case 'it_user_created':
+            case 'it_user_security_granted':
+                return 'users.php';
+
+            case 'new_user_account_created':
+                return 'admin_accounts.php';
+
+            case 'audit_reminder':
+                return 'recovery_requests.php';
+
+            case 'admin_alert_device_critical':
+            case 'admin_alert_maintenance_overdue':
+            case 'admin_alert_device_issue':
+                return $refId ? 'view_device.php?id=' . $refId : 'devices.php';
+
+            case 'admin_alert_failed_logins':
+            case 'admin_alert_security_warning':
+            case 'admin_alert_system_alert':
+            case 'admin_alert_custom':
+                return 'admin_dashboard.php';
+
+            default:
+                return 'admin_dashboard.php';
+        }
+    }
+
+    // IT STAFF NOTIFICATIONS
     if ($isIT) {
         if (str_starts_with($type, 'lifespan_')) {
             return $refId
@@ -520,6 +711,14 @@ function getNotificationUrl(array $notif): string
         }
 
         switch ($type) {
+            case 'user_approval_pending':
+            case 'user_approval_requested':
+                return 'security_control.php';
+            
+            case 'it_user_created':
+            case 'it_user_security_granted':
+                return 'assign_security_it.php';
+            
             case 'repair_needed':
             case 'repair_pending':
                 return 'maintenance_repairs.php';
@@ -567,7 +766,12 @@ function getNotificationUrl(array $notif): string
                 return $refId ? 'it_clearance.php?user_id=' . $refId : 'it_clearance.php';
 
             case 'audit_reminder':
-                return 'users.php#recovery';
+                return 'recovery_requests.php';
+
+            case 'account_recovery_requested':
+            case 'account_recovery_approved':
+            case 'account_recovery_rejected':
+                return 'recovery_requests.php';
 
             case 'device_request':
                 return 'requests.php';
@@ -597,6 +801,10 @@ function getNotificationUrl(array $notif): string
         case 'request_approved':
         case 'request_rejected':
             return 'requests.php';
+
+        case 'account_recovery_approved':
+        case 'account_recovery_rejected':
+            return 'dashboard.php';
 
         case 'user_clearance_completed':
             return $refId ? 'it_clearance.php?user_id=' . $refId . '&done=1' : 'dashboard.php';
@@ -1226,7 +1434,7 @@ function submitAccountRecovery($userId, $reason) {
     $stmt->execute([$userId, $reason]);
     $admins = $pdo->query("SELECT id FROM users WHERE role = 'admin'")->fetchAll();
     foreach ($admins as $admin) {
-        addNotification($admin['id'], 'audit_reminder', 'Account Recovery Request',
+        addNotification($admin['id'], 'account_recovery_requested', 'Account Recovery Request',
             'A user has submitted an account recovery request.', $pdo->lastInsertId());
     }
     return $pdo->lastInsertId();

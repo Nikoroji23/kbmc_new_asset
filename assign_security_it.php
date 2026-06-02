@@ -37,6 +37,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $name = $user['full_name'] ?? 'IT Staff';
         logAudit($_SESSION['user_id'], 'Update Security IT Approver', 'users', $targetUserId, null, "is_security_admin={$enabled}");
         setFlashMessage('success', "Security IT approval privileges have been {$display} for {$name}.");
+        
+        // Sync notifications after granting security access
+        if ($enabled) {
+            try {
+                $ch = curl_init();
+                $sessionCookie = session_name() . '=' . session_id();
+                curl_setopt_array($ch, [
+                    CURLOPT_URL => 'http://' . $_SERVER['HTTP_HOST'] . dirname($_SERVER['PHP_SELF']) . '/api_sync_it_user_security_notifications.php',
+                    CURLOPT_RETURNTRANSFER => true,
+                    CURLOPT_POST => true,
+                    CURLOPT_COOKIE => $sessionCookie,
+                    CURLOPT_HTTPHEADER => ['Content-Type: application/json'],
+                    CURLOPT_POSTFIELDS => json_encode(['user_id' => (int)$targetUserId]),
+                    CURLOPT_TIMEOUT => 5
+                ]);
+                $response = curl_exec($ch);
+                curl_close($ch);
+                error_log("Security IT notifications synced for user {$targetUserId}");
+            } catch (Exception $e) {
+                error_log("Failed to sync security IT notifications: " . $e->getMessage());
+            }
+        }
     } else {
         setFlashMessage('error', 'Unable to update Security IT approver status. Make sure the selected user is IT staff.');
     }

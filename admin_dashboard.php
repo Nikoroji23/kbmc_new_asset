@@ -43,6 +43,11 @@ $recentLogs = $stmt->fetchAll();
 $stmt = $pdo->query("SELECT ar.*, u.full_name, u.email FROM account_recovery_requests ar JOIN users u ON ar.user_id = u.id WHERE ar.status = 'pending' ORDER BY ar.requested_at DESC LIMIT 5");
 $recoveryRequests = $stmt->fetchAll();
 
+// Get latest notifications for current admin user
+$stmt = $pdo->prepare("SELECT * FROM notifications WHERE user_id = ? ORDER BY created_at DESC LIMIT 50");
+$stmt->execute([$_SESSION['user_id']]);
+$allAdminNotifs = $stmt->fetchAll();
+
 // Master Key: Handle regen with CSRF verification
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'regen_master_key') {
     if (
@@ -403,7 +408,7 @@ table.mk-tbl {
 <div class="card" style="margin-top: 20px;">
     <div class="card-header">
         <h3><i class="fas fa-user-shield"></i> Pending Account Recovery Requests</h3>
-        <a href="users.php#recovery" class="btn btn-sm btn-outline">View All</a>
+        <a href="recovery_requests.php" class="btn btn-sm btn-outline">View All</a>
     </div>
     <div class="card-body">
         <div class="data-table-wrapper">
@@ -415,6 +420,7 @@ table.mk-tbl {
                         <th>Department</th>
                         <th>Reason</th>
                         <th>Date</th>
+                        <th>Actions</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -425,6 +431,11 @@ table.mk-tbl {
                         <td><?php echo sanitize($req['department'] ?? 'N/A'); ?></td>
                         <td><small><?php echo sanitize(substr($req['request_reason'] ?? '', 0, 40)); ?></small></td>
                         <td><?php echo formatDate($req['requested_at']); ?></td>
+                        <td style="white-space: nowrap;">
+                            <a href="recovery_requests.php" class="btn btn-sm btn-outline" title="Review in detail">
+                                <i class="fas fa-arrow-right"></i> Review
+                            </a>
+                        </td>
                     </tr>
                     <?php endforeach; ?>
                 </tbody>

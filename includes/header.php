@@ -8,7 +8,7 @@ fixDeploymentStatusConsistency();
 
 $user = getUserInfo($_SESSION['user_id']);
 $unreadCount = getUnreadNotificationCount($_SESSION['user_id']);
-$notifications = getNotifications($_SESSION['user_id'], 5);
+$notifications = getNotifications($_SESSION['user_id'], 10);
 $pageTitle = $pageTitle ?? 'KBMC Asset Management';
 ?>
 <!DOCTYPE html>
@@ -171,18 +171,16 @@ $pageTitle = $pageTitle ?? 'KBMC Asset Management';
             </a>
             <?php endif; ?>
 
-            <?php if (!hasRole('admin')): ?>
             <a href="requests.php" class="nav-item <?php echo basename($_SERVER['PHP_SELF']) == 'requests.php' ? 'active' : ''; ?>">
                 <i class="fas fa-hand-paper"></i>
                 <span>Device Requests</span>
                 <?php
                 $pendingRequests = $pdo->query("SELECT COUNT(*) FROM device_requests WHERE status = 'pending'")->fetchColumn();
-                if ($pendingRequests > 0 && !hasRole('admin')):
+                if ($pendingRequests > 0):
                 ?>
                 <span class="nav-badge"><?php echo $pendingRequests; ?></span>
                 <?php endif; ?>
             </a>
-            <?php endif; ?>
 
             <div class="nav-section">Tools & Search</div>
             <?php if (!hasRole('employee')): ?>
@@ -211,21 +209,13 @@ $pageTitle = $pageTitle ?? 'KBMC Asset Management';
             </a>
             <?php endif; ?>
 
-            <?php if (hasRole('admin') || hasRole('it_staff')): ?>
-            <div class="nav-section">Reports</div>
-            <a href="reports.php" class="nav-item <?php echo basename($_SERVER['PHP_SELF']) == 'reports.php' ? 'active' : ''; ?>">
-                <i class="fas fa-chart-bar"></i>
-                <span>Reports & Analytics</span>
-            </a>
-            <?php endif; ?>
-
             <?php if (hasRole('admin')): ?>
             <div class="nav-section">Administration</div>
             <a href="users.php" class="nav-item <?php echo basename($_SERVER['PHP_SELF']) == 'users.php' ? 'active' : ''; ?>">
                 <i class="fas fa-users-cog"></i>
                 <span>Manage Users</span>
             </a>
-            <a href="users.php#recovery" class="nav-item">
+            <a href="recovery_requests.php" class="nav-item">
                 <i class="fas fa-user-shield"></i>
                 <span>Recovery Requests</span>
                 <?php
@@ -259,7 +249,13 @@ $pageTitle = $pageTitle ?? 'KBMC Asset Management';
             <div class="header-title"><?php echo sanitize($pageTitle); ?></div>
             <div class="header-actions">
                 <div class="notification-dropdown">
-                    <button class="notif-btn" id="notifToggle">
+                    <button class="notif-btn" id="notifToggle" type="button" onclick="
+                        var dropdown = document.getElementById('notifDropdown');
+                        if (dropdown) {
+                            dropdown.classList.toggle('show');
+                        }
+                        return false;
+                    ">
                         <i class="fas fa-bell"></i>
                         <?php if ($unreadCount > 0): ?>
                         <span class="notif-badge"><?php echo $unreadCount; ?></span>
@@ -301,6 +297,10 @@ $pageTitle = $pageTitle ?? 'KBMC Asset Management';
                                             'warranty_expiring' => 'clock',
                                             'user_clearance_required' => 'file-signature',
                                             'user_clearance_completed' => 'user-check',
+                                            'user_approval_pending' => 'user-check',
+                                            'user_approval_requested' => 'user-shield',
+                                            'it_user_created' => 'user-plus',
+                                            'it_user_security_granted' => 'user-shield',
                                             'voluntary_return_requested' => 'hand-holding',
                                             'lifespan_monitor' => 'eye',
                                             'lifespan_replace_soon' => 'hourglass-half',

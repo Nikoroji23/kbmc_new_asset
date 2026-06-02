@@ -32,33 +32,30 @@
     <script src="assets/js/main.js"></script>
     <script src="assets/js/it_user_modal.js"></script>
     <script>
-        // Setup event delegation for notification items that may be added dynamically
-        document.addEventListener('DOMContentLoaded', function () {
-            console.log('DOMContentLoaded: Setting up notification handlers');
-            
+        // Setup notification handlers with guaranteed timing
+        function setupNotificationHandlers() {
             var notifToggle = document.getElementById('notifToggle');
             var notifDropdown = document.getElementById('notifDropdown');
 
             if (notifToggle && notifDropdown) {
-                console.log('✓ Notification dropdown found');
-                
+                // Toggle dropdown on bell button click
                 notifToggle.addEventListener('click', function (event) {
+                    event.preventDefault();
                     event.stopPropagation();
                     notifDropdown.classList.toggle('show');
-                    console.log('Notification dropdown toggled');
                 });
 
+                // Close dropdown when clicking outside
                 document.addEventListener('click', function (event) {
-                    if (!notifDropdown.contains(event.target) && event.target !== notifToggle) {
+                    if (!notifDropdown.contains(event.target) && event.target !== notifToggle && !notifToggle.contains(event.target)) {
                         notifDropdown.classList.remove('show');
                     }
                 });
 
-                // Event delegation: handle clicks on dynamically loaded notif-items
+                // Handle clicks on notification items in the dropdown
                 notifDropdown.addEventListener('click', function(event) {
                     var notifItem = event.target.closest('.notif-item');
                     if (notifItem) {
-                        console.log('🔔 Dropdown notification clicked');
                         event.stopPropagation();
                         handleNotificationClick(notifItem);
                     }
@@ -67,15 +64,20 @@
 
             // Also handle static notification list items (.notif-clickable)
             var notifClickables = document.querySelectorAll('.notif-clickable');
-            console.log('Found', notifClickables.length, 'static notification items');
             notifClickables.forEach(function(item) {
                 item.addEventListener('click', function(event) {
-                    console.log('🔔 Static notification clicked');
-                    if (event.target.closest('a')) return; // Don't intercept links
+                    if (event.target.closest('a')) return;
                     handleNotificationClick(this);
                 });
             });
-        });
+        }
+
+        // Run immediately if DOM is ready, otherwise wait
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', setupNotificationHandlers);
+        } else {
+            setupNotificationHandlers();
+        }
     </script>
 <?php ob_end_flush(); ?>
 </body>

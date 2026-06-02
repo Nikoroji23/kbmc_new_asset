@@ -128,4 +128,37 @@ document.addEventListener('DOMContentLoaded', function () {
         });
         doc.save(filename);
     };
+
+    // Setup notification dropdown handlers
+    (function setupNotifications() {
+        var notifToggle = document.getElementById('notifToggle');
+        var notifDropdown = document.getElementById('notifDropdown');
+
+        if (notifToggle && notifDropdown) {
+            // Toggle dropdown on bell button click
+            notifToggle.addEventListener('click', function (event) {
+                event.preventDefault();
+                event.stopPropagation();
+                notifDropdown.classList.toggle('show');
+            });
+
+            // Close dropdown when clicking outside
+            document.addEventListener('click', function (event) {
+                if (!notifDropdown.contains(event.target) && event.target !== notifToggle && !notifToggle.contains(event.target)) {
+                    notifDropdown.classList.remove('show');
+                }
+            });
+
+            // Handle clicks on notification items in the dropdown
+            notifDropdown.addEventListener('click', function(event) {
+                var notifItem = event.target.closest('.notif-item');
+                if (notifItem) {
+                    event.stopPropagation();
+                    if (typeof handleNotificationClick === 'function') {
+                        handleNotificationClick(notifItem);
+                    }
+                }
+            });
+        }
+    })();
 });

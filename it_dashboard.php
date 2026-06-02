@@ -38,11 +38,6 @@ $recentDeployments = $stmt->fetchAll();
 // Get latest audit logs (for IT staff to view)
 $stmt = $pdo->query("SELECT al.*, u.full_name FROM audit_logs al LEFT JOIN users u ON al.user_id = u.id ORDER BY al.created_at DESC LIMIT 10");
 $auditLogs = $stmt->fetchAll();
-
-// Get latest notifications for current user
-$stmt = $pdo->prepare("SELECT * FROM notifications WHERE user_id = ? ORDER BY created_at DESC LIMIT 10");
-$stmt->execute([$_SESSION['user_id']]);
-$latestNotifications = $stmt->fetchAll();
 ?>
 
 <!-- IT Dashboard Header -->
@@ -109,6 +104,8 @@ $latestNotifications = $stmt->fetchAll();
         </div>
     </div>
 </div>
+
+
 
 <!-- Quick Actions -->
 <div class="card" style="margin-top: 20px;">

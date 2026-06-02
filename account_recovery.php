@@ -7,6 +7,7 @@ require_once 'includes/functions.php';
 
 $message = '';
 $error = '';
+$successData = null;
 
 if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     $email = trim($_POST['email'] ?? '');
@@ -28,12 +29,13 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             if ($pending > 0) {
                 $error = 'You already have a pending recovery request. Please wait for an administrator to review it.';
             } else {
-                submitAccountRecovery($user['id'], $reason);
-
-                $message = 'Your account recovery request has been submitted successfully. An administrator will review it shortly.<br><br>
-                <strong>Account:</strong> ' . sanitize($user['full_name']) . '<br>
-                <strong>Status:</strong> ' . ucfirst($user['status']) . '<br>
-                <strong>Request ID:</strong> #' . $pdo->lastInsertId();
+                $requestId = submitAccountRecovery($user['id'], $reason);
+                $message = 'success';
+                $successData = [
+                    'name' => $user['full_name'],
+                    'status' => ucfirst($user['status']),
+                    'requestId' => $requestId
+                ];
             }
         } else {
             $error = 'No account found with this email address.';
@@ -60,9 +62,24 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         .recovery-info h4 { font-size: 13px; color: #2c3e50; margin: 0 0 8px; }
         .recovery-info ul { margin: 0; padding-left: 18px; font-size: 12px; color: #555; }
         .recovery-info li { margin-bottom: 4px; }
-        .recovery-form .form-group { text-align: left; margin-bottom: 18px; }
+        .recovery-success { background: #d4edda; border: 2px solid #27ae60; border-radius: 8px; padding: 20px; text-align: left; margin-bottom: 25px; }
+        .recovery-success-header { display: flex; align-items: center; gap: 12px; margin-bottom: 15px; }
+        .recovery-success-header i { font-size: 24px; color: #27ae60; }
+        .recovery-success-header h4 { margin: 0; color: #27ae60; font-size: 16px; font-weight: 600; }
+        .recovery-success-message { color: #155724; font-size: 13px; margin-bottom: 15px; line-height: 1.5; }
+        .recovery-details { background: #f9f9f9; border-radius: 6px; padding: 12px; margin-top: 15px; border: 1px solid #e0e0e0; }
+        .recovery-detail-row { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid #e8e8e8; }
+        .recovery-detail-row:last-child { border-bottom: none; }
+        .recovery-detail-label { font-size: 12px; font-weight: 600; color: #666; text-align: left; }
+        .recovery-detail-value { font-size: 13px; color: #2c3e50; font-weight: 500; }
+        .recovery-form { text-align: left; }
+        .recovery-form .form-group { margin-bottom: 18px; }
         .recovery-form .form-group label { display: block; font-size: 13px; font-weight: 600; color: #2c3e50; margin-bottom: 8px; }
-        .recovery-form .btn { width: 100%; justify-content: center; padding: 13px; font-size: 15px; }
+        .recovery-form .form-control { width: 100%; padding: 10px 12px; border: 1px solid #ddd; border-radius: 6px; font-size: 13px; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; transition: all 0.2s; }
+        .recovery-form .form-control:focus { outline: none; border-color: #3498db; box-shadow: 0 0 0 3px rgba(52, 152, 219, 0.1); background-color: #f8fbff; }
+        .recovery-form .form-control::placeholder { color: #bbb; }
+        .recovery-form .form-control:hover { border-color: #bbb; }
+        .recovery-form .btn { width: 100%; justify-content: center; padding: 13px; font-size: 15px; margin-top: 5px; }
         .back-link { display: inline-flex; align-items: center; gap: 8px; color: #666; text-decoration: none; font-size: 14px; margin-top: 20px; transition: color 0.3s; }
         .back-link:hover { color: var(--kbmc-red); }
     </style>
@@ -91,9 +108,29 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             </div>
             <?php endif; ?>
 
-            <?php if ($message): ?>
-            <div class="alert alert-success" style="margin-bottom: 20px; text-align: left;">
-                <i class="fas fa-check-circle"></i> <?php echo $message; ?>
+            <?php if ($message === 'success' && $successData): ?>
+            <div class="recovery-success">
+                <div class="recovery-success-header">
+                    <i class="fas fa-check-circle"></i>
+                    <h4>Recovery Request Submitted</h4>
+                </div>
+                <div class="recovery-success-message">
+                    Your account recovery request has been submitted successfully. An administrator will review it shortly and contact you within 24-48 hours.
+                </div>
+                <div class="recovery-details">
+                    <div class="recovery-detail-row">
+                        <span class="recovery-detail-label">Account:</span>
+                        <span class="recovery-detail-value"><?php echo sanitize($successData['name']); ?></span>
+                    </div>
+                    <div class="recovery-detail-row">
+                        <span class="recovery-detail-label">Current Status:</span>
+                        <span class="recovery-detail-value"><?php echo $successData['status']; ?></span>
+                    </div>
+                    <div class="recovery-detail-row">
+                        <span class="recovery-detail-label">Request ID:</span>
+                        <span class="recovery-detail-value">#<?php echo $successData['requestId']; ?></span>
+                    </div>
+                </div>
             </div>
             <?php else: ?>
             <form method="POST" class="recovery-form">

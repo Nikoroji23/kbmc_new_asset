@@ -100,7 +100,7 @@ function handleAddUser() {
                 foreach ($securityITApprovers as $approver) {
                     addNotification(
                         $approver['id'],
-                        'user_creation_request',
+                        'user_approval_pending',
                         'New IT/Admin User Request',
                         "A $roleDisplay account request for $full_name has been submitted. Review pending approvals.",
                         $approvalRequestId
