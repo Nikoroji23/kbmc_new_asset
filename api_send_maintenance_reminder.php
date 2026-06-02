@@ -37,9 +37,10 @@ if (!$maintenanceId) {
 try {
     // Get maintenance schedule details
     $stmt = $pdo->prepare("
-        SELECT ms.*, d.asset_tag, d.model, u.email, u.full_name, u.id as assigned_user_id
+        SELECT ms.*, d.asset_tag, d.model, dt.type_name, u.email, u.full_name, u.id as assigned_user_id
         FROM maintenance_schedules ms
         JOIN devices d ON ms.device_id = d.id
+        JOIN device_types dt ON d.device_type_id = dt.id
         LEFT JOIN users u ON ms.assigned_to = u.id
         WHERE ms.id = ?
     ");
@@ -57,14 +58,14 @@ try {
     }
     
     // Prepare email
-    $subject = 'Maintenance Reminder: ' . $maintenance['asset_tag'] . ' - Due ' . date('M d, Y', strtotime($maintenance['next_due_date']));
+    $subject = 'Maintenance Reminder: ' . $maintenance['asset_tag'] . ' (' . $maintenance['type_name'] . ') - Due ' . date('M d, Y', strtotime($maintenance['next_due_date']));
     $body = emailTemplate(
         'Maintenance Reminder',
         "<p>Hello <strong>" . htmlspecialchars($maintenance['full_name']) . "</strong>,</p>
         <p>This is a reminder that maintenance is due for the following device:</p>
         <ul style='margin-left: 20px;'>
             <li><strong>Asset Tag:</strong> " . htmlspecialchars($maintenance['asset_tag']) . "</li>
-            <li><strong>Model:</strong> " . htmlspecialchars($maintenance['model']) . "</li>
+            <li><strong>Device Type:</strong> " . htmlspecialchars($maintenance['type_name']) . "</li>
             <li><strong>Maintenance Type:</strong> " . str_replace('_', ' ', ucfirst($maintenance['maintenance_type'])) . "</li>
             <li><strong>Due Date:</strong> " . date('M d, Y', strtotime($maintenance['next_due_date'])) . "</li>
             <li><strong>Description:</strong> " . htmlspecialchars($maintenance['description']) . "</li>
@@ -89,7 +90,7 @@ try {
     sendPendingEmailNotifications();
 
     if (!empty($maintenance['assigned_user_id'])) {
-        addNotification($maintenance['assigned_user_id'], 'maintenance_due', 'Maintenance Reminder', "Maintenance is due for {$maintenance['asset_tag']} on " . date('M d, Y', strtotime($maintenance['next_due_date'])) . ".", $maintenance['device_id']);
+        addSystemNotificationOnlyIfNotExists($maintenance['assigned_user_id'], 'maintenance_due', 'Maintenance Reminder', "Maintenance is due for {$maintenance['asset_tag']} on " . date('M d, Y', strtotime($maintenance['next_due_date'])) . ".", $maintenance['device_id']);
     }
     $pdo->prepare("
         INSERT INTO maintenance_reminders_sent (maintenance_id, email_notification_id, sent_to_user_id)

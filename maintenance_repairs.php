@@ -41,6 +41,13 @@ if (isset($_POST['create_maintenance'])) {
     $scheduledDate = $_POST['scheduled_date'];
     $assignedTo = !empty($_POST['assigned_to']) ? (int)$_POST['assigned_to'] : null;
 
+    // Validate that IT staff is assigned
+    if (empty($assignedTo)) {
+        setFlashMessage('error', 'You must assign this maintenance to an IT staff member.');
+        header('Location: maintenance_repairs.php?tab=maintenance');
+        exit();
+    }
+
     createMaintenanceSchedule($deviceId, $maintenanceType, $description, $scheduledDate, $assignedTo, $_SESSION['user_id']);
     setFlashMessage('success', 'Maintenance schedule created. Reminders will be sent.');
     header('Location: maintenance_repairs.php?tab=maintenance');
@@ -84,16 +91,77 @@ $allMaintenance = $pdo->query($sql)->fetchAll();
 if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['submit_repair'])) {
     $device_id = $_POST['device_id'] ?? '';
     $issue_description = trim($_POST['issue_description'] ?? '');
+    $assigned_to = !empty($_POST['assigned_to']) ? (int)$_POST['assigned_to'] : null;
+
+    // Validate that IT staff is assigned
+    if (empty($assigned_to)) {
+        setFlashMessage('error', 'You must assign this repair to an IT staff member.');
+        header('Location: maintenance_repairs.php?tab=repairs');
+        exit();
+    }
 
     try {
-        $stmt = $pdo->prepare("INSERT INTO device_repairs (device_id, reported_by, issue_description, repair_status, started_date) VALUES (?, ?, ?, 'under_repair', NOW())");
-        $stmt->execute([$device_id, $_SESSION['user_id'], $issue_description]);
+        // Check if assigned_to column exists (for backward compatibility)
+        $columns = ['device_id', 'reported_by', 'issue_description', 'repair_status', 'started_date'];
+        $values = [$device_id, $_SESSION['user_id'], $issue_description, 'under_repair', date('Y-m-d H:i:s')];
+        
+        if (columnExists('device_repairs', 'assigned_to')) {
+            $columns[] = 'assigned_to';
+            $values[] = $assigned_to;
+        }
+        
+        $placeholders = implode(', ', array_fill(0, count($values), '?'));
+        $columnList = implode(', ', $columns);
+        $sql = "INSERT INTO device_repairs ($columnList) VALUES ($placeholders)";
+        
+        $stmt = $pdo->prepare($sql);
+        $stmt->execute($values);
+        $repairId = $pdo->lastInsertId();
 
         // Update device status to under repair
         $pdo->prepare("UPDATE devices SET status = 'under_repair' WHERE id = ?")->execute([$device_id]);
 
-        logAudit($_SESSION['user_id'], 'Create Repair Request', 'device_repairs', $pdo->lastInsertId());
-        setFlashMessage('success', 'Repair request created and marked as under repair.');
+        // Get device info for notifications
+        $devStmt = $pdo->prepare("SELECT asset_tag, model FROM devices WHERE id = ?");
+        $devStmt->execute([$device_id]);
+        $device = $devStmt->fetch();
+        $assetTag = $device ? $device['asset_tag'] : 'Device';
+        $modelInfo = $device ? $device['model'] : '';
+
+        // Log audit
+        logAudit($_SESSION['user_id'], 'Create Repair Request', 'device_repairs', $repairId, "Issue: {$issue_description}, Assigned: " . ($assigned_to ? "User {$assigned_to}" : "Unassigned"));
+
+        // Notify assigned person if specified
+        if ($assigned_to) {
+            $userStmt = $pdo->prepare("SELECT email, full_name FROM users WHERE id = ? AND status = 'active'");
+            $userStmt->execute([$assigned_to]);
+            $assignedPerson = $userStmt->fetch();
+            
+            if ($assignedPerson && isEmailConfigured()) {
+                $emailBody = emailTemplate(
+                    'Repair Task Assigned',
+                    "<p>Hello <strong>" . sanitize($assignedPerson['full_name']) . "</strong>,</p>
+                    <p>A new device repair task has been assigned to you.</p>
+                    <div style='background: #f8f9fa; padding: 15px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #e74c3c;'>
+                        <p><strong>Repair Details:</strong></p>
+                        <p><i class='fas fa-laptop'></i> <strong>Device:</strong> " . sanitize($assetTag) . ($modelInfo ? " (" . sanitize($modelInfo) . ")" : "") . "</p>
+                        <p><i class='fas fa-tools'></i> <strong>Issue:</strong> " . sanitize($issue_description) . "</p>
+                        <p><i class='fas fa-calendar'></i> <strong>Reported:</strong> " . date('F d, Y g:i A') . "</p>
+                    </div>
+                    <p>Please log in to the system to view more details and update the repair status when you have finished.</p>",
+                    'View Repair',
+                    'http://' . $_SERVER['HTTP_HOST'] . dirname($_SERVER['PHP_SELF']) . '/maintenance_repairs.php?tab=repairs'
+                );
+                sendEmail($assignedPerson['email'], 'Repair Task Assigned - ' . sanitize($assetTag), $emailBody);
+            }
+            
+            addNotification($assigned_to, 'repair_assigned', 'Repair Task Assigned', "You have been assigned a repair for {$assetTag}.", $repairId);
+        }
+
+        // Notify all IT staff
+        notifyITStaff('repair_needed', 'New Repair Request', "A new repair request has been created for {$assetTag}: {$issue_description}", $device_id);
+
+        setFlashMessage('success', 'Repair request created and marked as under repair.' . ($assigned_to ? ' Assignment notification sent.' : ''));
         header('Location: maintenance_repairs.php?tab=repairs');
         exit();
     } catch (PDOException $e) {
@@ -105,28 +173,59 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['submit_repair'])) {
 $pendingRepairs = getPendingRepairs();
 $completedRepairs = getCompletedRepairs(10);
 
-// Get IT staff for assignment
-$itStaff = $pdo->query("SELECT id, full_name, email FROM users WHERE role IN ('admin', 'it_staff') ORDER BY full_name")->fetchAll();
+// Get IT staff for assignment (IT staff only, not admins)
+$itStaff = $pdo->query("SELECT id, full_name, email FROM users WHERE role = 'it_staff' ORDER BY full_name")->fetchAll();
 
-// Get all non-disposed devices for the searchable picker
-$devices = $pdo->query("SELECT id, asset_tag, model, status FROM devices WHERE status != 'disposed' ORDER BY asset_tag")->fetchAll();
-$repairableDevices = $pdo->query("SELECT id, asset_tag, CONCAT(brand, ' ', model) as name FROM devices WHERE status IN ('deployed', 'in_stock') ORDER BY asset_tag")->fetchAll();
+// Get all non-disposed devices for the searchable picker (with employee info and device type)
+$devices = $pdo->query("
+    SELECT d.id, d.asset_tag, d.model, d.status, dt.type_name, COALESCE(u.full_name, '') as employee_name
+    FROM devices d
+    JOIN device_types dt ON d.device_type_id = dt.id
+    LEFT JOIN device_assignments da ON d.id = da.device_id AND da.status = 'active'
+    LEFT JOIN users u ON da.employee_id = u.id
+    WHERE d.status != 'disposed'
+    ORDER BY d.asset_tag
+")->fetchAll();
+$repairableDevices = $pdo->query("
+    SELECT d.id, d.asset_tag, d.model, dt.type_name, COALESCE(u.full_name, '') as employee_name, CONCAT(d.brand, ' ', d.model) as name
+    FROM devices d
+    JOIN device_types dt ON d.device_type_id = dt.id
+    LEFT JOIN device_assignments da ON d.id = da.device_id AND da.status = 'active'
+    LEFT JOIN users u ON da.employee_id = u.id
+    WHERE d.status IN ('deployed', 'in_stock')
+    ORDER BY d.asset_tag
+")->fetchAll();
 
 $flash = getFlashMessage();
 
-// Compute maintenance overdue / urgent counts
+// Compute maintenance overdue / urgent counts and collect urgent IDs
 $overdueCount = 0;
 $urgentCount  = 0;
+$urgentIds    = [];
 $today        = new DateTime();
 foreach ($upcomingMaintenance as $m) {
     $due  = new DateTime($m['next_due_date']);
     $diff = (int)$today->diff($due)->days;
     if ($today > $due) {
         $overdueCount++;
+        $urgentIds[] = $m['id'];
     } elseif ($diff <= 7) {
         $urgentCount++;
+        $urgentIds[] = $m['id'];
     }
 }
+
+// Filter allMaintenance to exclude urgent items (to avoid redundancy)
+$nonUrgentMaintenance = array_filter($allMaintenance, function($item) use ($urgentIds) {
+    return !in_array($item['id'], $urgentIds);
+});
+
+// Merge urgent and non-urgent for single combined view
+$allMaintenanceMerged = array_merge($upcomingMaintenance, $nonUrgentMaintenance);
+// Sort by due date
+usort($allMaintenanceMerged, function($a, $b) {
+    return strtotime($a['next_due_date']) - strtotime($b['next_due_date']);
+});
 ?>
 
 <style>
@@ -634,7 +733,7 @@ foreach ($upcomingMaintenance as $m) {
                 <i class="fas fa-clipboard-list"></i>
             </div>
             <div class="stat-text">
-                <div class="num" style="color:#1d4ed8;"><?php echo count($allMaintenance); ?></div>
+                <div class="num" style="color:#1d4ed8;"><?php echo count($allMaintenanceMerged); ?></div>
                 <div class="lbl">Total Scheduled</div>
             </div>
         </div>
@@ -646,81 +745,7 @@ foreach ($upcomingMaintenance as $m) {
         </button>
     </div>
 
-    <!-- Urgent Maintenance -->
-    <?php if (!empty($upcomingMaintenance)): ?>
-    <div class="urgent-banner">
-        <div class="urgent-banner-header">
-            <i class="fas fa-exclamation-triangle" style="color:#f97316;"></i>
-            <h3>Urgent — Due in Next 7 Days</h3>
-        </div>
-        <div style="overflow-x:auto;">
-            <table class="data-table">
-                <thead>
-                    <tr>
-                        <th>Device</th>
-                        <th>Type</th>
-                        <th>Due Date</th>
-                        <th>Assigned To</th>
-                        <th>Status</th>
-                        <th>Actions</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <?php foreach ($upcomingMaintenance as $maint):
-                        $dueDate   = new DateTime($maint['next_due_date']);
-                        $todayRef  = new DateTime();
-                        $diffDays  = (int)$todayRef->diff($dueDate)->days;
-                        $isOverdue = $todayRef > $dueDate;
-                    ?>
-                    <tr style="<?php echo $isOverdue ? 'background:#fff5f5;' : ''; ?>">
-                        <td>
-                            <span style="font-weight:600;color:#1a2332;"><?php echo htmlspecialchars($maint['asset_tag']); ?></span>
-                            <?php if (!empty($maint['model'])): ?>
-                            <br><small style="color:#6b7280;"><?php echo htmlspecialchars($maint['model']); ?></small>
-                            <?php endif; ?>
-                        </td>
-                        <td>
-                            <?php $tc = 'type-'.strtolower($maint['maintenance_type']); ?>
-                            <span class="maint-type-badge <?php echo $tc; ?>">
-                                <?php echo str_replace('_', ' ', ucfirst($maint['maintenance_type'])); ?>
-                            </span>
-                        </td>
-                        <td style="color:#374151;"><?php echo date('M d, Y', strtotime($maint['next_due_date'])); ?></td>
-                        <td>
-                            <span style="color:#374151;"><?php echo htmlspecialchars($maint['assigned_to_name'] ?? '—'); ?></span>
-                            <?php if (!empty($maint['assigned_to_email'])): ?>
-                            <br><small style="color:#6b7280;"><?php echo htmlspecialchars($maint['assigned_to_email']); ?></small>
-                            <?php endif; ?>
-                        </td>
-                        <td>
-                            <?php if ($isOverdue): ?>
-                                <span class="urgency-badge urgency-overdue"><i class="fas fa-exclamation-circle"></i> Overdue <?php echo $diffDays; ?>d</span>
-                            <?php elseif ($diffDays <= 3): ?>
-                                <span class="urgency-badge urgency-critical"><i class="fas fa-fire"></i> <?php echo $diffDays; ?> days left</span>
-                            <?php else: ?>
-                                <span class="urgency-badge urgency-warning"><i class="fas fa-clock"></i> <?php echo $diffDays; ?> days left</span>
-                            <?php endif; ?>
-                        </td>
-                        <td class="action-btns">
-                            <button type="button" onclick="openCompleteModal(<?php echo $maint['id']; ?>)" class="btn btn-sm btn-success" title="Record Completion">
-                                <i class="fas fa-check"></i>
-                            </button>
-                            <button onclick="sendMaintenanceReminder(<?php echo $maint['id']; ?>)" class="btn btn-sm btn-primary" title="Send Reminder Email">
-                                <i class="fas fa-envelope"></i>
-                            </button>
-                            <a href="view_device.php?id=<?php echo $maint['device_id']; ?>" class="btn btn-sm btn-secondary" title="View Device">
-                                <i class="fas fa-eye"></i>
-                            </a>
-                        </td>
-                    </tr>
-                    <?php endforeach; ?>
-                </tbody>
-            </table>
-        </div>
-    </div>
-    <?php endif; ?>
-
-    <!-- All Maintenance Schedules -->
+    <!-- Maintenance Schedules (All) -->
     <div class="section-card">
         <div class="section-card-header">
             <h3>
@@ -735,23 +760,43 @@ foreach ($upcomingMaintenance as $m) {
             <table class="data-table" id="maintTable">
                 <thead>
                     <tr>
+                        <th>Status</th>
                         <th>Device</th>
                         <th>Type</th>
                         <th>Description</th>
-                        <th>Next Due</th>
+                        <th>Due Date</th>
                         <th>Assigned To</th>
                         <th>Completed</th>
                         <th>Actions</th>
                     </tr>
                 </thead>
                 <tbody>
-                    <?php foreach ($allMaintenance as $maint):
-                        $dueDate2 = new DateTime($maint['next_due_date']);
-                        $todayNow = new DateTime();
-                        $isOv     = $todayNow > $dueDate2;
-                        $tc2      = 'type-'.strtolower($maint['maintenance_type']);
+                    <?php foreach ($allMaintenanceMerged as $maint):
+                        $dueDate   = new DateTime($maint['next_due_date']);
+                        $todayRef  = new DateTime();
+                        $diffDays  = (int)$todayRef->diff($dueDate)->days;
+                        $isOverdue = $todayRef > $dueDate;
+                        $isUrgent  = in_array($maint['id'], $urgentIds);
+                        $tc        = 'type-'.strtolower($maint['maintenance_type']);
+                        
+                        // Determine status badge
+                        $statusBadge = '';
+                        $rowBg = '';
+                        if ($isOverdue) {
+                            $statusBadge = '<span class="urgency-badge urgency-overdue"><i class="fas fa-exclamation-circle"></i> Overdue</span>';
+                            $rowBg = 'background:#fff5f5;';
+                        } elseif ($diffDays <= 3) {
+                            $statusBadge = '<span class="urgency-badge urgency-critical"><i class="fas fa-fire"></i> Critical - ' . $diffDays . 'd</span>';
+                            $rowBg = 'background:#ffe8e8;';
+                        } elseif ($isUrgent) {
+                            $statusBadge = '<span class="urgency-badge urgency-warning"><i class="fas fa-clock"></i> Urgent - ' . $diffDays . 'd</span>';
+                            $rowBg = 'background:#fff9e6;';
+                        } else {
+                            $statusBadge = '<span class="urgency-badge" style="background:#e0e7ff;color:#3730a3;"><i class="fas fa-calendar"></i> Scheduled</span>';
+                        }
                     ?>
-                    <tr>
+                    <tr style="<?php echo $rowBg; ?>">
+                        <td><?php echo $statusBadge; ?></td>
                         <td>
                             <span style="font-weight:600;color:#1a2332;"><?php echo htmlspecialchars($maint['asset_tag']); ?></span>
                             <?php if (!empty($maint['model'])): ?>
@@ -759,19 +804,16 @@ foreach ($upcomingMaintenance as $m) {
                             <?php endif; ?>
                         </td>
                         <td>
-                            <span class="maint-type-badge <?php echo $tc2; ?>">
+                            <span class="maint-type-badge <?php echo $tc; ?>">
                                 <?php echo str_replace('_', ' ', ucfirst($maint['maintenance_type'])); ?>
                             </span>
                         </td>
                         <td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#6b7280;"
-                            title="<?php echo htmlspecialchars($maint['description']); ?>">
-                            <?php echo htmlspecialchars(substr($maint['description'], 0, 50)); ?>
+                            title="<?php echo htmlspecialchars($maint['description'] ?? ''); ?>">
+                            <?php echo htmlspecialchars(substr($maint['description'] ?? '', 0, 50)); ?>
                         </td>
-                        <td>
-                            <span style="color:<?php echo $isOv ? '#cf1322' : '#374151'; ?>;font-weight:<?php echo $isOv ? '600' : '400'; ?>;">
-                                <?php echo date('M d, Y', strtotime($maint['next_due_date'])); ?>
-                            </span>
-                            <?php if ($isOv): ?><br><span class="urgency-badge urgency-overdue" style="font-size:10px;margin-top:3px;">Overdue</span><?php endif; ?>
+                        <td style="color:<?php echo $isOverdue ? '#cf1322' : '#374151'; ?>;font-weight:<?php echo $isOverdue ? '600' : '400'; ?>;">
+                            <?php echo date('M d, Y', strtotime($maint['next_due_date'])); ?>
                         </td>
                         <td style="color:#374151;"><?php echo htmlspecialchars($maint['assigned_to_name'] ?? '—'); ?></td>
                         <td style="color:#6b7280;">
@@ -786,15 +828,18 @@ foreach ($upcomingMaintenance as $m) {
                             <button type="button" onclick="openCompleteModal(<?php echo $maint['id']; ?>)" class="btn btn-sm btn-success" title="Record Completion">
                                 <i class="fas fa-check"></i>
                             </button>
+                            <button onclick="sendMaintenanceReminder(<?php echo $maint['id']; ?>)" class="btn btn-sm btn-primary" title="Send Reminder Email">
+                                <i class="fas fa-envelope"></i>
+                            </button>
                             <a href="view_device.php?id=<?php echo $maint['device_id']; ?>#maintenance" class="btn btn-sm btn-secondary" title="View Device">
                                 <i class="fas fa-eye"></i>
                             </a>
                         </td>
                     </tr>
                     <?php endforeach; ?>
-                    <?php if (empty($allMaintenance)): ?>
+                    <?php if (empty($allMaintenanceMerged)): ?>
                     <tr>
-                        <td colspan="7" style="text-align:center;padding:40px 20px;color:#9ca3af;">
+                        <td colspan="8" style="text-align:center;padding:40px 20px;color:#9ca3af;">
                             <i class="fas fa-calendar-times" style="font-size:28px;display:block;margin-bottom:10px;opacity:.4;"></i>
                             No maintenance schedules found.
                         </td>
@@ -823,14 +868,18 @@ foreach ($upcomingMaintenance as $m) {
     <div class="section-card" style="border-left: 4px solid #e74c3c; background: #fff5f5;">
         <div class="section-card-header">
             <h3><i class="fas fa-exclamation-circle"></i> Pending Repairs (<strong><?php echo count($pendingRepairs); ?></strong>)</h3>
+            <input type="text" id="repairTableSearch" class="table-search"
+                   placeholder="Search by asset tag or employee name…"
+                   oninput="filterTable('repairTableSearch', this.value)">
         </div>
         <div style="overflow-x:auto;">
-            <table class="data-table">
+            <table class="data-table" id="repairTableSearch">
                 <thead>
                     <tr>
                         <th>Device</th>
                         <th>Issue</th>
                         <th>Reported By</th>
+                        <th>Assigned To</th>
                         <th>Status</th>
                         <th>Days in Repair</th>
                         <th>Severity</th>
@@ -858,6 +907,14 @@ foreach ($upcomingMaintenance as $m) {
                         <td>
                             <div><?php echo sanitize($r['reporter_name']); ?></div>
                             <div class="text-muted" style="font-size: 12px; margin-top: 4px;"><?php echo sanitize($r['email']); ?></div>
+                        </td>
+                        <td>
+                            <?php if (!empty($r['assigned_to_name'])): ?>
+                                <div style="color:#16a34a;font-weight:600;"><?php echo sanitize($r['assigned_to_name']); ?></div>
+                                <div class="text-muted" style="font-size: 12px;"><?php echo sanitize($r['assigned_to_email']); ?></div>
+                            <?php else: ?>
+                                <div style="color:#9ca3af;font-style:italic;">— Unassigned —</div>
+                            <?php endif; ?>
                         </td>
                         <td>
                             <span class="status-badge" style="background: #fff3cd; color: #856404;"><?php echo str_replace('_', ' ', ucfirst($r['repair_status'])); ?></span>
@@ -902,8 +959,9 @@ foreach ($upcomingMaintenance as $m) {
                     <tr>
                         <th>Device</th>
                         <th>Reported By</th>
+                        <th>Assigned To</th>
                         <th>Started</th>
-                        <th>Completed</th>
+                        <th>Completed By</th>
                         <th>Days to Repair</th>
                         <th>Repair Notes</th>
                     </tr>
@@ -916,8 +974,22 @@ foreach ($upcomingMaintenance as $m) {
                             <div class="text-muted" style="font-size: 12px; margin-top: 4px;"><?php echo sanitize($r['model']); ?></div>
                         </td>
                         <td><?php echo sanitize($r['reporter_name']); ?></td>
+                        <td>
+                            <?php if (!empty($r['assigned_to_name'])): ?>
+                                <div style="color:#16a34a;font-weight:600;"><?php echo sanitize($r['assigned_to_name']); ?></div>
+                            <?php else: ?>
+                                <div style="color:#9ca3af;font-style:italic;">—</div>
+                            <?php endif; ?>
+                        </td>
                         <td><?php echo date('M d, Y', strtotime($r['started_date'])); ?></td>
-                        <td><?php echo date('M d, Y', strtotime($r['completed_date'])); ?></td>
+                        <td>
+                            <?php if (!empty($r['completed_by_name'])): ?>
+                                <div style="color:#1d4ed8;font-weight:600;"><?php echo sanitize($r['completed_by_name']); ?></div>
+                                <div style="font-size:11px;color:#6b7280;"><?php echo date('M d, Y H:i', strtotime($r['completed_date'])); ?></div>
+                            <?php else: ?>
+                                <div style="color:#9ca3af;"><?php echo date('M d, Y', strtotime($r['completed_date'])); ?></div>
+                            <?php endif; ?>
+                        </td>
                         <td><strong><?php echo $r['days_to_repair']; ?></strong> days</td>
                         <td><span class="text-muted" style="font-size: 12px;"><?php echo sanitize(strlen($r['repair_notes'] ?? 'N/A') > 50 ? substr($r['repair_notes'] ?? 'N/A', 0, 50) . '...' : ($r['repair_notes'] ?? 'N/A')); ?></span></td>
                     </tr>
@@ -950,7 +1022,7 @@ foreach ($upcomingMaintenance as $m) {
                         <input type="text"
                                id="deviceSearch"
                                class="device-picker-search"
-                               placeholder="Search by asset tag or model name…"
+                               placeholder="Search by asset tag, device type, or employee name…"
                                autocomplete="off"
                                oninput="filterDevices(this.value)"
                                onfocus="openDeviceDropdown()"
@@ -960,11 +1032,15 @@ foreach ($upcomingMaintenance as $m) {
                             <div class="device-picker-item"
                                  data-id="<?php echo $dev['id']; ?>"
                                  data-tag="<?php echo htmlspecialchars($dev['asset_tag']); ?>"
-                                 data-model="<?php echo htmlspecialchars($dev['model'] ?? ''); ?>"
+                                 data-type="<?php echo htmlspecialchars($dev['type_name'] ?? ''); ?>"
+                                 data-employee="<?php echo htmlspecialchars($dev['employee_name'] ?? ''); ?>"
                                  data-status="<?php echo htmlspecialchars($dev['status']); ?>"
                                  onclick="selectDevice(this)">
                                 <span class="dtag"><?php echo htmlspecialchars($dev['asset_tag']); ?></span>
-                                <span class="dmodel"><?php echo htmlspecialchars(!empty($dev['model']) ? $dev['model'] : 'No model info'); ?></span>
+                                <span class="dmodel"><?php echo htmlspecialchars(!empty($dev['type_name']) ? $dev['type_name'] : 'No type info'); ?></span>
+                                <?php if (!empty($dev['employee_name'])): ?>
+                                    <span class="demp" style="font-size:11px;color:#059669;font-weight:500;"><?php echo htmlspecialchars($dev['employee_name']); ?></span>
+                                <?php endif; ?>
                                 <span class="dstatus"><?php echo htmlspecialchars($dev['status']); ?></span>
                             </div>
                             <?php endforeach; ?>
@@ -1005,9 +1081,9 @@ foreach ($upcomingMaintenance as $m) {
                 </div>
 
                 <div class="form-group">
-                    <label>Assign To (IT Staff)</label>
-                    <select name="assigned_to" class="form-control">
-                        <option value="">— Unassigned —</option>
+                    <label>Assign To (IT Staff) <span class="req">*</span></label>
+                    <select name="assigned_to" class="form-control" required>
+                        <option value="" disabled selected>— Select an IT staff member —</option>
                         <?php foreach ($itStaff as $staff): ?>
                         <option value="<?php echo $staff['id']; ?>">
                             <?php echo htmlspecialchars($staff['full_name']); ?>
@@ -1041,14 +1117,15 @@ foreach ($upcomingMaintenance as $m) {
                 <input type="hidden" name="complete_maintenance" value="1">
 
                 <div class="form-group">
-                    <label>Completed By</label>
-                    <select name="completed_by" id="completedBySelect" class="form-control">
+                    <label>Completed By <span class="req">*</span></label>
+                    <select name="completed_by" id="completedBySelect" class="form-control" required>
                         <?php foreach ($itStaff as $staff): ?>
                         <option value="<?php echo $staff['id']; ?>"<?php echo $staff['id'] == $_SESSION['user_id'] ? ' selected' : ''; ?>>
                             <?php echo htmlspecialchars($staff['full_name']); ?>
                         </option>
                         <?php endforeach; ?>
                     </select>
+                    <small style="color: #7f8c8d;">Required. Select the IT staff member who verified/completed this maintenance</small>
                 </div>
                 <div class="form-group">
                     <label>Completion Date</label>
@@ -1080,18 +1157,61 @@ foreach ($upcomingMaintenance as $m) {
         <div class="modal-body">
             <form method="POST">
                 <div class="form-group">
-                    <label for="deviceId">Device <span class="required">*</span></label>
-                    <select name="device_id" id="deviceId" required class="form-control">
-                        <option value="">— Select a device —</option>
-                        <?php foreach ($repairableDevices as $rd): ?>
-                        <option value="<?php echo $rd['id']; ?>"><?php echo sanitize($rd['asset_tag'] . ' - ' . $rd['name']); ?></option>
-                        <?php endforeach; ?>
-                    </select>
+                    <label>Device <span class="required">*</span></label>
+                    <input type="hidden" name="device_id" id="repairDeviceId">
+                    <div class="device-picker-wrapper">
+                        <input type="text"
+                               id="repairDeviceSearch"
+                               class="device-picker-search"
+                               placeholder="Search by asset tag, device type, or employee name…"
+                               autocomplete="off"
+                               oninput="filterRepairDevices(this.value)"
+                               onfocus="openRepairDeviceDropdown()"
+                               onkeydown="handleRepairDeviceKey(event)">
+                        <div id="repairDeviceDropdown" class="device-picker-dropdown">
+                            <?php foreach ($repairableDevices as $rd): ?>
+                            <div class="device-picker-item"
+                                 data-id="<?php echo $rd['id']; ?>"
+                                 data-tag="<?php echo htmlspecialchars($rd['asset_tag']); ?>"
+                                 data-type="<?php echo htmlspecialchars($rd['type_name'] ?? ''); ?>"
+                                 data-employee="<?php echo htmlspecialchars($rd['employee_name'] ?? ''); ?>"
+                                 data-status="<?php echo htmlspecialchars($rd['status'] ?? 'in_stock'); ?>"
+                                 onclick="selectRepairDevice(this)">
+                                <span class="dtag"><?php echo htmlspecialchars($rd['asset_tag']); ?></span>
+                                <span class="dmodel"><?php echo htmlspecialchars(!empty($rd['type_name']) ? $rd['type_name'] : 'No type info'); ?></span>
+                                <?php if (!empty($rd['employee_name'])): ?>
+                                    <span class="demp" style="font-size:11px;color:#059669;font-weight:500;"><?php echo htmlspecialchars($rd['employee_name']); ?></span>
+                                <?php endif; ?>
+                                <span class="dstatus"><?php echo htmlspecialchars($rd['status'] ?? 'in_stock'); ?></span>
+                            </div>
+                            <?php endforeach; ?>
+                            <div id="noRepairDeviceResults" class="device-picker-no-results" style="display:none;">
+                                <i class="fas fa-search"></i> No devices match your search
+                            </div>
+                        </div>
+                    </div>
+                    <div id="selectedRepairDeviceDisplay" class="device-picker-selected hidden">
+                        <span id="selectedRepairDeviceText"></span>
+                        <button type="button" class="clear-device-btn" onclick="clearRepairDevice()" title="Clear">&times;</button>
+                    </div>
                 </div>
 
                 <div class="form-group">
                     <label for="issueDesc">Issue Description <span class="required">*</span></label>
                     <textarea name="issue_description" id="issueDesc" required class="form-control"></textarea>
+                </div>
+
+                <div class="form-group">
+                    <label for="assignedTo">Assign To (IT Staff) <span class="required">*</span></label>
+                    <select name="assigned_to" id="assignedTo" class="form-control" required>
+                        <option value="" disabled selected>— Select an IT staff member —</option>
+                        <?php foreach ($itStaff as $staff): ?>
+                        <option value="<?php echo $staff['id']; ?>">
+                            <?php echo htmlspecialchars($staff['full_name']); ?>
+                        </option>
+                        <?php endforeach; ?>
+                    </select>
+                    <small style="color: #7f8c8d;">Required. The assigned person will receive an email notification</small>
                 </div>
 
                 <div class="form-footer">
@@ -1189,7 +1309,8 @@ function filterDevices(query) {
     items.forEach(item => {
         const matches = !q
             || item.dataset.tag.toLowerCase().includes(q)
-            || item.dataset.model.toLowerCase().includes(q);
+            || item.dataset.type.toLowerCase().includes(q)
+            || item.dataset.employee.toLowerCase().includes(q);
         item.style.display = matches ? '' : 'none';
         if (matches) visible++;
     });
@@ -1230,7 +1351,7 @@ function updateHighlight(items) {
 function selectDevice(el) {
     const id     = el.dataset.id;
     const tag    = el.dataset.tag;
-    const model  = el.dataset.model || 'No model info';
+    const type   = el.dataset.type || 'No type info';
     const status = el.dataset.status;
 
     document.getElementById('selectedDeviceId').value = id;
@@ -1241,7 +1362,7 @@ function selectDevice(el) {
     display.classList.remove('hidden');
     document.getElementById('selectedDeviceText').innerHTML =
         '<i class="fas fa-check-circle"></i> <strong>' + tag + '</strong> &mdash; '
-        + model + ' <span style="font-size:11px;opacity:.7;">(' + status + ')</span>';
+        + type + ' <span style="font-size:11px;opacity:.7;">(' + status + ')</span>';
 
     closeDeviceDropdown();
     filterDevices('');
@@ -1337,10 +1458,6 @@ function sendMaintenanceReminder(maintenanceId) {
 // REPAIR FUNCTIONS
 // ─────────────────────────────────────────────────────────────
 
-function openRepairForm() {
-    document.getElementById('repairFormModal').style.display = 'flex';
-}
-
 function closeRepairForm() {
     document.getElementById('repairFormModal').style.display = 'none';
 }
@@ -1427,6 +1544,106 @@ document.getElementById('repairFormModal')?.addEventListener('click', function(e
 document.getElementById('markDoneModal')?.addEventListener('click', function(e) {
     if (e.target === this) closeMarkDone();
 });
+
+// ─────────────────────────────────────────────────────────────
+// REPAIR DEVICE PICKER FUNCTIONS
+// ─────────────────────────────────────────────────────────────
+
+let repairDeviceHighlightedIndex = -1;
+
+function openRepairDeviceDropdown() {
+    const dropdown = document.getElementById('repairDeviceDropdown');
+    dropdown.style.display = 'block';
+}
+
+function closeRepairDeviceDropdown() {
+    const dropdown = document.getElementById('repairDeviceDropdown');
+    dropdown.style.display = 'none';
+}
+
+function filterRepairDevices(query) {
+    const q = query.toLowerCase().trim();
+    const items = document.querySelectorAll('#repairDeviceDropdown .device-picker-item');
+    let visible = 0;
+
+    items.forEach(item => {
+        const matches = !q
+            || item.dataset.tag.toLowerCase().includes(q)
+            || item.dataset.type.toLowerCase().includes(q)
+            || item.dataset.employee.toLowerCase().includes(q);
+        item.style.display = matches ? '' : 'none';
+        if (matches) visible++;
+    });
+
+    document.getElementById('noRepairDeviceResults').style.display = visible === 0 ? '' : 'none';
+    openRepairDeviceDropdown();
+    repairDeviceHighlightedIndex = -1;
+}
+
+function selectRepairDevice(el) {
+    const id     = el.dataset.id;
+    const tag    = el.dataset.tag;
+    const type   = el.dataset.type || 'No type info';
+    const employee = el.dataset.employee;
+
+    document.getElementById('repairDeviceId').value = id;
+    document.getElementById('repairDeviceSearch').value = '';
+
+    const display = document.getElementById('selectedRepairDeviceDisplay');
+    display.classList.remove('hidden');
+    let displayText = '<i class="fas fa-check-circle"></i> <strong>' + tag + '</strong> &mdash; ' + type;
+    if (employee) {
+        displayText += ' <span style="font-size:11px;color:#059669;">(' + employee + ')</span>';
+    }
+    document.getElementById('selectedRepairDeviceText').innerHTML = displayText;
+
+    closeRepairDeviceDropdown();
+    filterRepairDevices('');
+}
+
+function clearRepairDevice() {
+    document.getElementById('repairDeviceId').value = '';
+    document.getElementById('selectedRepairDeviceDisplay').classList.add('hidden');
+    document.getElementById('repairDeviceSearch').value = '';
+    filterRepairDevices('');
+    document.getElementById('repairDeviceSearch').focus();
+}
+
+function handleRepairDeviceKey(e) {
+    const items = Array.from(document.querySelectorAll('#repairDeviceDropdown .device-picker-item')).filter(item => item.style.display !== 'none');
+    if (!items.length) return;
+
+    if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        repairDeviceHighlightedIndex = Math.min(repairDeviceHighlightedIndex + 1, items.length - 1);
+        items.forEach(item => item.classList.remove('highlighted'));
+        items[repairDeviceHighlightedIndex].classList.add('highlighted');
+        items[repairDeviceHighlightedIndex].scrollIntoView({ block: 'nearest' });
+    } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        repairDeviceHighlightedIndex = Math.max(repairDeviceHighlightedIndex - 1, 0);
+        items.forEach(item => item.classList.remove('highlighted'));
+        items[repairDeviceHighlightedIndex].classList.add('highlighted');
+        items[repairDeviceHighlightedIndex].scrollIntoView({ block: 'nearest' });
+    } else if (e.key === 'Enter' && repairDeviceHighlightedIndex >= 0) {
+        e.preventDefault();
+        items[repairDeviceHighlightedIndex].click();
+    }
+}
+
+document.addEventListener('click', function(e) {
+    const wrapper = document.querySelector('#repairDeviceDropdown')?.parentElement;
+    if (wrapper && !wrapper.contains(e.target)) {
+        closeRepairDeviceDropdown();
+    }
+});
+
+function openRepairForm() {
+    document.getElementById('repairFormModal').style.display = 'flex';
+    setTimeout(function() {
+        document.getElementById('repairDeviceSearch').focus();
+    }, 120);
+}
 </script>
 
 <?php require_once 'includes/footer.php'; ?>

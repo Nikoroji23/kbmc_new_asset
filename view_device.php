@@ -57,6 +57,24 @@ $stmt = $pdo->prepare(
 $stmt->execute([$id]);
 $repairs = $stmt->fetchAll();
 
+// Get repair assignments if column exists
+$repairAssignments = [];
+if (columnExists('device_repairs', 'assigned_to')) {
+    $stmt = $pdo->prepare(
+        "SELECT dr.id, a.full_name as assigned_to_name, a.email as assigned_to_email,
+                cb.full_name as completed_by_name
+         FROM device_repairs dr
+         LEFT JOIN users a ON dr.assigned_to = a.id
+         LEFT JOIN users cb ON dr.completed_by = cb.id
+         WHERE dr.device_id = ?"
+    );
+    $stmt->execute([$id]);
+    $assignments_data = $stmt->fetchAll();
+    foreach ($assignments_data as $assn) {
+        $repairAssignments[$assn['id']] = $assn;
+    }
+}
+
 $currentAssignment = null;
 foreach ($assignments as $a) {
     if ($a['status'] == 'active') { $currentAssignment = $a; break; }
@@ -267,14 +285,35 @@ $isAssignedEmployee = (
         <div class="data-table-wrapper">
             <table class="data-table">
                 <thead>
-                    <tr><th>Date</th><th>Reported By</th><th>Issue</th><th>Status</th><th>Cost</th></tr>
+                    <tr>
+                        <th>Date</th>
+                        <th>Reported By</th>
+                        <th>Issue</th>
+                        <?php if (!empty($repairAssignments)): ?><th>Assigned To</th><?php endif; ?>
+                        <th>Status</th>
+                        <th>Cost</th>
+                    </tr>
                 </thead>
                 <tbody>
-                    <?php foreach ($repairs as $r): ?>
+                    <?php foreach ($repairs as $r): 
+                        $assignmentInfo = $repairAssignments[$r['id']] ?? null;
+                    ?>
                     <tr>
                         <td><?php echo formatDate($r['created_at']); ?></td>
                         <td><?php echo sanitize($r['reporter_name']); ?></td>
                         <td><?php echo sanitize($r['issue_description']); ?></td>
+                        <?php if (!empty($repairAssignments)): ?>
+                        <td>
+                            <?php if (!empty($assignmentInfo['assigned_to_name'])): ?>
+                                <div style="color:#16a34a;font-weight:600;"><?php echo sanitize($assignmentInfo['assigned_to_name']); ?></div>
+                                <?php if (!empty($assignmentInfo['completed_by_name'])): ?>
+                                    <div style="font-size:11px;color:#6b7280;">Completed by: <?php echo sanitize($assignmentInfo['completed_by_name']); ?></div>
+                                <?php endif; ?>
+                            <?php else: ?>
+                                <div style="color:#9ca3af;font-style:italic;">—</div>
+                            <?php endif; ?>
+                        </td>
+                        <?php endif; ?>
                         <td>
                             <span class="status-badge" style="
                                 background:<?php echo $r['repair_status']=='completed'?'#27AE6020':'#F39C1220'; ?>;

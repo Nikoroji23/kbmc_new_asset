@@ -38,8 +38,9 @@ if (!$deviceId || !$issueDescription) {
 try {
     // Verify device is assigned to this user
     $stmt = $pdo->prepare("
-        SELECT da.*, d.asset_tag FROM device_assignments da
+        SELECT da.*, d.asset_tag, dt.type_name FROM device_assignments da
         JOIN devices d ON da.device_id = d.id
+        JOIN device_types dt ON d.device_type_id = dt.id
         WHERE da.device_id = ? AND da.employee_id = ? AND da.status = 'active'
     ");
     $stmt->execute([$deviceId, $_SESSION['user_id']]);
@@ -155,15 +156,15 @@ try {
         $notifBody = emailTemplate(
             'Device Repair Request',
             "<p>A device repair has been reported by " . $_SESSION['full_name'] . ".</p>
-            <p><strong>Device:</strong> " . htmlspecialchars($assignment['asset_tag']) . "</p>
+            <p><strong>Device:</strong> " . htmlspecialchars($assignment['asset_tag']) . " (" . htmlspecialchars($assignment['type_name']) . ")</p>
             <p><strong>Issue:</strong> " . htmlspecialchars($issueDescription) . "</p>
             <p><strong>Severity:</strong> " . strtoupper($severity) . "</p>" . $attachmentLink,
             'View Details',
             $deviceLink
         );
 
-        queueEmailNotification($staff['id'], $staff['email'], 'repair_pending', 'Device Repair Request - ' . $assignment['asset_tag'], $notifBody, $deviceId, $repairId);
-        addNotification($staff['id'], 'repair_needed', 'Device Repair Needed', $_SESSION['full_name'] . ' reported an issue with device ' . $assignment['asset_tag'], $repairId);
+        queueEmailNotification($staff['id'], $staff['email'], 'repair_pending', 'Device Repair Request - ' . $assignment['asset_tag'] . ' (' . $assignment['type_name'] . ')', $notifBody, $deviceId, $repairId);
+        addSystemNotificationOnlyIfNotExists($staff['id'], 'repair_needed', 'New Repair Request', $_SESSION['full_name'] . ' reported: ' . $issueDescription, $repairId);
     }
 
     // Attempt to send queued emails immediately (if email configured)

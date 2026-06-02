@@ -27,9 +27,10 @@ if (!$inspection_id) {
 try {
     // Get inspection details
     $stmt = $pdo->prepare("
-        SELECT di.*, d.asset_tag, d.brand, d.model, u.full_name as inspector_name
+        SELECT di.*, d.asset_tag, d.brand, d.model, dt.type_name, u.full_name as inspector_name
         FROM device_inspections di
         JOIN devices d ON di.device_id = d.id
+        JOIN device_types dt ON d.device_type_id = dt.id
         JOIN users u ON di.inspected_by = u.id
         WHERE di.id = ?
     ");
@@ -46,11 +47,11 @@ try {
     $itStaff = $pdo->query("SELECT id FROM users WHERE role IN ('admin', 'it_staff') AND status = 'active'")->fetchAll();
     
     $title = 'Device Inspection Completed';
-    $message = "Device {$inspection['asset_tag']} ({$inspection['brand']} {$inspection['model']}) has been inspected. Result: " . ucfirst($inspection['result']) . ". Physical condition: " . ucfirst($inspection['physical_condition']);
+    $message = "Device {$inspection['asset_tag']} ({$inspection['type_name']}) has been inspected. Result: " . ucfirst($inspection['result']) . ". Physical condition: " . ucfirst($inspection['physical_condition']);
     
     // Add notification to all IT staff
     foreach ($itStaff as $staff) {
-        addNotificationIfNotExists(
+        addSystemNotificationOnlyIfNotExists(
             $staff['id'],
             'inspection',
             $title,

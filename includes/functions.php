@@ -221,6 +221,27 @@ function addNotification($userId, $type, $title, $message, $relatedId = null) {
     return $notificationId;
 }
 
+function addSystemNotificationOnly($userId, $type, $title, $message, $relatedId = null) {
+    global $pdo;
+    $stmt = $pdo->prepare("INSERT INTO notifications (user_id, type, title, message, related_id) VALUES (?, ?, ?, ?, ?)");
+    $stmt->execute([$userId, $type, $title, $message, $relatedId]);
+    return $pdo->lastInsertId();
+}
+
+function addSystemNotificationOnlyIfNotExists($userId, $type, $title, $message, $relatedId = null) {
+    global $pdo;
+    $stmt = $pdo->prepare(
+        "SELECT id FROM notifications WHERE user_id = ? AND type = ? AND title = ? AND message = ? " .
+        "AND ((related_id = ? ) OR (related_id IS NULL AND ? IS NULL)) LIMIT 1"
+    );
+    $stmt->execute([$userId, $type, $title, $message, $relatedId, $relatedId]);
+    $existingId = $stmt->fetchColumn();
+    if ($existingId) {
+        return $existingId;
+    }
+    return addSystemNotificationOnly($userId, $type, $title, $message, $relatedId);
+}
+
 function addNotificationIfNotExists($userId, $type, $title, $message, $relatedId = null) {
     global $pdo;
     $stmt = $pdo->prepare(
@@ -281,10 +302,11 @@ function sendEmailNotificationToITStaff($type, $title, $message, $related_id, $i
         $stmt = $pdo->prepare("
             SELECT da.id, da.employee_id, da.device_id, 
                    u.full_name, u.email, u.employee_id as emp_id, u.department,
-                   d.asset_tag, d.brand, d.model
+                   d.asset_tag, d.brand, d.model, dt.type_name
             FROM device_assignments da
             JOIN users u ON da.employee_id = u.id
             JOIN devices d ON da.device_id = d.id
+            JOIN device_types dt ON d.device_type_id = dt.id
             WHERE da.id = ?
             LIMIT 1
         ");
@@ -293,7 +315,7 @@ function sendEmailNotificationToITStaff($type, $title, $message, $related_id, $i
         
         if ($assignment) {
             $employeeInfo = $assignment['full_name'] . " (ID: " . $assignment['emp_id'] . ", Dept: " . $assignment['department'] . ")";
-            $deviceInfo = $assignment['asset_tag'] . " - " . $assignment['brand'] . " " . $assignment['model'];
+            $deviceInfo = $assignment['asset_tag'] . " (" . $assignment['type_name'] . ")";
             $actionUrl = 'it_clearance.php?user_id=' . $assignment['employee_id'] . '&device_id=' . $assignment['device_id'] . '&assignment_id=' . $related_id;
             
             $context = "
@@ -359,7 +381,7 @@ function sendEmailNotificationToUser($userId, $type, $title, $message, $relatedI
     if ($relatedId) {
         switch ($type) {
             case 'device_deployed':
-                $stmt = $pdo->prepare("SELECT asset_tag, brand, model FROM devices WHERE id = ?");
+                $stmt = $pdo->prepare("SELECT asset_tag, brand, model, dt.type_name FROM devices d JOIN device_types dt ON d.device_type_id = dt.id WHERE d.id = ?");
                 $stmt->execute([$relatedId]);
                 $device = $stmt->fetch(PDO::FETCH_ASSOC);
                 if ($device) {
@@ -367,7 +389,7 @@ function sendEmailNotificationToUser($userId, $type, $title, $message, $relatedI
                         <div style='background: #d1ecf1; padding: 15px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #17a2b8;'>
                             <p><strong>Device Details:</strong></p>
                             <p><i class='fas fa-laptop'></i> <strong>Asset Tag:</strong> " . sanitize($device['asset_tag']) . "</p>
-                            <p><i class='fas fa-info-circle'></i> <strong>Model:</strong> " . sanitize($device['brand'] . " " . $device['model']) . "</p>
+                            <p><i class='fas fa-info-circle'></i> <strong>Device Type:</strong> " . sanitize($device['type_name']) . "</p>
                         </div>
                     ";
                     $actionUrl = 'view_device.php?id=' . $relatedId;
@@ -1237,14 +1259,21 @@ function createMaintenanceSchedule($deviceId, $maintenanceType, $description, $s
     $stmt->execute($values);
     $scheduleId = $pdo->lastInsertId();
 
-    $deviceStmt = $pdo->prepare("SELECT asset_tag FROM devices WHERE id = ?");
+    // Log audit trail for maintenance creation
+    if (isset($_SESSION['user_id'])) {
+        $assignedToName = $assignedTo ? "assigned to user ID {$assignedTo}" : "unassigned";
+        logAudit($_SESSION['user_id'], 'Create Maintenance Schedule', 'maintenance_schedules', $scheduleId, "Type: {$maintenanceType}, Due: {$scheduledDate}, {$assignedToName}");
+    }
+
+    $deviceStmt = $pdo->prepare("SELECT d.asset_tag, dt.type_name FROM devices d JOIN device_types dt ON d.device_type_id = dt.id WHERE d.id = ?");
     $deviceStmt->execute([$deviceId]);
     $device = $deviceStmt->fetch();
     $assetTag = $device ? $device['asset_tag'] : 'device';
+    $deviceType = $device ? $device['type_name'] : 'Device';
     $dueDate = date('M d, Y', strtotime($scheduledDate));
 
     if ($assignedTo) {
-        addNotification($assignedTo, 'maintenance_assigned', 'Maintenance Assigned', "You have been assigned maintenance for {$assetTag} due {$dueDate}.", $deviceId);
+        addSystemNotificationOnly($assignedTo, 'maintenance_assigned', 'Maintenance Assigned', "You have been assigned maintenance for {$assetTag} due {$dueDate}.", $deviceId);
         
         // Send email notification
         $userStmt = $pdo->prepare("SELECT email, full_name FROM users WHERE id = ? AND status = 'active'");
@@ -1258,8 +1287,8 @@ function createMaintenanceSchedule($deviceId, $maintenanceType, $description, $s
                 <p>A new maintenance task has been assigned to you.</p>
                 <div style='background: #f8f9fa; padding: 15px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #3498db;'>
                     <p><strong>Maintenance Details:</strong></p>
-                    <p><i class='fas fa-laptop'></i> <strong>Device:</strong> " . sanitize($assetTag) . "</p>
-                    <p><i class='fas fa-tools'></i> <strong>Type:</strong> " . sanitize(ucfirst($maintenanceType)) . "</p>
+                    <p><i class='fas fa-laptop'></i> <strong>Device:</strong> " . sanitize($assetTag) . " (" . sanitize($deviceType) . ")</p>
+                    <p><i class='fas fa-tools'></i> <strong>Maintenance Type:</strong> " . sanitize(ucfirst($maintenanceType)) . "</p>
                     <p><i class='fas fa-calendar'></i> <strong>Due Date:</strong> " . sanitize($dueDate) . "</p>
                     <p><i class='fas fa-align-left'></i> <strong>Description:</strong> " . nl2br(sanitize($description)) . "</p>
                 </div>
@@ -1267,13 +1296,13 @@ function createMaintenanceSchedule($deviceId, $maintenanceType, $description, $s
                 'View Task',
                 'http://' . $_SERVER['HTTP_HOST'] . dirname($_SERVER['PHP_SELF']) . '/maintenance_reminders.php'
             );
-            sendEmail($staffMember['email'], 'Maintenance Task Assigned - ' . sanitize($assetTag), $emailBody);
+            sendEmail($staffMember['email'], 'Maintenance Task Assigned - ' . sanitize($assetTag) . ' (' . sanitize($deviceType) . ')', $emailBody);
         }
     } else {
         $staffStmt = $pdo->query("SELECT id, email, full_name FROM users WHERE role IN ('admin','it_staff') AND status = 'active'");
         $staffMembers = $staffStmt->fetchAll();
         foreach ($staffMembers as $member) {
-            addNotification($member['id'], 'maintenance_assigned', 'Maintenance Task Pending', "Maintenance for {$assetTag} is scheduled for {$dueDate} and needs IT assignment.", $deviceId);
+            addSystemNotificationOnly($member['id'], 'maintenance_assigned', 'Maintenance Task Pending', "Maintenance for {$assetTag} is scheduled for {$dueDate} and needs IT assignment.", $deviceId);
             
             // Send email notification for unassigned maintenance
             if (isEmailConfigured()) {
@@ -1283,8 +1312,8 @@ function createMaintenanceSchedule($deviceId, $maintenanceType, $description, $s
                     <p>A new maintenance task has been created and is awaiting assignment.</p>
                     <div style='background: #fff3cd; padding: 15px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #f39c12;'>
                         <p><strong>Maintenance Details:</strong></p>
-                        <p><i class='fas fa-laptop'></i> <strong>Device:</strong> " . sanitize($assetTag) . "</p>
-                        <p><i class='fas fa-tools'></i> <strong>Type:</strong> " . sanitize(ucfirst($maintenanceType)) . "</p>
+                        <p><i class='fas fa-laptop'></i> <strong>Device:</strong> " . sanitize($assetTag) . " (" . sanitize($deviceType) . ")</p>
+                        <p><i class='fas fa-tools'></i> <strong>Maintenance Type:</strong> " . sanitize(ucfirst($maintenanceType)) . "</p>
                         <p><i class='fas fa-calendar'></i> <strong>Due Date:</strong> " . sanitize($dueDate) . "</p>
                         <p><i class='fas fa-align-left'></i> <strong>Description:</strong> " . nl2br(sanitize($description)) . "</p>
                     </div>
@@ -1292,7 +1321,7 @@ function createMaintenanceSchedule($deviceId, $maintenanceType, $description, $s
                     'Review Task',
                     'http://' . $_SERVER['HTTP_HOST'] . dirname($_SERVER['PHP_SELF']) . '/maintenance_reminders.php'
                 );
-                sendEmail($member['email'], 'Maintenance Task Pending Assignment - ' . sanitize($assetTag), $emailBody);
+                sendEmail($member['email'], 'Maintenance Task Pending Assignment - ' . sanitize($assetTag) . ' (' . sanitize($deviceType) . ')', $emailBody);
             }
         }
     }
@@ -1304,11 +1333,12 @@ function getUpcomingMaintenanceReminders($daysAhead = 7) {
     global $pdo;
     $futureDate = date('Y-m-d', strtotime("+$daysAhead days"));
     $selectFields = [
-        'ms.*', 'd.asset_tag', 'd.model',
+        'ms.*', 'd.asset_tag', 'd.model', 'dt.type_name',
         "a.email AS assigned_to_email", "a.full_name AS assigned_to_name"
     ];
     $joins = [
         "JOIN devices d ON ms.device_id = d.id",
+        "JOIN device_types dt ON d.device_type_id = dt.id",
         "LEFT JOIN users a ON ms.assigned_to = a.id"
     ];
 
@@ -1366,6 +1396,7 @@ function markMaintenanceCompleted($maintenanceId, $completedBy = null, $complete
     $deviceId = null;
     $assignedTo = null;
     $assetTag = '';
+    $deviceType = '';
     
     try {
         $devStmt = $pdo->prepare("SELECT device_id, assigned_to FROM maintenance_schedules WHERE id = ? LIMIT 1");
@@ -1374,11 +1405,13 @@ function markMaintenanceCompleted($maintenanceId, $completedBy = null, $complete
         $deviceId = $maint['device_id'] ?? null;
         $assignedTo = $maint['assigned_to'] ?? null;
         
-        // Get device asset tag
+        // Get device asset tag and type
         if ($deviceId) {
-            $assetStmt = $pdo->prepare("SELECT asset_tag FROM devices WHERE id = ? LIMIT 1");
+            $assetStmt = $pdo->prepare("SELECT d.asset_tag, dt.type_name FROM devices d JOIN device_types dt ON d.device_type_id = dt.id WHERE d.id = ? LIMIT 1");
             $assetStmt->execute([$deviceId]);
-            $assetTag = $assetStmt->fetchColumn() ?: '';
+            $deviceData = $assetStmt->fetch();
+            $assetTag = $deviceData ? $deviceData['asset_tag'] : '';
+            $deviceType = $deviceData ? $deviceData['type_name'] : 'Device';
         }
     } catch (Exception $e) {
         // ignore
@@ -1393,6 +1426,11 @@ function markMaintenanceCompleted($maintenanceId, $completedBy = null, $complete
     $stmt = $pdo->prepare($sql);
     $stmt->execute($params);
 
+    // Log audit trail for maintenance completion
+    if (isset($_SESSION['user_id'])) {
+        logAudit($_SESSION['user_id'], 'Mark Maintenance Completed', 'maintenance_schedules', $maintenanceId, "Device: {$assetTag} ({$deviceType}). Notes: " . ($completionNotes ?: 'N/A'));
+    }
+
     if ($deviceId) {
         try {
             $clearStmt = $pdo->prepare("DELETE FROM notifications WHERE (type = 'maintenance_due' OR type = 'maintenance_assigned') AND related_id = ? AND is_read = 0");
@@ -1401,39 +1439,8 @@ function markMaintenanceCompleted($maintenanceId, $completedBy = null, $complete
             // ignore
         }
         
-        // Notify IT staff about completion
+        // Notify IT staff about completion (includes system notification + email)
         notifyITStaff('maintenance_completed', 'Maintenance Completed', "Maintenance for {$assetTag} has been marked as complete.", $deviceId);
-        
-        // Send email notification to IT staff
-        if (isEmailConfigured()) {
-            $completedByName = 'System';
-            if ($completedBy) {
-                $userStmt = $pdo->prepare("SELECT full_name FROM users WHERE id = ?");
-                $userStmt->execute([$completedBy]);
-                $completedByName = $userStmt->fetchColumn() ?: 'System';
-            }
-            
-            $itStaff = $pdo->query("SELECT email, full_name FROM users WHERE role IN ('admin', 'it_staff') AND status = 'active'")->fetchAll();
-            
-            foreach ($itStaff as $staff) {
-                $emailBody = emailTemplate(
-                    'Maintenance Task Completed',
-                    "<p>Hello <strong>" . sanitize($staff['full_name']) . "</strong>,</p>
-                    <p>A maintenance task has been marked as complete.</p>
-                    <div style='background: #d4edda; padding: 15px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #27ae60;'>
-                        <p><strong>Maintenance Details:</strong></p>
-                        <p><i class='fas fa-laptop'></i> <strong>Device:</strong> " . sanitize($assetTag) . "</p>
-                        <p><i class='fas fa-check'></i> <strong>Completed By:</strong> " . sanitize($completedByName) . "</p>
-                        <p><i class='fas fa-calendar'></i> <strong>Completion Date:</strong> " . date('F d, Y g:i A', strtotime($completedAt)) . "</p>" .
-                        ($completionNotes ? "<p><i class='fas fa-align-left'></i> <strong>Notes:</strong> " . nl2br(sanitize($completionNotes)) . "</p>" : '') .
-                    "</div>
-                    <p>The device is now cleared for deployment. Check the system for more details.</p>",
-                    'View Details',
-                    'http://' . $_SERVER['HTTP_HOST'] . dirname($_SERVER['PHP_SELF']) . '/maintenance_reminders.php'
-                );
-                sendEmail($staff['email'], 'Maintenance Completed - ' . sanitize($assetTag), $emailBody);
-            }
-        }
     }
     
     return true;
@@ -1554,9 +1561,10 @@ function markRepairAsCompleted($repairId, $completionNotes = '') {
     global $pdo;
 
     $stmt = $pdo->prepare("
-        SELECT dr.*, d.asset_tag, d.model, u.email, u.full_name as reporter_name, u.id as reported_by_id
+        SELECT dr.*, d.asset_tag, d.model, dt.type_name, u.email, u.full_name as reporter_name, u.id as reported_by_id
         FROM device_repairs dr
         JOIN devices d ON dr.device_id = d.id
+        JOIN device_types dt ON d.device_type_id = dt.id
         JOIN users u ON dr.reported_by = u.id
         WHERE dr.id = ?
     ");
@@ -1575,7 +1583,13 @@ function markRepairAsCompleted($repairId, $completionNotes = '') {
 
     $pdo->prepare("UPDATE devices SET status = 'deployed' WHERE id = ? AND status = 'under_repair'")->execute([$repair['device_id']]);
 
-    addNotification(
+    // Log audit trail for repair completion
+    if (isset($_SESSION['user_id'])) {
+        logAudit($_SESSION['user_id'], 'Mark Repair Completed', 'device_repairs', $repairId, "Device: {$repair['asset_tag']} ({$repair['type_name']}). Notes: " . ($completionNotes ?: 'N/A'));
+    }
+
+    // Add system notification (without email - email is queued separately)
+    addSystemNotificationOnly(
         $repair['reported_by_id'],
         'repair_completed',
         'Device Repair Completed',
@@ -1583,13 +1597,13 @@ function markRepairAsCompleted($repairId, $completionNotes = '') {
         $repairId
     );
 
-    $subject = 'Device Repair Completed - ' . $repair['asset_tag'];
+    $subject = 'Device Repair Completed - ' . $repair['asset_tag'] . ' (' . $repair['type_name'] . ')';
     $emailBody = emailTemplate(
         'Your Device Repair is Complete',
         "<p>Hello <strong>" . sanitize($repair['reporter_name']) . "</strong>,</p>
         <p>We're pleased to inform you that your device repair request has been completed.</p>
         <ul style='margin-left: 20px;'>
-            <li><strong>Device:</strong> " . sanitize($repair['asset_tag']) . " (" . sanitize($repair['model']) . ")</li>
+            <li><strong>Device:</strong> " . sanitize($repair['asset_tag']) . " (" . sanitize($repair['type_name']) . ")</li>
             <li><strong>Original Issue:</strong> " . sanitize(substr($repair['issue_description'], 0, 100)) . "...</li>
             <li><strong>Repair Completed:</strong> " . date('M d, Y h:i A') . "</li>
             <li><strong>Status:</strong> Ready for pickup/use</li>
@@ -1600,6 +1614,7 @@ function markRepairAsCompleted($repairId, $completionNotes = '') {
         (defined('BASE_URL') ? rtrim(BASE_URL, '/') : 'http://' . $_SERVER['HTTP_HOST'] . dirname($_SERVER['PHP_SELF'])) . '/view_device.php?id=' . $repair['device_id']
     );
 
+    // Queue email notification (will be sent by caller via sendPendingEmailNotifications())
     queueEmailNotification(
         $repair['reported_by_id'],
         $repair['email'],
@@ -1615,31 +1630,72 @@ function markRepairAsCompleted($repairId, $completionNotes = '') {
 
 function getPendingRepairs() {
     global $pdo;
-    $stmt = $pdo->prepare("
-        SELECT dr.*, d.asset_tag, d.model, u.full_name as reporter_name, u.email, 
-               DATEDIFF(NOW(), dr.started_date) as days_in_repair
+    $sql = "
+        SELECT dr.*, d.asset_tag, d.model, dt.type_name, u.full_name as reporter_name, u.email, 
+               DATEDIFF(NOW(), dr.started_date) as days_in_repair";
+    
+    // Include assigned_to info if column exists
+    if (columnExists('device_repairs', 'assigned_to')) {
+        $sql .= ", a.full_name as assigned_to_name, a.email as assigned_to_email";
+    }
+    
+    $sql .= "
         FROM device_repairs dr
         JOIN devices d ON dr.device_id = d.id
-        JOIN users u ON dr.reported_by = u.id
+        JOIN device_types dt ON d.device_type_id = dt.id
+        JOIN users u ON dr.reported_by = u.id";
+    
+    if (columnExists('device_repairs', 'assigned_to')) {
+        $sql .= "
+        LEFT JOIN users a ON dr.assigned_to = a.id";
+    }
+    
+    $sql .= "
         WHERE dr.repair_status IN ('pending', 'under_repair')
         ORDER BY dr.severity DESC, dr.started_date ASC
-    ");
+    ";
+    
+    $stmt = $pdo->prepare($sql);
     $stmt->execute();
     return $stmt->fetchAll();
 }
 
 function getCompletedRepairs($limit = 10) {
     global $pdo;
-    $stmt = $pdo->prepare("
-        SELECT dr.*, d.asset_tag, d.model, u.full_name as reporter_name,
-               DATEDIFF(dr.completed_date, dr.started_date) as days_to_repair
+    $sql = "
+        SELECT dr.*, d.asset_tag, d.model, dt.type_name, u.full_name as reporter_name,
+               DATEDIFF(dr.completed_date, dr.started_date) as days_to_repair";
+    
+    // Include assigned_to and completed_by info if columns exist
+    if (columnExists('device_repairs', 'assigned_to')) {
+        $sql .= ", a.full_name as assigned_to_name";
+    }
+    if (columnExists('device_repairs', 'completed_by')) {
+        $sql .= ", cb.full_name as completed_by_name";
+    }
+    
+    $sql .= "
         FROM device_repairs dr
         JOIN devices d ON dr.device_id = d.id
-        JOIN users u ON dr.reported_by = u.id
+        JOIN device_types dt ON d.device_type_id = dt.id
+        JOIN users u ON dr.reported_by = u.id";
+    
+    if (columnExists('device_repairs', 'assigned_to')) {
+        $sql .= "
+        LEFT JOIN users a ON dr.assigned_to = a.id";
+    }
+    if (columnExists('device_repairs', 'completed_by')) {
+        $sql .= "
+        LEFT JOIN users cb ON dr.completed_by = cb.id";
+    }
+    
+    $sql .= "
         WHERE dr.repair_status = 'completed'
         ORDER BY dr.completed_date DESC
         LIMIT ?
-    ");
+    ";
+    
+    $stmt = $pdo->prepare($sql);
     $stmt->execute([$limit]);
     return $stmt->fetchAll();
 }

@@ -40,6 +40,11 @@ try {
     $result = markRepairAsCompleted($repairId, $completionNotes);
     
     if ($result['success']) {
+        // Update completed_by if column exists
+        if (columnExists('device_repairs', 'completed_by')) {
+            $pdo->prepare("UPDATE device_repairs SET completed_by = ? WHERE id = ?")->execute([$_SESSION['user_id'], $repairId]);
+        }
+        
         // Log audit
         logAudit($_SESSION['user_id'], 'Mark Repair Complete', 'device_repairs', $repairId);
         

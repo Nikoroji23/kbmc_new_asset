@@ -27,9 +27,10 @@ if (!$repair_id) {
 try {
     // Get repair details
     $stmt = $pdo->prepare("
-        SELECT dr.*, d.asset_tag, d.brand, d.model, u.full_name as reporter_name
+        SELECT dr.*, d.asset_tag, d.brand, d.model, dt.type_name, u.full_name as reporter_name
         FROM device_repairs dr
         JOIN devices d ON dr.device_id = d.id
+        JOIN device_types dt ON d.device_type_id = dt.id
         JOIN users u ON dr.reported_by = u.id
         WHERE dr.id = ?
     ");
@@ -46,11 +47,11 @@ try {
     $itStaff = $pdo->query("SELECT id FROM users WHERE role IN ('admin', 'it_staff') AND status = 'active'")->fetchAll();
     
     $title = 'Device Repair ' . ucfirst($repair['repair_status']);
-    $message = "Device {$repair['asset_tag']} ({$repair['brand']} {$repair['model']}) - Issue: " . substr($repair['issue_description'], 0, 100) . ". Status: " . str_replace('_', ' ', ucfirst($repair['repair_status']));
+    $message = "Device {$repair['asset_tag']} ({$repair['type_name']}) - Issue: " . substr($repair['issue_description'], 0, 100) . ". Status: " . str_replace('_', ' ', ucfirst($repair['repair_status']));
     
     // Add notification to all IT staff
     foreach ($itStaff as $staff) {
-        addNotificationIfNotExists(
+        addSystemNotificationOnlyIfNotExists(
             $staff['id'],
             'repair',
             $title,
