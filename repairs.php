@@ -101,6 +101,9 @@ $flash = getFlashMessage();
                             <span class="status-badge" style="background: <?php echo $severityColor; ?>20; color: <?php echo $severityColor; ?>;"><?php echo strtoupper($r['severity'] ?? 'medium'); ?></span>
                         </td>
                         <td class="action-btns">
+                            <button onclick="sendRepairNotification(event, <?php echo $r['id']; ?>, '<?php echo sanitize($r['asset_tag']); ?>')" class="btn btn-sm btn-info" title="Send Notification">
+                                <i class="fas fa-bell"></i>
+                            </button>
                             <button onclick="markRepairDone(event, <?php echo $r['id']; ?>, '<?php echo sanitize($r['asset_tag']); ?>')" class="btn btn-sm btn-success" title="Mark as Complete">
                                 <i class="fas fa-check"></i>
                             </button>
@@ -240,6 +243,33 @@ function openRepairForm() {
 
 function closeRepairForm() {
     document.getElementById('repairFormModal').style.display = 'none';
+}
+
+function sendRepairNotification(e, repairId, assetTag) {
+    e.preventDefault();
+    const message = 'Send repair notification for device ' + assetTag + '?';
+    if (!confirm(message)) return;
+    
+    fetch('api_send_repair_notification.php', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+            repair_id: parseInt(repairId),
+            asset_tag: assetTag
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            alert('Notification sent successfully to IT staff.');
+        } else {
+            alert('Error: ' + (data.message || 'Failed to send notification'));
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('Failed to send notification');
+    });
 }
 
 function markRepairDone(e, repairId, assetTag) {

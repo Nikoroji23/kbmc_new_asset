@@ -176,6 +176,134 @@ $allITStaff = $pdo->query("
     <a href="devices.php" class="btn btn-outline" style="margin-top: 10px;"><i class="fas fa-arrow-left"></i> Back</a>
 </div>
 
+<!-- Latest Audit Records Section -->
+<?php
+$latestAudits = $pdo->query("
+    SELECT * FROM (
+        (SELECT 
+            'asset_tag_change' as activity_type,
+            al.id,
+            al.user_id,
+            al.action,
+            al.table_name,
+            al.record_id as device_id,
+            al.old_values,
+            al.new_values,
+            al.created_at,
+            u.full_name as staff_name,
+            d.asset_tag,
+            d.brand,
+            d.model,
+            dt.type_name,
+            NULL as result,
+            NULL as physical_condition
+        FROM audit_logs al
+        JOIN users u ON al.user_id = u.id
+        LEFT JOIN devices d ON al.record_id = d.id
+        LEFT JOIN device_types dt ON d.device_type_id = dt.id
+        WHERE al.table_name = 'devices' AND (al.action = 'Asset Tag Change' OR al.action = 'Insert' OR al.action = 'Offboard User'))
+
+        UNION ALL
+
+        (SELECT 
+            'inspection' as activity_type,
+            di.id,
+            di.inspected_by as user_id,
+            'Device Inspection' as action,
+            'device_inspections' as table_name,
+            di.device_id,
+            NULL as old_values,
+            NULL as new_values,
+            di.inspection_date as created_at,
+            u.full_name as staff_name,
+            d.asset_tag,
+            d.brand,
+            d.model,
+            dt.type_name,
+            di.result,
+            di.physical_condition
+        FROM device_inspections di
+        JOIN users u ON di.inspected_by = u.id
+        JOIN devices d ON di.device_id = d.id
+        LEFT JOIN device_types dt ON d.device_type_id = dt.id)
+    ) AS latest_activities
+    ORDER BY created_at DESC LIMIT 10
+")->fetchAll();
+?>
+
+<?php if (!empty($latestAudits)): ?>
+<div class="card" style="border-left: 4px solid #9b59b6; background: #f5f2ff; margin-bottom: 24px;">
+    <div class="card-header">
+        <h3><i class="fas fa-history"></i> Latest Audits</h3>
+    </div>
+    <div class="card-body">
+        <div class="data-table-wrapper">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Date</th>
+                        <th>Activity Type</th>
+                        <th>Asset Tag</th>
+                        <th>Device Type</th>
+                        <th>IT Staff</th>
+                        <th>Details</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <?php foreach ($latestAudits as $audit): ?>
+                    <tr>
+                        <td><?php echo date('M d, Y g:i A', strtotime($audit['created_at'])); ?></td>
+                        <td>
+                            <?php
+                            $typeIcons = [
+                                'inspection' => ['icon' => 'fa-clipboard-check', 'label' => 'Inspection'],
+                                'deployment' => ['icon' => 'fa-hand-holding', 'label' => 'Deployment'],
+                                'asset_tag_change' => ['icon' => 'fa-edit', 'label' => 'Asset Tag Changed'],
+                                'clearance' => ['icon' => 'fa-check-circle', 'label' => 'Clearance']
+                            ];
+                            $icon = $typeIcons[$audit['activity_type']]['icon'] ?? 'fa-info-circle';
+                            $label = $typeIcons[$audit['activity_type']]['label'] ?? $audit['action'];
+                            ?>
+                            <span style="display: flex; align-items: center; gap: 6px;">
+                                <i class="fas <?php echo $icon; ?>"></i> <?php echo $label; ?>
+                            </span>
+                        </td>
+                        <td><strong><?php echo sanitize($audit['asset_tag'] ?? 'N/A'); ?></strong></td>
+                        <td><span style="font-size: 11px; background: #e8f4f8; padding: 3px 8px; border-radius: 3px;"><?php echo sanitize($audit['type_name'] ?? 'N/A'); ?></span></td>
+                        <td><?php echo sanitize($audit['staff_name']); ?></td>
+                        <td>
+                            <?php
+                            $details = '';
+                            if ($audit['activity_type'] === 'inspection' && !empty($audit['result'])) {
+                                $details = 'Result: ' . ucfirst($audit['result']) . ' | Condition: ' . ucfirst($audit['physical_condition'] ?? 'N/A');
+                            } elseif ($audit['activity_type'] === 'asset_tag_change') {
+                                $details = 'Asset tag updated';
+                            } else {
+                                $details = sanitize(substr($audit['action'] ?? '', 0, 50));
+                            }
+                            echo $details;
+                            ?>
+                        </td>
+                        <td class="action-btns">
+                            <button onclick="sendAuditNotification(event, <?php echo $audit['id']; ?>, '<?php echo sanitize($audit['asset_tag']); ?>')" class="btn btn-sm btn-info" title="Send Notification">
+                                <i class="fas fa-bell"></i> Notify
+                            </button>
+                            <?php if (!empty($audit['device_id'])): ?>
+                            <a href="view_device.php?id=<?php echo $audit['device_id']; ?>" class="btn btn-sm btn-secondary" title="View Device">
+                                <i class="fas fa-eye"></i> View
+                            </a>
+                            <?php endif; ?>
+                        </td>
+                    </tr>
+                    <?php endforeach; ?>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+<?php endif; ?>
+
 <div class="card" style="margin-bottom: 20px;">
     <div class="card-header">
         <h3>Filter Results</h3>
@@ -368,5 +496,36 @@ $allITStaff = $pdo->query("
 </div>
 
 <?php endif; ?>
+
+<?php require_once 'includes/footer.php'; ?>
+
+<script>
+function sendAuditNotification(e, auditId, assetTag) {
+    e.preventDefault();
+    const message = 'Send audit notification for device ' + assetTag + '?';
+    if (!confirm(message)) return;
+    
+    fetch('api_send_inspection_notification.php', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+            inspection_id: parseInt(auditId),
+            asset_tag: assetTag
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            alert('Notification sent successfully to IT staff.');
+        } else {
+            alert('Error: ' + (data.message || 'Failed to send notification'));
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('Failed to send notification');
+    });
+}
+</script>
 
 <?php require_once 'includes/footer.php'; ?>

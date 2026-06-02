@@ -140,16 +140,6 @@ $pageTitle = $pageTitle ?? 'KBMC Asset Management';
                 <i class="fas fa-history"></i>
                 <span>IT Audit Log</span>
             </a>
-            <a href="repairs.php" class="nav-item <?php echo basename($_SERVER['PHP_SELF']) == 'repairs.php' ? 'active' : ''; ?>">
-                <i class="fas fa-tools"></i>
-                <span>Repairs</span>
-                <?php
-                $pendingRepairs = $pdo->query("SELECT COUNT(*) FROM device_repairs WHERE repair_status IN ('pending', 'under_repair')")->fetchColumn();
-                if ($pendingRepairs > 0):
-                ?>
-                <span class="nav-badge"><?php echo $pendingRepairs; ?></span>
-                <?php endif; ?>
-            </a>
             <a href="retired.php" class="nav-item <?php echo basename($_SERVER['PHP_SELF']) == 'retired.php' ? 'active' : ''; ?>">
                 <i class="fas fa-trash-alt"></i>
                 <span>Retired / Disposed</span>
@@ -207,14 +197,16 @@ $pageTitle = $pageTitle ?? 'KBMC Asset Management';
             </a>
 
             <?php if (hasRole('it_staff')): ?>
-            <a href="maintenance_reminders.php" class="nav-item <?php echo basename($_SERVER['PHP_SELF']) == 'maintenance_reminders.php' ? 'active' : ''; ?>">
-                <i class="fas fa-calendar-check"></i>
-                <span>Maintenance</span>
+            <a href="maintenance_repairs.php" class="nav-item <?php echo in_array(basename($_SERVER['PHP_SELF']), ['maintenance_repairs.php', 'maintenance_reminders.php', 'repairs.php']) ? 'active' : ''; ?>">
+                <i class="fas fa-tools"></i>
+                <span>Maintenance & Repairs</span>
                 <?php
+                $pendingRepairs = $pdo->query("SELECT COUNT(*) FROM device_repairs WHERE repair_status IN ('pending', 'under_repair')")->fetchColumn();
                 $upcomingMaint = $pdo->query("SELECT COUNT(*) FROM maintenance_schedules WHERE next_due_date <= DATE_ADD(NOW(), INTERVAL 7 DAY) AND next_due_date > NOW()")->fetchColumn();
-                if ($upcomingMaint > 0):
+                $totalBadge = $pendingRepairs + $upcomingMaint;
+                if ($totalBadge > 0):
                 ?>
-                <span class="nav-badge"><?php echo $upcomingMaint; ?></span>
+                <span class="nav-badge"><?php echo $totalBadge; ?></span>
                 <?php endif; ?>
             </a>
             <?php endif; ?>

@@ -64,7 +64,7 @@ try {
     if (!empty($input['all'])) {
         // Mark ALL unread notifications for this user as read
         $stmt = $pdo->prepare(
-            "UPDATE notifications SET is_read = 1, read_at = NOW()
+            "UPDATE notifications SET is_read = 1
              WHERE user_id = ? AND is_read = 0"
         );
         $stmt->execute([$_SESSION['user_id']]);
@@ -75,7 +75,7 @@ try {
     } elseif (!empty($input['id'])) {
         // Mark a single notification as read — verify it belongs to this user
         $stmt = $pdo->prepare(
-            "UPDATE notifications SET is_read = 1, read_at = NOW()
+            "UPDATE notifications SET is_read = 1
              WHERE id = ? AND user_id = ? LIMIT 1"
         );
         $stmt->execute([(int)$input['id'], $_SESSION['user_id']]);

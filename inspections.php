@@ -40,7 +40,71 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
 
 $inspections = $pdo->query("SELECT di.*, d.asset_tag, d.brand, d.model, u.full_name as inspector_name FROM device_inspections di JOIN devices d ON di.device_id = d.id JOIN users u ON di.inspected_by = u.id ORDER BY di.created_at DESC LIMIT 50")->fetchAll();
 $pendingDevices = $pdo->query("SELECT id, asset_tag, CONCAT(brand, ' ', model) as name FROM devices WHERE status = 'pending_inspection' ORDER BY asset_tag")->fetchAll();
+
+// Get latest audit records (inspections from device_inspections table)
+$latestAudit = $pdo->query("
+    SELECT 
+        'inspection' as activity_type,
+        di.id,
+        di.inspected_by as user_id,
+        'Device Inspection' as action,
+        'device_inspections' as table_name,
+        di.device_id,
+        di.inspection_date as created_at,
+        u.full_name as staff_name,
+        d.asset_tag,
+        d.brand,
+        d.model,
+        dt.type_name,
+        di.result,
+        di.physical_condition
+    FROM device_inspections di
+    JOIN users u ON di.inspected_by = u.id
+    JOIN devices d ON di.device_id = d.id
+    LEFT JOIN device_types dt ON d.device_type_id = dt.id
+    ORDER BY di.inspection_date DESC LIMIT 10
+")->fetchAll();
 ?>
+
+<div class="page-header">
+    <h1><i class="fas fa-clipboard-check"></i> Device Inspections</h1>
+</div>
+
+<!-- Latest Audit Records Section -->
+<?php if (!empty($latestAudit)): ?>
+<div class="card" style="border-left: 4px solid #3498db; background: #eff6ff; margin-bottom: 24px;">
+    <div class="card-header">
+        <h3><i class="fas fa-history"></i> Latest Inspections</h3>
+    </div>
+    <div class="card-body">
+        <div class="data-table-wrapper">
+            <table class="data-table">
+                <thead><tr><th>Date</th><th>Asset Tag</th><th>Type</th><th>Condition</th><th>Result</th><th>Inspector</th><th>Actions</th></tr></thead>
+                <tbody>
+                    <?php foreach ($latestAudit as $audit): ?>
+                    <tr>
+                        <td><?php echo formatDate($audit['created_at']); ?></td>
+                        <td><strong><?php echo sanitize($audit['asset_tag']); ?></strong><br><small style="color: #999;"><?php echo sanitize($audit['brand'] . ' ' . $audit['model']); ?></small></td>
+                        <td><span style="font-size: 11px; background: #e8f4f8; padding: 3px 8px; border-radius: 3px;"><?php echo sanitize($audit['type_name'] ?? 'N/A'); ?></span></td>
+                        <td><?php echo ucfirst($audit['physical_condition']); ?></td>
+                        <td><?php echo getStatusBadge($audit['result']); ?></td>
+                        <td><?php echo sanitize($audit['staff_name']); ?></td>
+                        <td class="action-btns">
+                            <button onclick="sendInspectionNotification(event, <?php echo $audit['id']; ?>, '<?php echo sanitize($audit['asset_tag']); ?>')" class="btn btn-sm btn-info" title="Send Notification">
+                                <i class="fas fa-bell"></i> Notify
+                            </button>
+                            <a href="view_device.php?id=<?php echo $audit['device_id']; ?>" class="btn btn-sm btn-secondary" title="View Device">
+                                <i class="fas fa-eye"></i> View
+                            </a>
+                        </td>
+                    </tr>
+                    <?php endforeach; ?>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+<?php endif; ?>
 
 <div class="page-header">
     <h1><i class="fas fa-clipboard-check"></i> Device Inspections</h1>
@@ -118,7 +182,7 @@ $pendingDevices = $pdo->query("SELECT id, asset_tag, CONCAT(brand, ' ', model) a
     <div class="card-body">
         <div class="data-table-wrapper">
             <table class="data-table">
-                <thead><tr><th>Date</th><th>Asset Tag</th><th>Condition</th><th>Functionality</th><th>Result</th><th>Inspector</th></tr></thead>
+                <thead><tr><th>Date</th><th>Asset Tag</th> <th>Condition</th><th>Functionality</th><th>Result</th><th>Inspector</th></tr></thead>
                 <tbody>
                     <?php if (empty($inspections)): ?>
                     <tr><td colspan="7" class="empty-state" style="padding: 40px;"><h4>No inspections yet</h4></td></tr>
@@ -141,3 +205,32 @@ $pendingDevices = $pdo->query("SELECT id, asset_tag, CONCAT(brand, ' ', model) a
 </div>
 
 <?php require_once 'includes/footer.php'; ?>
+
+<script>
+function sendInspectionNotification(e, inspectionId, assetTag) {
+    e.preventDefault();
+    const message = 'Send inspection notification for device ' + assetTag + '?';
+    if (!confirm(message)) return;
+    
+    fetch('api_send_inspection_notification.php', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+            inspection_id: parseInt(inspectionId),
+            asset_tag: assetTag
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            alert('Notification sent successfully to IT staff.');
+        } else {
+            alert('Error: ' + (data.message || 'Failed to send notification'));
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('Failed to send notification');
+    });
+}
+</script>

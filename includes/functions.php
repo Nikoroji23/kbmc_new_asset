@@ -464,7 +464,7 @@ function getNotificationUrl(array $notif): string
         switch ($type) {
             case 'repair_needed':
             case 'repair_pending':
-                return 'repairs.php';
+                return 'maintenance_repairs.php';
 
             case 'device_deployed':
             case 'device_returned':
@@ -474,7 +474,7 @@ function getNotificationUrl(array $notif): string
             case 'maintenance_assigned':
             case 'maintenance_completed':
             case 'maintenance_due':
-                return 'maintenance_reminders.php';
+                return 'maintenance_repairs.php';
 
             case 'warranty_expiring':
                 return $refId
