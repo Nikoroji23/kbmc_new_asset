@@ -965,9 +965,11 @@ usort($allMaintenanceMerged, function($a, $b) {
                         <td>
                             <div><?php echo sanitize($issueSnippet); ?></div>
                             <?php if (!empty($r['incident_report_file']) && file_exists($r['incident_report_file'])): ?>
-                                <a href="<?php echo htmlspecialchars($r['incident_report_file']); ?>" target="_blank" title="View attached evidence" class="btn btn-sm btn-light" style="margin-top: 6px; display: inline-flex; align-items: center; gap: 6px;">
-                                    <i class="fas fa-paperclip"></i> Evidence
-                                </a>
+                                <div style="margin-top: 8px;">
+                                    <button onclick="viewAttachment('<?php echo htmlspecialchars($r['incident_report_file']); ?>', '<?php echo htmlspecialchars(basename($r['incident_report_file'])); ?>')" title="Preview attached evidence" class="btn btn-sm btn-light" style="display: inline-flex; align-items: center; gap: 6px; background: #f3f4f6; border: 1px solid #d1d5db; padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: 600; color: #4b5563; transition: all 0.2s;">
+                                        <i class="fas fa-eye"></i> View Attachment
+                                    </button>
+                                </div>
                             <?php endif; ?>
                         </td>
                         <td>
@@ -1326,6 +1328,34 @@ usort($allMaintenanceMerged, function($a, $b) {
 </div>
 
 <input type="hidden" id="repairIdToMark">
+
+<!-- Attachment Viewer Modal -->
+<div id="attachmentViewerModal" style="display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.7); z-index: 2000; align-items: center; justify-content: center; padding: 20px; box-sizing: border-box;">
+    <div style="background: white; border-radius: 12px; width: 100%; max-width: 700px; max-height: 85vh; overflow-y: auto; box-shadow: 0 20px 60px rgba(0,0,0,0.3);">
+        <!-- Modal Header -->
+        <div style="padding: 20px 24px; border-bottom: 1px solid #e5e9f0; display: flex; align-items: center; justify-content: space-between;">
+            <h3 id="attachmentTitle" style="margin: 0; font-size: 16px; font-weight: 700; color: #1f2937;">Attachment Preview</h3>
+            <button onclick="closeAttachmentViewer()" style="background: none; border: none; font-size: 24px; color: #9ca3af; cursor: pointer; padding: 0; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center;">
+                &times;
+            </button>
+        </div>
+        <!-- Modal Body -->
+        <div style="padding: 30px; display: flex; align-items: center; justify-content: center; min-height: 300px;">
+            <div id="attachmentViewer" style="width: 100%; display: flex; align-items: center; justify-content: center;">
+                <!-- Content will be inserted here by JavaScript -->
+            </div>
+        </div>
+        <!-- Modal Footer -->
+        <div style="padding: 16px 24px; border-top: 1px solid #e5e9f0; display: flex; justify-content: flex-end; gap: 10px;">
+            <button onclick="closeAttachmentViewer()" style="display: inline-flex; align-items: center; gap: 6px; padding: 8px 16px; border-radius: 6px; border: 1px solid #d1d5db; background: #fff; cursor: pointer; font-size: 13px; font-weight: 600; color: #4b5563;">
+                <i class="fas fa-times"></i> Close
+            </button>
+            <a id="attachmentDownloadBtn" href="#" target="_blank" style="display: inline-flex; align-items: center; gap: 6px; padding: 8px 16px; border-radius: 6px; border: none; background: #c0392b; color: white; cursor: pointer; font-size: 13px; font-weight: 600; text-decoration: none;">
+                <i class="fas fa-download"></i> Download
+            </a>
+        </div>
+    </div>
+</div>
 
 <script>
 // ─────────────────────────────────────────────────────────────
@@ -1710,6 +1740,62 @@ function openRepairForm() {
         document.getElementById('repairDeviceSearch').focus();
     }, 120);
 }
+
+// Attachment viewer
+function viewAttachment(filepath, filename) {
+    const fileExt = filename.split('.').pop().toLowerCase();
+    const isImage = ['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(fileExt);
+    const isPdf = fileExt === 'pdf';
+    
+    const modal = document.getElementById('attachmentViewerModal');
+    const viewer = document.getElementById('attachmentViewer');
+    const title = document.getElementById('attachmentTitle');
+    const downloadBtn = document.getElementById('attachmentDownloadBtn');
+    
+    title.textContent = filename;
+    downloadBtn.href = filepath;
+    
+    // Clear previous content
+    viewer.innerHTML = '';
+    
+    if (isImage) {
+        const img = document.createElement('img');
+        img.src = filepath;
+        img.style.maxWidth = '100%';
+        img.style.maxHeight = '500px';
+        img.style.objectFit = 'contain';
+        img.style.borderRadius = '8px';
+        viewer.appendChild(img);
+    } else if (isPdf) {
+        const iframe = document.createElement('iframe');
+        iframe.src = filepath;
+        iframe.style.width = '100%';
+        iframe.style.height = '500px';
+        iframe.style.border = 'none';
+        iframe.style.borderRadius = '8px';
+        viewer.appendChild(iframe);
+    } else {
+        viewer.innerHTML = '<div style="padding: 40px; text-align: center; color: #666;"><i class="fas fa-file" style="font-size: 48px; margin-bottom: 16px; display: block;"></i><p>File preview not available</p><p style="font-size: 12px; color: #999;">Please download to view this file type.</p></div>';
+    }
+    
+    modal.style.display = 'flex';
+}
+
+function closeAttachmentViewer() {
+    document.getElementById('attachmentViewerModal').style.display = 'none';
+}
+
+// Close modal when clicking outside
+document.addEventListener('DOMContentLoaded', function() {
+    const modal = document.getElementById('attachmentViewerModal');
+    if (modal) {
+        modal.addEventListener('click', function(e) {
+            if (e.target === modal) {
+                closeAttachmentViewer();
+            }
+        });
+    }
+});
 </script>
 
 <?php require_once 'includes/footer.php'; ?>

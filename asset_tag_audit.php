@@ -347,7 +347,10 @@ $allITStaff = $pdo->query("
                             'inspection' => ['icon' => 'fa-clipboard-check', 'color' => '#3498db', 'label' => 'Device Inspection'],
                             'deployment' => ['icon' => 'fa-hand-holding', 'color' => '#27ae60', 'label' => 'Device Deployed'],
                             'clearance' => ['icon' => 'fa-check-circle', 'color' => '#9b59b6', 'label' => 'IT Clearance'],
-                            'asset_tag_change' => ['icon' => 'fa-edit', 'color' => '#e74c3c', 'label' => 'Asset Tag Changed']
+                            'asset_tag_change' => ['icon' => 'fa-edit', 'color' => '#e74c3c', 'label' => 'Asset Tag Changed'],
+                            'maintenance' => ['icon' => 'fa-wrench', 'color' => '#f39c12', 'label' => 'Maintenance'],
+                            'repair' => ['icon' => 'fa-tools', 'color' => '#e67e22', 'label' => 'Repair'],
+                            'disposal' => ['icon' => 'fa-trash', 'color' => '#95a5a6', 'label' => 'Device Disposed']
                         ];
                         
                         $icon = $activityIcons[$log['activity_type']]['icon'] ?? 'fa-info-circle';

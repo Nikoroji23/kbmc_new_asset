@@ -30,15 +30,29 @@ if (!empty($assignedDevices)) {
     $activeAssignments = $stmt->fetchAll(PDO::FETCH_ASSOC);
     $activeAssignmentMap = array_column($activeAssignments, 'id', 'device_id');
 }
+
+$search = $_GET['search'] ?? '';
 ?>
 
+<style>
+/* Modal Override - Force Full Viewport Coverage */
+#reportIssueModal, #voluntaryReturnModal {
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    width: 100vw !important;
+    height: 100vh !important;
+    max-width: none !important;
+    max-height: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+}
+</style>
+
 <div class="page-header">
-    <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
-        <div>
-            <h1><i class="fas fa-laptop-house"></i> My Assigned Devices</h1>
-            <p style="color: #7f8c8d; font-size: 14px; margin-top: 8px;">Manage your assigned devices and request returns</p>
-        </div>
-        <button onclick="window.print()" class="btn btn-outline" title="Print or save as PDF" style="display: flex; align-items: center; gap: 8px; padding: 10px 15px; border-radius: 6px;">
+    <h1><i class="fas fa-laptop"></i> My Devices</h1>
+    <div class="page-header-btn">
+        <button onclick="window.print()" class="btn btn-outline" title="Print or save as PDF" style="display: flex; align-items: center; gap: 8px;">
             <i class="fas fa-print"></i> Print / PDF
         </button>
     </div>
@@ -53,7 +67,7 @@ if (!empty($assignedDevices)) {
         padding: 10px;
     }
     
-    .sidebar, .page-header button, .btn:not(.print-only), .action-btn {
+    .sidebar, .page-header-btn, .search-area, .btn:not(.print-only), .action-btn, .no-print {
         display: none !important;
     }
     
@@ -61,26 +75,13 @@ if (!empty($assignedDevices)) {
         margin-bottom: 30px;
         border-bottom: 3px solid #333;
         padding-bottom: 15px;
-        display: flex;
-        justify-content: space-between;
     }
     
     .page-header h1 {
-        font-size: 24px;
+        font-size: 22px;
         margin: 0;
         color: #000;
         font-weight: bold;
-    }
-    
-    .page-header p {
-        display: none;
-    }
-    
-    /* Stats cards in print */
-    .stat-card {
-        border: 2px solid #333 !important;
-        page-break-inside: avoid !important;
-        break-inside: avoid !important;
     }
     
     .card {
@@ -97,11 +98,7 @@ if (!empty($assignedDevices)) {
         font-weight: bold;
     }
     
-    .card-body {
-        padding: 0 !important;
-    }
-    
-    .table-container {
+    .data-table-wrapper {
         border: none !important;
     }
     
@@ -135,136 +132,283 @@ if (!empty($assignedDevices)) {
         background-color: white !important;
         color: black !important;
     }
-    
-    .page-break {
-        page-break-after: always;
-    }
 }
 
 /* Screen Styles */
+.page-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 25px;
+    flex-wrap: wrap;
+    gap: 15px;
+}
+
+.page-header h1 {
+    margin: 0;
+    font-size: 28px;
+    color: #2c3e50;
+}
+
+.page-header-btn {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.search-area {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 20px;
+    flex-wrap: wrap;
+    align-items: center;
+}
+
+.search-area input {
+    padding: 10px 12px;
+    border: 1px solid #d6d8db;
+    border-radius: 8px;
+    font-size: 14px;
+    flex: 1;
+    min-width: 250px;
+}
+
+.data-table-wrapper {
+    border: 1px solid #ecf0f1;
+    border-radius: 8px;
+    max-height: 700px;
+    overflow-y: auto;
+}
+
+.data-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+}
+
+.data-table thead {
+    position: sticky;
+    top: 0;
+    background-color: #f8f9fa;
+    z-index: 10;
+}
+
+.data-table thead th {
+    padding: 12px;
+    text-align: left;
+    font-weight: 600;
+    color: #2c3e50;
+    border-bottom: 2px solid #dee2e6;
+}
+
+.data-table tbody tr {
+    border-bottom: 1px solid #ecf0f1;
+    transition: background-color 0.2s;
+}
+
+.data-table tbody tr:hover {
+    background-color: #f5f7ff;
+}
+
+.data-table td {
+    padding: 12px;
+    vertical-align: middle;
+}
+
+.data-table strong {
+    color: #2c3e50;
+    font-weight: 600;
+}
+
+.action-btns {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+.action-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    border-radius: 6px;
+    text-decoration: none;
+    font-size: 14px;
+    transition: all 0.3s ease;
+    border: none;
+    cursor: pointer;
+}
+
+.action-btn.view {
+    background: #e8f4f8;
+    color: #3498db;
+}
+
+.action-btn.view:hover {
+    background: #3498db;
+    color: white;
+}
+
+.action-btn.report {
+    background: #fef5e7;
+    color: #f39c12;
+}
+
+.action-btn.report:hover {
+    background: #f39c12;
+    color: white;
+}
+
+.action-btn.return {
+    background: #fadbd8;
+    color: #e74c3c;
+}
+
+.action-btn.return:hover {
+    background: #e74c3c;
+    color: white;
+}
+
 .card {
     border-radius: 12px;
     border: none;
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
     margin-bottom: 25px;
-    transition: box-shadow 0.3s ease;
-}
-
-.card:hover {
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
 }
 
 .card-header {
     background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
-    border-bottom: 2px solid #dee2e6;
-    padding: 20px;
+    border-bottom: 1px solid #dee2e6;
+    padding: 18px 20px;
     border-radius: 12px 12px 0 0;
 }
 
 .card-header h3 {
     margin: 0;
     color: #2c3e50;
-    font-size: 16px;
+    font-size: 15px;
     font-weight: 600;
 }
 
-/* Fixed table header */
-.table-container {
-    max-height: 600px;
-    overflow-y: auto;
+.card-body {
+    padding: 0;
+}
+
+.stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 15px;
+    margin-bottom: 25px;
+}
+
+.stat-box {
+    background: white;
     border: 1px solid #ecf0f1;
     border-radius: 8px;
+    padding: 18px;
+    text-align: center;
 }
 
-.table-container table {
-    width: 100%;
+.stat-box .stat-value {
+    font-size: 28px;
+    font-weight: 700;
+    color: #2c3e50;
+    margin-bottom: 5px;
 }
 
-.table-container thead th {
-    position: sticky;
-    top: 0;
-    background-color: #f8f9fa !important;
-    border-bottom: 2px solid #dee2e6 !important;
-    z-index: 10;
+.stat-box .stat-label {
+    font-size: 12px;
+    color: #7f8c8d;
+    font-weight: 500;
+}
+
+.status-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 6px 10px;
+    border-radius: 6px;
+    font-size: 11px;
     font-weight: 600;
 }
 
-.table-container tbody tr {
-    border-bottom: 1px solid #ecf0f1;
+.empty-state {
+    text-align: center;
+    padding: 60px 20px;
+    color: #95a5a6;
 }
 
-.table-container tbody tr:hover {
-    background-color: #f5f7ff;
+.empty-state i {
+    font-size: 40px;
+    color: #bdc3c7;
+    margin-bottom: 15px;
+    display: block;
 }
 
-/* Better spacing */
-.main {
-    padding: 25px;
+.empty-state h4 {
+    margin: 10px 0;
+    color: #7f8c8d;
 }
 </style>
 
-<!-- Stats Cards -->
-<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 20px; margin-bottom: 35px;">
-    <div class="stat-card" style="background: linear-gradient(135deg, #3498db 0%, #2980b9 100%); color: white; padding: 25px; border-radius: 12px; box-shadow: 0 4px 15px rgba(52, 152, 219, 0.2); transition: transform 0.3s ease; position: relative; overflow: hidden;">
-        <div style="position: absolute; top: -20px; right: -20px; opacity: 0.1; font-size: 60px;"><i class="fas fa-laptop"></i></div>
-        <div style="font-size: 32px; font-weight: 700; margin-bottom: 8px;"><?php echo $stats['total_devices'] ?? 0; ?></div>
-        <div style="font-size: 13px; opacity: 0.95; font-weight: 500;">Total Devices Assigned</div>
+<!-- Quick Stats -->
+<div class="stats-grid">
+    <div class="stat-box">
+        <div class="stat-value"><?php echo $stats['total_devices'] ?? 0; ?></div>
+        <div class="stat-label">Total Assigned</div>
     </div>
-    
-    <div class="stat-card" style="background: linear-gradient(135deg, #27ae60 0%, #229954 100%); color: white; padding: 25px; border-radius: 12px; box-shadow: 0 4px 15px rgba(39, 174, 96, 0.2); transition: transform 0.3s ease; position: relative; overflow: hidden;">
-        <div style="position: absolute; top: -20px; right: -20px; opacity: 0.1; font-size: 60px;"><i class="fas fa-check-circle"></i></div>
-        <div style="font-size: 32px; font-weight: 700; margin-bottom: 8px;"><?php echo $stats['active_devices'] ?? 0; ?></div>
-        <div style="font-size: 13px; opacity: 0.95; font-weight: 500;">Active & Functional</div>
+    <div class="stat-box">
+        <div class="stat-value"><?php echo $stats['active_devices'] ?? 0; ?></div>
+        <div class="stat-label">Active & Functional</div>
     </div>
-    
-    <div class="stat-card" style="background: linear-gradient(135deg, #f39c12 0%, #e67e22 100%); color: white; padding: 25px; border-radius: 12px; box-shadow: 0 4px 15px rgba(243, 156, 18, 0.2); transition: transform 0.3s ease; position: relative; overflow: hidden;">
-        <div style="position: absolute; top: -20px; right: -20px; opacity: 0.1; font-size: 60px;"><i class="fas fa-tools"></i></div>
-        <div style="font-size: 32px; font-weight: 700; margin-bottom: 8px;"><?php echo $stats['devices_under_repair'] ?? 0; ?></div>
-        <div style="font-size: 13px; opacity: 0.95; font-weight: 500;">Under Repair</div>
+    <div class="stat-box">
+        <div class="stat-value"><?php echo $stats['devices_under_repair'] ?? 0; ?></div>
+        <div class="stat-label">Under Repair</div>
     </div>
-    
-    <div class="stat-card" style="background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%); color: white; padding: 25px; border-radius: 12px; box-shadow: 0 4px 15px rgba(231, 76, 60, 0.2); transition: transform 0.3s ease; position: relative; overflow: hidden;">
-        <div style="position: absolute; top: -20px; right: -20px; opacity: 0.1; font-size: 60px;"><i class="fas fa-clock"></i></div>
-        <div style="font-size: 32px; font-weight: 700; margin-bottom: 8px;"><?php echo $stats['pending_repairs'] ?? 0; ?></div>
-        <div style="font-size: 13px; opacity: 0.95; font-weight: 500;">Pending Repairs</div>
+    <div class="stat-box">
+        <div class="stat-value"><?php echo $stats['pending_repairs'] ?? 0; ?></div>
+        <div class="stat-label">Pending Repairs</div>
     </div>
 </div>
 
-<?php if (!empty($assignedDevices)): ?>
+<!-- Devices Table -->
 <div class="card">
     <div class="card-header">
         <h3><i class="fas fa-list"></i> Your Devices (<?php echo count($assignedDevices); ?> Total)</h3>
     </div>
-    <div class="card-body" style="padding: 0;">
-        <div class="table-container">
-            <table class="table table-hover" style="margin-bottom: 0;">
+    <div class="card-body">
+        <?php if (!empty($assignedDevices)): ?>
+        <div class="data-table-wrapper">
+            <table class="data-table">
                 <thead>
-                    <tr style="background-color: #f8f9fa;">
-                        <th style="width: 18%;">Asset Tag</th>
-                        <th style="width: 20%;">Device Type</th>
-                        <th style="width: 15%;">Status</th>
-                        <th style="width: 15%;">Assigned Date</th>
-                        <th style="width: 14%;">Maintenance</th>
-                        <th style="width: 12%;">Repairs</th>
-                        <th style="width: 26%; text-align: center;">Actions</th>
+                    <tr>
+                        <th>Asset Tag</th>
+                        <th>Device Type</th>
+                        <th>Status</th>
+                        <th>Assigned Date</th>
+                        <th>Maintenance</th>
+                        <th>Repairs</th>
+                        <th>Actions</th>
                     </tr>
                 </thead>
                 <tbody>
                     <?php foreach ($assignedDevices as $device): ?>
                     <?php $statusColor = getStatusColor($device['status']); ?>
                     <?php $assignmentId = isset($activeAssignmentMap[$device['id']]) ? $activeAssignmentMap[$device['id']] : null; ?>
-                    <tr style="border-bottom: 1px solid #ecf0f1;">
-                        <td><strong style="color: #2c3e50; font-size: 13px;"><?php echo $device['asset_tag']; ?></strong></td>
-                        <td style="font-size: 13px; color: #34495e;"><?php echo $device['type_name']; ?></td>
+                    <tr>
+                        <td><strong><?php echo $device['asset_tag']; ?></strong></td>
+                        <td><?php echo $device['type_name']; ?></td>
                         <td>
-                            <span class="status-badge" style="background-color: <?php echo $statusColor['color_code']; ?>20; color: <?php echo $statusColor['color_code']; ?>; border: 1.5px solid <?php echo $statusColor['color_code']; ?>; padding: 6px 10px; border-radius: 6px; font-size: 11px; display: inline-flex; align-items: center; gap: 5px; font-weight: 600;">
+                            <span class="status-badge" style="background-color: <?php echo $statusColor['color_code']; ?>20; color: <?php echo $statusColor['color_code']; ?>; border: 1px solid <?php echo $statusColor['color_code']; ?>;">
                                 <i class="<?php echo $statusColor['icon_class']; ?>"></i> <?php echo $statusColor['display_label']; ?>
                             </span>
                         </td>
-                        <td style="font-size: 12px; color: #7f8c8d;"><?php echo date('M d, Y', strtotime($device['assigned_date'])); ?></td>
+                        <td><?php echo date('M d, Y', strtotime($device['assigned_date'])); ?></td>
                         <td>
                             <?php if ($device['upcoming_maintenance'] > 0): ?>
-                            <span style="background: #fff3cd; color: #856404; padding: 5px 8px; border-radius: 5px; font-size: 11px; font-weight: 600; display: inline-flex; align-items: center; gap: 4px;">
+                            <span style="background: #fff3cd; color: #856404; padding: 5px 8px; border-radius: 5px; font-size: 11px; font-weight: 600;">
                                 <i class="fas fa-exclamation-triangle"></i> <?php echo $device['upcoming_maintenance']; ?> Due
                             </span>
                             <?php else: ?>
@@ -273,30 +417,19 @@ if (!empty($assignedDevices)) {
                         </td>
                         <td>
                             <?php if ($device['pending_repairs'] > 0): ?>
-                            <span style="background: #f8d7da; color: #721c24; padding: 5px 8px; border-radius: 5px; font-size: 11px; font-weight: 600; display: inline-flex; align-items: center; gap: 4px;">
+                            <span style="background: #f8d7da; color: #721c24; padding: 5px 8px; border-radius: 5px; font-size: 11px; font-weight: 600;">
                                 <i class="fas fa-wrench"></i> <?php echo $device['pending_repairs']; ?>
                             </span>
                             <?php else: ?>
                             <span style="color: #95a5a6; font-size: 11px;">—</span>
                             <?php endif; ?>
                         </td>
-                        <td style="text-align: center;">
-                            <div style="display: inline-flex; gap: 8px; flex-wrap: wrap; justify-content: center;">
-                                <!-- View Button -->
-                                <a href="view_device.php?id=<?php echo $device['id']; ?>" class="action-btn" title="View Device Details" style="display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; background: #3498db; color: white; border-radius: 6px; text-decoration: none; font-size: 14px; transition: all 0.3s ease; box-shadow: 0 2px 5px rgba(52, 152, 219, 0.2);" onmouseover="this.style.background='#2980b9'; this.style.boxShadow='0 4px 10px rgba(52, 152, 219, 0.3)';" onmouseout="this.style.background='#3498db'; this.style.boxShadow='0 2px 5px rgba(52, 152, 219, 0.2)';">
-                                    <i class="fas fa-eye"></i>
-                                </a>
-                                
-                                <!-- Report Issue Button -->
-                                <button onclick="reportIssue(<?php echo $device['id']; ?>, '<?php echo $device['asset_tag']; ?>')" class="action-btn" title="Report Device Issue" style="display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; background: #f39c12; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; transition: all 0.3s ease; box-shadow: 0 2px 5px rgba(243, 156, 18, 0.2);" onmouseover="this.style.background='#e67e22'; this.style.boxShadow='0 4px 10px rgba(243, 156, 18, 0.3)';" onmouseout="this.style.background='#f39c12'; this.style.boxShadow='0 2px 5px rgba(243, 156, 18, 0.2)';">
-                                    <i class="fas fa-exclamation-circle"></i>
-                                </button>
-                                
-                                <!-- Voluntary Return Button -->
+                        <td>
+                            <div class="action-btns">
+                                <a href="view_device.php?id=<?php echo $device['id']; ?>" class="action-btn view" title="View Details"><i class="fas fa-eye"></i></a>
+                                <button onclick="reportIssue(<?php echo $device['id']; ?>, '<?php echo $device['asset_tag']; ?>')" class="action-btn report" title="Report Issue"><i class="fas fa-exclamation-circle"></i></button>
                                 <?php if ($assignmentId): ?>
-                                <button onclick="voluntarilyReturnDevice(<?php echo $assignmentId; ?>, '<?php echo $device['asset_tag']; ?>')" class="action-btn" title="Request Voluntary Return" style="display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; background: #e74c3c; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; transition: all 0.3s ease; box-shadow: 0 2px 5px rgba(231, 76, 60, 0.2);" onmouseover="this.style.background='#c0392b'; this.style.boxShadow='0 4px 10px rgba(231, 76, 60, 0.3)';" onmouseout="this.style.background='#e74c3c'; this.style.boxShadow='0 2px 5px rgba(231, 76, 60, 0.2)';">
-                                    <i class="fas fa-hand-holding"></i>
-                                </button>
+                                <button onclick="voluntarilyReturnDevice(<?php echo $assignmentId; ?>, '<?php echo $device['asset_tag']; ?>')" class="action-btn return" title="Request Return"><i class="fas fa-hand-holding"></i></button>
                                 <?php endif; ?>
                             </div>
                         </td>
@@ -305,104 +438,156 @@ if (!empty($assignedDevices)) {
                 </tbody>
             </table>
         </div>
-    </div>
-</div>
-<?php else: ?>
-<div class="card">
-    <div class="card-body" style="text-align: center; padding: 60px 20px;">
-        <div style="font-size: 50px; color: #bdc3c7; margin-bottom: 20px;"><i class="fas fa-inbox"></i></div>
-        <h4 style="color: #2c3e50; font-size: 18px; margin-bottom: 10px;">No Devices Assigned Yet</h4>
-        <p style="color: #7f8c8d; font-size: 14px;">You don't have any devices assigned to you. Contact IT if you need a device.</p>
-    </div>
-</div>
-<?php endif; ?>
-
-<!-- Report Issue Modal -->
-<div id="reportIssueModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000; align-items: center; justify-content: center;">
-    <div class="card" style="width: 90%; max-width: 550px; background: white; border-radius: 12px; box-shadow: 0 10px 40px rgba(0,0,0,0.3);">
-        <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #ecf0f1;">
-            <h3 style="margin: 0;"><i class="fas fa-exclamation-triangle"></i> Report Device Issue</h3>
-            <button onclick="closeReportIssue()" style="background: none; border: none; font-size: 24px; cursor: pointer; color: #7f8c8d; transition: color 0.2s;" onmouseover="this.style.color='#e74c3c';" onmouseout="this.style.color='#7f8c8d';">&times;</button>
+        <?php else: ?>
+        <div class="empty-state">
+            <i class="fas fa-inbox"></i>
+            <h4>No Devices Assigned Yet</h4>
+            <p>You don't have any devices assigned to you. Contact IT if you need a device.</p>
         </div>
-        <div class="card-body">
+        <?php endif; ?>
+    </div>
+</div>
+
+<!-- Report Issue Modal - Modern Design -->
+<div id="reportIssueModal" style="display: none; position: fixed; inset: 0; background: linear-gradient(135deg, rgba(0,0,0,0.6) 0%, rgba(0,0,0,0.4) 100%); z-index: 2000; align-items: center; justify-content: center; overflow-y: auto; padding: 20px; box-sizing: border-box; animation: fadeIn 0.3s ease;">
+    <div style="width: 100%; max-width: 580px; background: white; border-radius: 16px; box-shadow: 0 25px 80px rgba(0,0,0,0.3); overflow: hidden; animation: slideUp 0.3s ease;">
+        <!-- Header with gradient background -->
+        <div style="background: linear-gradient(135deg, #f39c12 0%, #e67e22 100%); padding: 30px 28px; display: flex; justify-content: space-between; align-items: center;">
+            <div style="display: flex; align-items: center; gap: 12px;">
+                <i class="fas fa-exclamation-circle" style="font-size: 28px; color: white;"></i>
+                <h2 style="margin: 0; color: white; font-size: 22px; font-weight: 700;">Report Device Issue</h2>
+            </div>
+            <button onclick="closeReportIssue()" style="background: rgba(255,255,255,0.2); border: none; width: 40px; height: 40px; border-radius: 8px; cursor: pointer; color: white; font-size: 24px; transition: all 0.2s; display: flex; align-items: center; justify-content: center;" onmouseover="this.style.background='rgba(255,255,255,0.3)';" onmouseout="this.style.background='rgba(255,255,255,0.2)';">&times;</button>
+        </div>
+
+        <!-- Form Body -->
+        <div style="padding: 28px;">
             <form id="reportForm" method="POST" enctype="multipart/form-data">
-                <div class="form-group" style="margin-bottom: 18px;">
-                    <label for="deviceTag" style="display: block; font-weight: 600; margin-bottom: 6px; color: #2c3e50;">Device</label>
-                    <input type="text" id="deviceTag" readonly style="background: #ecf0f1; padding: 10px 12px; border: 1px solid #bdc3c7; border-radius: 6px; width: 100%; font-size: 14px; color: #7f8c8d;">
+                <!-- Device Tag (Read-only) -->
+                <div style="margin-bottom: 20px;">
+                    <label style="display: block; font-weight: 700; margin-bottom: 8px; color: #2c3e50; font-size: 13px; text-transform: uppercase; letter-spacing: 0.5px;">Device</label>
+                    <input type="text" id="deviceTag" readonly style="background: #f0f2f5; padding: 12px 14px; border: 2px solid #e8eaed; border-radius: 8px; width: 100%; font-size: 15px; color: #555; font-weight: 600;">
                 </div>
 
-                <div class="form-group" style="margin-bottom: 18px;">
-                    <label for="issueDescription" style="display: block; font-weight: 600; margin-bottom: 6px; color: #2c3e50;">Issue Description <span style="color: #e74c3c;">*</span></label>
-                    <textarea id="issueDescription" name="issue_description" required style="width: 100%; min-height: 100px; padding: 10px 12px; border: 1px solid #bdc3c7; border-radius: 6px; font-family: 'Segoe UI', Arial, sans-serif; font-size: 14px; resize: vertical;" placeholder="Describe the issue you're experiencing..."></textarea>
+                <!-- Issue Description -->
+                <div style="margin-bottom: 20px;">
+                    <label style="display: block; font-weight: 700; margin-bottom: 8px; color: #2c3e50; font-size: 13px; text-transform: uppercase; letter-spacing: 0.5px;">Issue Description <span style="color: #e74c3c;">*</span></label>
+                    <textarea id="issueDescription" name="issue_description" required style="width: 100%; height: 110px; padding: 12px 14px; border: 2px solid #e8eaed; border-radius: 8px; font-family: 'Segoe UI', Arial, sans-serif; font-size: 14px; resize: vertical; transition: border 0.2s;" placeholder="Describe the issue you're experiencing..." onf ocus="this.style.borderColor='#f39c12';" onblur="this.style.borderColor='#e8eaed';"></textarea>
                 </div>
 
-                <div class="form-group" style="margin-bottom: 18px;">
-                    <label for="severity" style="display: block; font-weight: 600; margin-bottom: 6px; color: #2c3e50;">Severity Level</label>
-                    <select id="severity" name="severity" style="width: 100%; padding: 10px 12px; border: 1px solid #bdc3c7; border-radius: 6px; font-size: 14px; background: white;">
-                        <option value="low">Low - Device works but has issues</option>
-                        <option value="medium" selected>Medium - Device is problematic</option>
-                        <option value="high">High - Device barely functional</option>
-                        <option value="critical">Critical - Device not working at all</option>
-                    </select>
+                <!-- Two column layout for Severity and Category -->
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 20px;">
+                    <!-- Severity Level -->
+                    <div>
+                        <label style="display: block; font-weight: 700; margin-bottom: 8px; color: #2c3e50; font-size: 13px; text-transform: uppercase; letter-spacing: 0.5px;">Severity</label>
+                        <select id="severity" name="severity" style="width: 100%; padding: 12px 14px; border: 2px solid #e8eaed; border-radius: 8px; font-size: 14px; background: white; cursor: pointer; transition: border 0.2s;" onfocus="this.style.borderColor='#f39c12';" onblur="this.style.borderColor='#e8eaed';">
+                            <option value="low">Low</option>
+                            <option value="medium" selected>Medium</option>
+                            <option value="high">High</option>
+                            <option value="critical">Critical</option>
+                        </select>
+                    </div>
+
+                    <!-- Issue Category -->
+                    <div>
+                        <label style="display: block; font-weight: 700; margin-bottom: 8px; color: #2c3e50; font-size: 13px; text-transform: uppercase; letter-spacing: 0.5px;">Category <span style="color: #e74c3c;">*</span></label>
+                        <select id="issueCategory" name="issue_category" required style="width: 100%; padding: 12px 14px; border: 2px solid #e8eaed; border-radius: 8px; font-size: 14px; background: white; cursor: pointer; transition: border 0.2s;" onfocus="this.style.borderColor='#f39c12';" onblur="this.style.borderColor='#e8eaed';">
+                            <option value="">Select...</option>
+                            <option value="hardware">🔧 Hardware</option>
+                            <option value="software">💻 Software</option>
+                            <option value="connectivity">🌐 Connectivity</option>
+                            <option value="battery">🔋 Battery</option>
+                            <option value="display">📺 Display</option>
+                            <option value="keyboard">⌨️ Keyboard</option>
+                            <option value="other">📋 Other</option>
+                        </select>
+                    </div>
                 </div>
 
-                <div class="form-group" style="margin-bottom: 22px;">
-                    <label for="attachment" style="display: block; font-weight: 600; margin-bottom: 6px; color: #2c3e50;">Attach Evidence (optional)</label>
-                    <input type="file" id="attachment" name="attachment" accept="image/*,.pdf" style="padding: 8px 12px; border: 2px dashed #bdc3c7; border-radius: 6px; width: 100%; font-size: 13px; color: #7f8c8d;">
-                    <small style="color: #95a5a6; display: block; margin-top: 6px;">Max 5MB. Images or PDF only.</small>
+                <!-- Attachment -->
+                <div style="margin-bottom: 24px;">
+                    <label style="display: block; font-weight: 700; margin-bottom: 8px; color: #2c3e50; font-size: 13px; text-transform: uppercase; letter-spacing: 0.5px;">Attach Evidence</label>
+                    <div style="position: relative;">
+                        <input type="file" id="attachment" name="attachment" accept="image/*,.pdf" style="padding: 12px 14px; border: 2px dashed #3498db; border-radius: 8px; width: 100%; font-size: 13px; color: #7f8c8d; background: #f0f8ff; cursor: pointer;">
+                        <small style="color: #7f8c8d; display: block; margin-top: 6px; font-size: 12px;">📎 Max 5MB (Images or PDF)</small>
+                    </div>
                 </div>
 
                 <input type="hidden" id="deviceId" name="device_id">
 
-                <div style="display: flex; gap: 12px; justify-content: flex-end; border-top: 1px solid #ecf0f1; padding-top: 18px;">
-                    <button type="button" onclick="closeReportIssue()" class="btn btn-outline" style="padding: 10px 20px; border-radius: 6px;">Cancel</button>
-                    <button type="submit" class="btn btn-primary" style="padding: 10px 20px; border-radius: 6px;">Report Issue</button>
+                <!-- Action Buttons -->
+                <div style="display: flex; gap: 12px; justify-content: flex-end; padding-top: 18px; border-top: 1px solid #ecf0f1;">
+                    <button type="button" onclick="closeReportIssue()" style="padding: 12px 24px; border: 2px solid #ddd; background: white; color: #555; border-radius: 8px; font-weight: 600; cursor: pointer; transition: all 0.2s; font-size: 14px;" onmouseover="this.style.background='#f5f5f5';" onmouseout="this.style.background='white';">Cancel</button>
+                    <button type="submit" style="padding: 12px 28px; background: linear-gradient(135deg, #f39c12 0%, #e67e22 100%); color: white; border: none; border-radius: 8px; font-weight: 700; cursor: pointer; transition: all 0.2s; font-size: 14px; box-shadow: 0 4px 15px rgba(243, 156, 18, 0.3);" onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 6px 20px rgba(243, 156, 18, 0.4)';" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 4px 15px rgba(243, 156, 18, 0.3)';">✓ Report Issue</button>
                 </div>
             </form>
         </div>
     </div>
+
+    <style>
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        @keyframes slideUp { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+    </style>
 </div>
 
-<!-- Voluntary Return Modal -->
-<div id="voluntaryReturnModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000; align-items: center; justify-content: center;">
-    <div class="card" style="width: 90%; max-width: 550px; background: white; border-radius: 12px; box-shadow: 0 10px 40px rgba(0,0,0,0.3);">
-        <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #ecf0f1;">
-            <h3 style="margin: 0;"><i class="fas fa-hand-holding"></i> Request Device Return</h3>
-            <button onclick="closeVoluntaryReturn()" style="background: none; border: none; font-size: 24px; cursor: pointer; color: #7f8c8d; transition: color 0.2s;" onmouseover="this.style.color='#e74c3c';" onmouseout="this.style.color='#7f8c8d';">&times;</button>
-        </div>
-        <div class="card-body">
-            <div style="background: #e8f4f8; border-left: 4px solid #3498db; padding: 15px; border-radius: 6px; margin-bottom: 20px;">
-                <p style="margin: 0; color: #2c3e50; font-size: 14px;"><strong>Important:</strong> A return request will notify IT staff. They will assess your device clearance and coordinate the return process.</p>
+<!-- Voluntary Return Modal - Modern Design -->
+<div id="voluntaryReturnModal" style="display: none; position: fixed; inset: 0; background: linear-gradient(135deg, rgba(0,0,0,0.6) 0%, rgba(0,0,0,0.4) 100%); z-index: 2000; align-items: center; justify-content: center; overflow-y: auto; padding: 20px; box-sizing: border-box; animation: fadeIn 0.3s ease;">
+    <div style="width: 100%; max-width: 580px; background: white; border-radius: 16px; box-shadow: 0 25px 80px rgba(0,0,0,0.3); overflow: hidden; animation: slideUp 0.3s ease;">
+        <!-- Header with gradient background -->
+        <div style="background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%); padding: 30px 28px; display: flex; justify-content: space-between; align-items: center;">
+            <div style="display: flex; align-items: center; gap: 12px;">
+                <i class="fas fa-hand-holding" style="font-size: 28px; color: white;"></i>
+                <h2 style="margin: 0; color: white; font-size: 22px; font-weight: 700;">Request Device Return</h2>
             </div>
-            
+            <button onclick="closeVoluntaryReturn()" style="background: rgba(255,255,255,0.2); border: none; width: 40px; height: 40px; border-radius: 8px; cursor: pointer; color: white; font-size: 24px; transition: all 0.2s; display: flex; align-items: center; justify-content: center;" onmouseover="this.style.background='rgba(255,255,255,0.3)';" onmouseout="this.style.background='rgba(255,255,255,0.2)';">&times;</button>
+        </div>
+
+        <!-- Info Banner -->
+        <div style="background: #fff3cd; border-left: 4px solid #ffc107; padding: 16px 24px; margin: 0;">
+            <p style="margin: 0; color: #856404; font-size: 13px; display: flex; align-items: center; gap: 8px;">
+                <i class="fas fa-info-circle"></i>
+                <strong>IT staff will be notified and will contact you to arrange device pickup.</strong>
+            </p>
+        </div>
+
+        <!-- Form Body -->
+        <div style="padding: 28px;">
             <form id="voluntaryReturnForm" method="POST">
-                <div class="form-group" style="margin-bottom: 18px;">
-                    <label for="returnDeviceTag" style="display: block; font-weight: 600; margin-bottom: 6px; color: #2c3e50;">Device</label>
-                    <input type="text" id="returnDeviceTag" readonly style="background: #ecf0f1; padding: 10px 12px; border: 1px solid #bdc3c7; border-radius: 6px; width: 100%; font-size: 14px; color: #7f8c8d;">
+                <!-- Device Tag (Read-only) -->
+                <div style="margin-bottom: 20px;">
+                    <label style="display: block; font-weight: 700; margin-bottom: 8px; color: #2c3e50; font-size: 13px; text-transform: uppercase; letter-spacing: 0.5px;">Device</label>
+                    <input type="text" id="returnDeviceTag" readonly style="background: #f0f2f5; padding: 12px 14px; border: 2px solid #e8eaed; border-radius: 8px; width: 100%; font-size: 15px; color: #555; font-weight: 600;">
                 </div>
 
-                <div class="form-group" style="margin-bottom: 18px;">
-                    <label for="returnReason" style="display: block; font-weight: 600; margin-bottom: 6px; color: #2c3e50;">Reason for Return (optional)</label>
-                    <textarea id="returnReason" name="return_reason" style="width: 100%; min-height: 80px; padding: 10px 12px; border: 1px solid #bdc3c7; border-radius: 6px; font-family: 'Segoe UI', Arial, sans-serif; font-size: 14px; resize: vertical;" placeholder="Please provide any details about why you're returning this device..."></textarea>
+                <!-- Return Reason -->
+                <div style="margin-bottom: 24px;">
+                    <label style="display: block; font-weight: 700; margin-bottom: 8px; color: #2c3e50; font-size: 13px; text-transform: uppercase; letter-spacing: 0.5px;">Reason for Return</label>
+                    <textarea id="returnReason" name="return_reason" style="width: 100%; height: 100px; padding: 12px 14px; border: 2px solid #e8eaed; border-radius: 8px; font-family: 'Segoe UI', Arial, sans-serif; font-size: 14px; resize: vertical; transition: border 0.2s;" placeholder="Tell us why you're returning this device..." onfocus="this.style.borderColor='#e74c3c';" onblur="this.style.borderColor='#e8eaed';"></textarea>
                 </div>
 
                 <input type="hidden" id="returnAssignmentId" name="assignment_id">
 
-                <div style="display: flex; gap: 12px; justify-content: flex-end; border-top: 1px solid #ecf0f1; padding-top: 18px;">
-                    <button type="button" onclick="closeVoluntaryReturn()" class="btn btn-outline" style="padding: 10px 20px; border-radius: 6px;">Cancel</button>
-                    <button type="submit" class="btn btn-primary" style="padding: 10px 20px; border-radius: 6px; background: #e74c3c; border-color: #c0392b;">Request Return</button>
+                <!-- Action Buttons -->
+                <div style="display: flex; gap: 12px; justify-content: flex-end; padding-top: 18px; border-top: 1px solid #ecf0f1;">
+                    <button type="button" onclick="closeVoluntaryReturn()" style="padding: 12px 24px; border: 2px solid #ddd; background: white; color: #555; border-radius: 8px; font-weight: 600; cursor: pointer; transition: all 0.2s; font-size: 14px;" onmouseover="this.style.background='#f5f5f5';" onmouseout="this.style.background='white';">Cancel</button>
+                    <button type="submit" style="padding: 12px 28px; background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%); color: white; border: none; border-radius: 8px; font-weight: 700; cursor: pointer; transition: all 0.2s; font-size: 14px; box-shadow: 0 4px 15px rgba(231, 76, 60, 0.3);" onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 6px 20px rgba(231, 76, 60, 0.4)';" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 4px 15px rgba(231, 76, 60, 0.3)';">✓ Submit Return Request</button>
                 </div>
             </form>
         </div>
     </div>
+
+    <style>
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        @keyframes slideUp { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+    </style>
 </div>
 
 <script>
 // Report Issue Functions
 function reportIssue(deviceId, assetTag) {
+    document.getElementById('reportForm').reset();
     document.getElementById('deviceId').value = deviceId;
     document.getElementById('deviceTag').value = assetTag;
-    document.getElementById('reportForm').reset();
     document.getElementById('reportIssueModal').style.display = 'flex';
 }
 
@@ -421,7 +606,7 @@ document.getElementById('reportForm').addEventListener('submit', function(e) {
     .then(response => response.json())
     .then(data => {
         if (data.success) {
-            alert('Issue reported successfully. IT team has been notified.');
+            alert('✓ Issue reported successfully!\n\nIT team has been notified and will review your report.');
             closeReportIssue();
             location.reload();
         } else {
@@ -430,7 +615,7 @@ document.getElementById('reportForm').addEventListener('submit', function(e) {
     })
     .catch(error => {
         console.error('Error:', error);
-        alert('Failed to report issue.');
+        alert('Failed to report issue. Please try again.');
     });
 });
 
@@ -486,6 +671,22 @@ document.getElementById('voluntaryReturnForm').addEventListener('submit', functi
 // Close modal when clicking outside
 document.getElementById('voluntaryReturnModal').addEventListener('click', function(e) {
     if (e.target === this) closeVoluntaryReturn();
+});
+
+// Move modals to body to escape container constraints
+document.addEventListener('DOMContentLoaded', function() {
+    const reportModal = document.getElementById('reportIssueModal');
+    const returnModal = document.getElementById('voluntaryReturnModal');
+    
+    if (reportModal && reportModal.parentElement) {
+        reportModal.parentElement.removeChild(reportModal);
+        document.body.appendChild(reportModal);
+    }
+    
+    if (returnModal && returnModal.parentElement) {
+        returnModal.parentElement.removeChild(returnModal);
+        document.body.appendChild(returnModal);
+    }
 });
 </script>
 
