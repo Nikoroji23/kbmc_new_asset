@@ -38,73 +38,31 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     }
 }
 
-$inspections = $pdo->query("SELECT di.*, d.asset_tag, d.brand, d.model, u.full_name as inspector_name FROM device_inspections di JOIN devices d ON di.device_id = d.id JOIN users u ON di.inspected_by = u.id ORDER BY di.created_at DESC LIMIT 50")->fetchAll();
 $pendingDevices = $pdo->query("SELECT id, asset_tag, CONCAT(brand, ' ', model) as name FROM devices WHERE status = 'pending_inspection' ORDER BY asset_tag")->fetchAll();
 
-// Get latest audit records (inspections from device_inspections table)
-$latestAudit = $pdo->query("
+// Get all inspections with device and user details - combined and unified
+$inspections = $pdo->query("
     SELECT 
-        'inspection' as activity_type,
         di.id,
-        di.inspected_by as user_id,
-        'Device Inspection' as action,
-        'device_inspections' as table_name,
-        di.device_id,
-        di.inspection_date as created_at,
-        u.full_name as staff_name,
+        di.inspected_by,
+        di.inspection_date,
+        di.physical_condition,
+        di.functionality_status,
+        di.result,
+        di.notes,
+        d.id as device_id,
         d.asset_tag,
         d.brand,
         d.model,
         dt.type_name,
-        di.result,
-        di.physical_condition
+        u.full_name as inspector_name
     FROM device_inspections di
-    JOIN users u ON di.inspected_by = u.id
     JOIN devices d ON di.device_id = d.id
+    JOIN users u ON di.inspected_by = u.id
     LEFT JOIN device_types dt ON d.device_type_id = dt.id
-    ORDER BY di.inspection_date DESC LIMIT 10
+    ORDER BY di.inspection_date DESC, di.id DESC LIMIT 100
 ")->fetchAll();
 ?>
-
-<div class="page-header">
-    <h1><i class="fas fa-clipboard-check"></i> Device Inspections</h1>
-</div>
-
-<!-- Latest Audit Records Section -->
-<?php if (!empty($latestAudit)): ?>
-<div class="card" style="border-left: 4px solid #3498db; background: #eff6ff; margin-bottom: 24px;">
-    <div class="card-header">
-        <h3><i class="fas fa-history"></i> Latest Inspections</h3>
-    </div>
-    <div class="card-body">
-        <div class="data-table-wrapper">
-            <table class="data-table">
-                <thead><tr><th>Date</th><th>Asset Tag</th><th>Type</th><th>Condition</th><th>Result</th><th>Inspector</th><th>Actions</th></tr></thead>
-                <tbody>
-                    <?php foreach ($latestAudit as $audit): ?>
-                    <tr>
-                        <td><?php echo formatDate($audit['created_at']); ?></td>
-                        <td><strong><?php echo sanitize($audit['asset_tag']); ?></strong><br><small style="color: #999;"><?php echo sanitize($audit['brand'] . ' ' . $audit['model']); ?></small></td>
-                        <td><span style="font-size: 11px; background: #e8f4f8; padding: 3px 8px; border-radius: 3px;"><?php echo sanitize($audit['type_name'] ?? 'N/A'); ?></span></td>
-                        <td><?php echo ucfirst($audit['physical_condition']); ?></td>
-                        <td><?php echo getStatusBadge($audit['result']); ?></td>
-                        <td><?php echo sanitize($audit['staff_name']); ?></td>
-                        <td class="action-btns">
-                            <button onclick="sendInspectionNotification(event, <?php echo $audit['id']; ?>, '<?php echo sanitize($audit['asset_tag']); ?>')" class="btn btn-sm btn-info" title="Send Notification">
-                                <i class="fas fa-bell"></i> Notify
-                            </button>
-                            <a href="view_device.php?id=<?php echo $audit['device_id']; ?>" class="btn btn-sm btn-secondary" title="View Device">
-                                <i class="fas fa-eye"></i> View
-                            </a>
-                        </td>
-                    </tr>
-                    <?php endforeach; ?>
-                </tbody>
-            </table>
-        </div>
-    </div>
-</div>
-<?php endif; ?>
 
 <div class="page-header">
     <h1><i class="fas fa-clipboard-check"></i> Device Inspections</h1>
@@ -178,23 +136,80 @@ $latestAudit = $pdo->query("
 </div>
 
 <div class="card">
-    <div class="card-header"><h3>Recent Inspections</h3></div>
+    <div class="card-header">
+        <h3><i class="fas fa-history"></i> Inspections</h3>
+    </div>
     <div class="card-body">
+        <!-- Filtering Section -->
+        <div style="margin-bottom: 20px; padding: 15px; background: #f9f9f9; border-radius: 4px; border-left: 3px solid #3498db;">
+            <div class="form-grid" style="grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));">
+                <div class="form-group" style="margin-bottom: 0;">
+                    <label style="font-size: 12px; font-weight: 600;">Filter by Result</label>
+                    <select id="filterResult" class="form-control" onchange="filterInspections()">
+                        <option value="">All Results</option>
+                        <option value="passed">Passed</option>
+                        <option value="rejected">Rejected</option>
+                    </select>
+                </div>
+                <div class="form-group" style="margin-bottom: 0;">
+                    <label style="font-size: 12px; font-weight: 600;">Filter by Inspector</label>
+                    <select id="filterInspector" class="form-control" onchange="filterInspections()">
+                        <option value="">All Inspectors</option>
+                        <?php 
+                        $inspectors = $pdo->query("SELECT DISTINCT u.id, u.full_name FROM device_inspections di JOIN users u ON di.inspected_by = u.id ORDER BY u.full_name")->fetchAll();
+                        foreach ($inspectors as $insp): ?>
+                        <option value="<?php echo $insp['id']; ?>"><?php echo sanitize($insp['full_name']); ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+                <div class="form-group" style="margin-bottom: 0;">
+                    <label style="font-size: 12px; font-weight: 600;">Search Asset Tag</label>
+                    <input type="text" id="filterAssetTag" class="form-control" placeholder="Search..." onkeyup="filterInspections()">
+                </div>
+                <div class="form-group" style="margin-bottom: 0; display: flex; align-items: flex-end;">
+                    <button type="button" class="btn btn-secondary" onclick="clearFilters()" style="width: 100%;"><i class="fas fa-times"></i> Clear Filters</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Inspections Table -->
         <div class="data-table-wrapper">
-            <table class="data-table">
-                <thead><tr><th>Date</th><th>Asset Tag</th> <th>Condition</th><th>Functionality</th><th>Result</th><th>Inspector</th></tr></thead>
+            <table class="data-table" id="inspectionsTable">
+                <thead>
+                    <tr>
+                        <th>Date</th>
+                        <th>Asset Tag</th>
+                        <th>Device</th>
+                        <th>Type</th>
+                        <th>Condition</th>
+                        <th>Functionality</th>
+                        <th>Result</th>
+                        <th>Inspector</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
                 <tbody>
                     <?php if (empty($inspections)): ?>
-                    <tr><td colspan="7" class="empty-state" style="padding: 40px;"><h4>No inspections yet</h4></td></tr>
+                    <tr><td colspan="9" class="empty-state" style="padding: 40px;"><h4>No inspections yet</h4></td></tr>
                     <?php else: ?>
                     <?php foreach ($inspections as $i): ?>
-                    <tr>
+                    <tr class="inspection-row" data-result="<?php echo $i['result']; ?>" data-inspector="<?php echo $i['inspected_by']; ?>" data-asset-tag="<?php echo strtolower($i['asset_tag']); ?>">
                         <td><?php echo formatDate($i['inspection_date']); ?></td>
                         <td><strong><?php echo sanitize($i['asset_tag']); ?></strong></td>
+                        <td><small style="color: #666;"><?php echo sanitize($i['brand'] . ' ' . $i['model']); ?></small></td>
+                        <td><span style="font-size: 11px; background: #e8f4f8; padding: 3px 8px; border-radius: 3px;"><?php echo sanitize($i['type_name'] ?? 'N/A'); ?></span></td>
                         <td><?php echo ucfirst($i['physical_condition']); ?></td>
                         <td><?php echo ucwords(str_replace('_', ' ', $i['functionality_status'])); ?></td>
                         <td><?php echo getStatusBadge($i['result']); ?></td>
                         <td><?php echo sanitize($i['inspector_name']); ?></td>
+                        <td class="action-btns">
+                            <button onclick="sendInspectionNotification(event, <?php echo $i['id']; ?>, '<?php echo sanitize($i['asset_tag']); ?>')" class="btn btn-sm btn-info" title="Send Notification">
+                                <i class="fas fa-bell"></i> Notify
+                            </button>
+                            <a href="view_device.php?id=<?php echo $i['device_id']; ?>" class="btn btn-sm btn-secondary" title="View Device">
+                                <i class="fas fa-eye"></i> View
+                            </a>
+                        </td>
                     </tr>
                     <?php endforeach; ?>
                     <?php endif; ?>
@@ -207,6 +222,42 @@ $latestAudit = $pdo->query("
 <?php require_once 'includes/footer.php'; ?>
 
 <script>
+function filterInspections() {
+    const filterResult = document.getElementById('filterResult').value.toLowerCase();
+    const filterInspector = document.getElementById('filterInspector').value;
+    const filterAssetTag = document.getElementById('filterAssetTag').value.toLowerCase();
+    
+    const rows = document.querySelectorAll('.inspection-row');
+    
+    rows.forEach(row => {
+        let show = true;
+        
+        // Filter by result
+        if (filterResult && row.dataset.result !== filterResult) {
+            show = false;
+        }
+        
+        // Filter by inspector
+        if (filterInspector && row.dataset.inspector !== filterInspector) {
+            show = false;
+        }
+        
+        // Filter by asset tag (search)
+        if (filterAssetTag && !row.dataset.assetTag.includes(filterAssetTag)) {
+            show = false;
+        }
+        
+        row.style.display = show ? '' : 'none';
+    });
+}
+
+function clearFilters() {
+    document.getElementById('filterResult').value = '';
+    document.getElementById('filterInspector').value = '';
+    document.getElementById('filterAssetTag').value = '';
+    filterInspections();
+}
+
 function sendInspectionNotification(e, inspectionId, assetTag) {
     e.preventDefault();
     const message = 'Send inspection notification for device ' + assetTag + '?';
