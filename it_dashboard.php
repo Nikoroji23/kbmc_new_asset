@@ -514,9 +514,6 @@ $latestNotifications = $stmt->fetchAll();
 
         <!-- Modal Footer -->
         <div style="padding: 15px 20px; background: #f8f9fa; border-top: 1px solid #e0e0e0; display: flex; justify-content: flex-end; gap: 10px;">
-            <a href="audit_logs.php" class="btn btn-outline" style="text-decoration: none; padding: 8px 16px;">
-                <i class="fas fa-external-link-alt"></i> View Full Audit Logs
-            </a>
             <a href="notifications.php" class="btn btn-outline" style="text-decoration: none; padding: 8px 16px;">
                 <i class="fas fa-external-link-alt"></i> View All Notifications
             </a>

@@ -116,6 +116,82 @@ $sql = "SELECT * FROM (
     LEFT JOIN devices d ON al.record_id = d.id
     LEFT JOIN device_types dt ON d.device_type_id = dt.id
     WHERE al.table_name = 'device_assignments' AND (al.action LIKE '%Clearance%' OR al.action LIKE '%Return%'))
+
+    UNION ALL
+
+    (SELECT 
+        'disposal' as activity_type,
+        al.id,
+        al.user_id,
+        al.action,
+        'devices' as table_name,
+        al.record_id as device_id,
+        NULL as old_values,
+        al.new_values,
+        al.created_at,
+        u.full_name as staff_name,
+        u.employee_id as staff_emp_id,
+        d.asset_tag,
+        d.brand,
+        d.model,
+        dt.type_name,
+        NULL as employee_name,
+        d.status as assignment_status
+    FROM audit_logs al
+    JOIN users u ON al.user_id = u.id
+    LEFT JOIN devices d ON al.record_id = d.id
+    LEFT JOIN device_types dt ON d.device_type_id = dt.id
+    WHERE al.table_name = 'devices' AND al.action = 'Dispose')
+
+    UNION ALL
+
+    (SELECT 
+        'maintenance' as activity_type,
+        al.id,
+        al.user_id,
+        al.action,
+        'maintenance_schedules' as table_name,
+        0 as device_id,
+        NULL as old_values,
+        al.new_values,
+        al.created_at,
+        u.full_name as staff_name,
+        u.employee_id as staff_emp_id,
+        NULL as asset_tag,
+        NULL as brand,
+        NULL as model,
+        NULL as type_name,
+        NULL as employee_name,
+        NULL as assignment_status
+    FROM audit_logs al
+    JOIN users u ON al.user_id = u.id
+    WHERE al.table_name = 'maintenance_schedules' AND (al.action LIKE '%Maintenance%'))
+
+    UNION ALL
+
+    (SELECT 
+        'repair' as activity_type,
+        dr.id,
+        dr.reported_by as user_id,
+        'Create Repair Request' as action,
+        'device_repairs' as table_name,
+        dr.device_id,
+        NULL as old_values,
+        JSON_OBJECT('status', dr.repair_status, 'issue', dr.issue_description) as new_values,
+        dr.created_at,
+        u.full_name as staff_name,
+        u.employee_id as staff_emp_id,
+        d.asset_tag,
+        d.brand,
+        d.model,
+        dt.type_name,
+        NULL as employee_name,
+        dr.repair_status as assignment_status
+    FROM device_repairs dr
+    JOIN users u ON dr.reported_by = u.id
+    JOIN devices d ON dr.device_id = d.id
+    LEFT JOIN device_types dt ON d.device_type_id = dt.id)
+
 ) AS combined_activities WHERE 1=1";
 
 $params = [];
@@ -197,6 +273,9 @@ $allITStaff = $pdo->query("
                         <option value="deployment" <?php echo $activity_type === 'deployment' ? 'selected' : ''; ?>>Device Deployment</option>
                         <option value="clearance" <?php echo $activity_type === 'clearance' ? 'selected' : ''; ?>>Device Clearance</option>
                         <option value="asset_tag_change" <?php echo $activity_type === 'asset_tag_change' ? 'selected' : ''; ?>>Asset Tag Changes</option>
+                        <option value="maintenance" <?php echo $activity_type === 'maintenance' ? 'selected' : ''; ?>>Maintenance</option>
+                        <option value="repair" <?php echo $activity_type === 'repair' ? 'selected' : ''; ?>>Device Repair</option>
+                        <option value="disposal" <?php echo $activity_type === 'disposal' ? 'selected' : ''; ?>>Device Disposal</option>
                     </select>
                 </div>
 

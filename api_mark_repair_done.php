@@ -45,8 +45,27 @@ try {
             $pdo->prepare("UPDATE device_repairs SET completed_by = ? WHERE id = ?")->execute([$_SESSION['user_id'], $repairId]);
         }
         
-        // Log audit
-        logAudit($_SESSION['user_id'], 'Mark Repair Complete', 'device_repairs', $repairId);
+        // Get repair details for enhanced audit logging
+        $repairStmt = $pdo->prepare("
+            SELECT dr.*, d.asset_tag, dt.type_name, u.full_name as completed_by_name 
+            FROM device_repairs dr
+            JOIN devices d ON dr.device_id = d.id
+            JOIN device_types dt ON d.device_type_id = dt.id
+            LEFT JOIN users u ON u.id = ?
+            WHERE dr.id = ?
+        ");
+        $repairStmt->execute([$_SESSION['user_id'], $repairId]);
+        $repair = $repairStmt->fetch();
+        
+        // Enhanced audit log with more details
+        if ($repair) {
+            $auditDetails = "Device: {$repair['asset_tag']} ({$repair['type_name']}). " .
+                           "Completed By: {$repair['completed_by_name']}. " .
+                           "Notes: " . ($completionNotes ?: 'N/A');
+            logAudit($_SESSION['user_id'], 'Mark Repair Complete', 'device_repairs', $repairId, $auditDetails);
+        } else {
+            logAudit($_SESSION['user_id'], 'Mark Repair Complete', 'device_repairs', $repairId);
+        }
         
         // Send pending emails
         sendPendingEmailNotifications();

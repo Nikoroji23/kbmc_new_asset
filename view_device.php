@@ -7,13 +7,17 @@ $pageTitle = 'Device Details';
 require_once 'includes/header.php';
 requireLogin();
 
+// Ensure disposal tracking columns exist
+ensureDeviceSchema();
+
 $id = $_GET['id'] ?? 0;
 
 $stmt = $pdo->prepare(
-    "SELECT d.*, dt.type_name, u.full_name as created_by_name
+    "SELECT d.*, dt.type_name, u.full_name as created_by_name, ud.full_name as disposed_by_name, ud.email as disposed_by_email
      FROM devices d
      JOIN device_types dt ON d.device_type_id = dt.id
      LEFT JOIN users u ON d.created_by = u.id
+     LEFT JOIN users ud ON d.disposed_by = ud.id
      WHERE d.id = ?"
 );
 $stmt->execute([$id]);
@@ -124,6 +128,10 @@ $isAssignedEmployee = (
                     <strong style="color:#666;font-size:12px;">Purchase Price</strong><br>
                     <?php echo $device['purchase_price'] ? number_format($device['purchase_price'],2).' PHP' : 'N/A'; ?>
                 </div>
+                <?php if ($device['status'] == 'disposed' && isset($device['disposed_by_name'])): ?>
+                <div><strong style="color:#666;font-size:12px;">Disposed By</strong><br><?php echo sanitize($device['disposed_by_name']); ?></div>
+                <div><strong style="color:#666;font-size:12px;">Disposal Date</strong><br><?php echo $device['disposed_at'] ? formatDate($device['disposed_at']) : 'N/A'; ?></div>
+                <?php endif; ?>
             </div>
             <hr style="margin:15px 0;border:none;border-top:1px solid #eee;">
             <div>

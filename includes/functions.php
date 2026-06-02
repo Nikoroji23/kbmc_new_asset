@@ -147,6 +147,12 @@ function ensureDeviceSchema() {
         if (!columnExists('devices', 'pc_name')) {
             $GLOBALS['pdo']->exec("ALTER TABLE devices ADD COLUMN pc_name VARCHAR(100) DEFAULT NULL AFTER ip_address");
         }
+        if (!columnExists('devices', 'disposed_by')) {
+            $GLOBALS['pdo']->exec("ALTER TABLE devices ADD COLUMN disposed_by INT DEFAULT NULL");
+        }
+        if (!columnExists('devices', 'disposed_at')) {
+            $GLOBALS['pdo']->exec("ALTER TABLE devices ADD COLUMN disposed_at TIMESTAMP NULL");
+        }
     } catch (PDOException $e) {
         // If ALTER TABLE fails, allow the app to continue
     }
@@ -326,6 +332,36 @@ function sendEmailNotificationToITStaff($type, $title, $message, $related_id, $i
                     <p><i class='fas fa-clock'></i> <strong>Requested:</strong> " . date('F d, Y g:i A') . "</p>
                 </div>
             ";
+        }
+    } elseif ($type === 'device_disposed' && $related_id > 0) {
+        // Get device disposal info
+        $stmt = $pdo->prepare("
+            SELECT d.id, d.asset_tag, d.brand, d.model, dt.type_name, 
+                   d.serial_number, d.disposed_by, u.full_name as disposed_by_name, u.email as disposed_by_email
+            FROM devices d
+            JOIN device_types dt ON d.device_type_id = dt.id
+            LEFT JOIN users u ON d.disposed_by = u.id
+            WHERE d.id = ?
+            LIMIT 1
+        ");
+        $stmt->execute([$related_id]);
+        $device = $stmt->fetch(PDO::FETCH_ASSOC);
+        
+        if ($device) {
+            $deviceInfo = sanitize($device['asset_tag'] . " (" . $device['type_name'] . ")");
+            $disposedByInfo = sanitize($device['disposed_by_name'] ?? 'System');
+            
+            $context = "
+                <div style='background: #f8d7da; padding: 15px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #dc3545;'>
+                    <p><strong>Device Disposal Details:</strong></p>
+                    <p><i class='fas fa-laptop'></i> <strong>Asset Tag:</strong> " . $deviceInfo . "</p>
+                    <p><i class='fas fa-barcode'></i> <strong>Serial Number:</strong> " . sanitize($device['serial_number']) . "</p>
+                    <p><i class='fas fa-brand'></i> <strong>Brand/Model:</strong> " . sanitize($device['brand'] . ' ' . $device['model']) . "</p>
+                    <p><i class='fas fa-user'></i> <strong>Disposed By:</strong> " . $disposedByInfo . "</p>
+                    <p><i class='fas fa-calendar'></i> <strong>Disposal Date:</strong> " . date('F d, Y g:i A') . "</p>
+                </div>
+            ";
+            $actionUrl = 'view_device.php?id=' . $device['id'];
         }
     }
     
@@ -640,11 +676,25 @@ function sendPasswordResetEmail($userEmail, $fullName, $resetLink) {
     return sendEmail($userEmail, 'Account Recovery Approved - Reset Your Password', $emailBody);
 }
 
-function logAudit($userId, $action, $tableName = null, $recordId = null, $oldValues = null, $newValues = null) {
+function logAudit($userId, $action, $tableName = null, $recordId = null, $oldValues = null, $newValues = null, $activityType = null) {
     global $pdo;
     $ipAddress = $_SERVER['REMOTE_ADDR'] ?? null;
-    $stmt = $pdo->prepare("INSERT INTO audit_logs (user_id, action, table_name, record_id, old_values, new_values, ip_address) VALUES (?, ?, ?, ?, ?, ?, ?)");
-    $stmt->execute([$userId, $action, $tableName, $recordId, $oldValues, $newValues, $ipAddress]);
+    
+    // Auto-detect activity type from table name if not provided
+    if ($activityType === null) {
+        if ($tableName === 'device_repairs') {
+            $activityType = 'Repair';
+        } elseif ($tableName === 'maintenance_schedules') {
+            $activityType = 'Maintenance';
+        } elseif ($tableName === 'device_assignments') {
+            $activityType = 'Assignment';
+        } elseif ($tableName === 'devices') {
+            $activityType = 'Device';
+        }
+    }
+    
+    $stmt = $pdo->prepare("INSERT INTO audit_logs (user_id, action, table_name, record_id, activity_type, old_values, new_values, ip_address) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
+    $stmt->execute([$userId, $action, $tableName, $recordId, $activityType, $oldValues, $newValues, $ipAddress]);
 }
 
 function getStatusBadge($status) {
@@ -1259,10 +1309,21 @@ function createMaintenanceSchedule($deviceId, $maintenanceType, $description, $s
     $stmt->execute($values);
     $scheduleId = $pdo->lastInsertId();
 
-    // Log audit trail for maintenance creation
+    // Log audit trail for maintenance creation with enhanced details
     if (isset($_SESSION['user_id'])) {
-        $assignedToName = $assignedTo ? "assigned to user ID {$assignedTo}" : "unassigned";
-        logAudit($_SESSION['user_id'], 'Create Maintenance Schedule', 'maintenance_schedules', $scheduleId, "Type: {$maintenanceType}, Due: {$scheduledDate}, {$assignedToName}");
+        $assignedToName = 'Unassigned';
+        if ($assignedTo) {
+            $assignStmt = $pdo->prepare("SELECT full_name FROM users WHERE id = ? LIMIT 1");
+            $assignStmt->execute([$assignedTo]);
+            $assignedUser = $assignStmt->fetch();
+            $assignedToName = $assignedUser ? $assignedUser['full_name'] : "User ID {$assignedTo}";
+        }
+        
+        $auditDetails = "Type: " . ucfirst($maintenanceType) . ". " .
+                       "Device ID: {$deviceId}. " .
+                       "Due Date: {$scheduledDate}. " .
+                       "Assigned To: {$assignedToName}";
+        logAudit($_SESSION['user_id'], 'Create Maintenance Schedule', 'maintenance_schedules', $scheduleId, $auditDetails);
     }
 
     $deviceStmt = $pdo->prepare("SELECT d.asset_tag, dt.type_name FROM devices d JOIN device_types dt ON d.device_type_id = dt.id WHERE d.id = ?");
@@ -1426,9 +1487,17 @@ function markMaintenanceCompleted($maintenanceId, $completedBy = null, $complete
     $stmt = $pdo->prepare($sql);
     $stmt->execute($params);
 
-    // Log audit trail for maintenance completion
+    // Log audit trail for maintenance completion with completed_by information
     if (isset($_SESSION['user_id'])) {
-        logAudit($_SESSION['user_id'], 'Mark Maintenance Completed', 'maintenance_schedules', $maintenanceId, "Device: {$assetTag} ({$deviceType}). Notes: " . ($completionNotes ?: 'N/A'));
+        $completedByStmt = $pdo->prepare("SELECT full_name FROM users WHERE id = ? LIMIT 1");
+        $completedByStmt->execute([$completedBy]);
+        $completedByUser = $completedByStmt->fetch();
+        $completedByName = $completedByUser ? $completedByUser['full_name'] : 'Unknown User';
+        
+        $auditDetails = "Device: {$assetTag} ({$deviceType}). " .
+                       "Completed By: {$completedByName}. " .
+                       "Notes: " . ($completionNotes ?: 'N/A');
+        logAudit($_SESSION['user_id'], 'Mark Maintenance Completed', 'maintenance_schedules', $maintenanceId, $auditDetails);
     }
 
     if ($deviceId) {
@@ -1692,6 +1761,60 @@ function getCompletedRepairs($limit = 10) {
     $sql .= "
         WHERE dr.repair_status = 'completed'
         ORDER BY dr.completed_date DESC
+        LIMIT ?
+    ";
+    
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute([$limit]);
+    return $stmt->fetchAll();
+}
+
+function getCompletedMaintenance($limit = 10) {
+    global $pdo;
+    
+    // Check which columns exist in the table
+    $hasCompletedAt = columnExists('maintenance_schedules', 'completed_at');
+    $hasCompletedBy = columnExists('maintenance_schedules', 'completed_by');
+    $hasCompletionNotes = columnExists('maintenance_schedules', 'completion_notes');
+    $hasRequestedBy = columnExists('maintenance_schedules', 'requested_by');
+    
+    // Build SELECT clause
+    $selectCols = "ms.id, ms.device_id, ms.maintenance_type, ms.description, ms.assigned_to, ms.last_performed_date, d.asset_tag, d.model, dt.type_name";
+    
+    // Add optional columns
+    if ($hasCompletedAt) {
+        $selectCols .= ", ms.completed_at";
+    }
+    if ($hasCompletedBy) {
+        $selectCols .= ", ms.completed_by";
+    }
+    if ($hasCompletionNotes) {
+        $selectCols .= ", ms.completion_notes";
+    }
+    
+    // Build JOIN clauses for user tables
+    $joins = "
+        FROM maintenance_schedules ms
+        JOIN devices d ON ms.device_id = d.id
+        JOIN device_types dt ON d.device_type_id = dt.id";
+    
+    // Add requested_by user info if column exists
+    if ($hasRequestedBy) {
+        $selectCols .= ", u.full_name as requested_by_name";
+        $joins .= "
+        LEFT JOIN users u ON ms.requested_by = u.id";
+    }
+    
+    // Add completed_by user info if column exists
+    if ($hasCompletedBy) {
+        $selectCols .= ", cb.full_name as completed_by_name";
+        $joins .= "
+        LEFT JOIN users cb ON ms.completed_by = cb.id";
+    }
+    
+    $sql = "SELECT " . $selectCols . $joins . "
+        WHERE ms.last_performed_date IS NOT NULL
+        ORDER BY " . ($hasCompletedAt ? "ms.completed_at" : "ms.last_performed_date") . " DESC
         LIMIT ?
     ";
     

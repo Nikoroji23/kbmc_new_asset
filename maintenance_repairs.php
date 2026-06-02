@@ -122,14 +122,26 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['submit_repair'])) {
         $pdo->prepare("UPDATE devices SET status = 'under_repair' WHERE id = ?")->execute([$device_id]);
 
         // Get device info for notifications
-        $devStmt = $pdo->prepare("SELECT asset_tag, model FROM devices WHERE id = ?");
+        $devStmt = $pdo->prepare("SELECT d.asset_tag, d.model, dt.type_name FROM devices d JOIN device_types dt ON d.device_type_id = dt.id WHERE d.id = ?");
         $devStmt->execute([$device_id]);
         $device = $devStmt->fetch();
         $assetTag = $device ? $device['asset_tag'] : 'Device';
         $modelInfo = $device ? $device['model'] : '';
+        $deviceType = $device ? $device['type_name'] : 'Unknown';
 
-        // Log audit
-        logAudit($_SESSION['user_id'], 'Create Repair Request', 'device_repairs', $repairId, "Issue: {$issue_description}, Assigned: " . ($assigned_to ? "User {$assigned_to}" : "Unassigned"));
+        // Enhanced audit log with device and assignment details
+        $assignedName = 'Unassigned';
+        if ($assigned_to) {
+            $assignStmt = $pdo->prepare("SELECT full_name FROM users WHERE id = ? LIMIT 1");
+            $assignStmt->execute([$assigned_to]);
+            $assignedUser = $assignStmt->fetch();
+            $assignedName = $assignedUser ? $assignedUser['full_name'] : "User ID {$assigned_to}";
+        }
+        
+        $auditDetails = "Device: {$assetTag} ({$deviceType}). " .
+                       "Issue: " . substr($issue_description, 0, 100) . (strlen($issue_description) > 100 ? '...' : '') . ". " .
+                       "Assigned To: {$assignedName}";
+        logAudit($_SESSION['user_id'], 'Create Repair Request', 'device_repairs', $repairId, $auditDetails);
 
         // Notify assigned person if specified
         if ($assigned_to) {
@@ -172,6 +184,9 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['submit_repair'])) {
 // Get pending and completed repairs
 $pendingRepairs = getPendingRepairs();
 $completedRepairs = getCompletedRepairs(10);
+
+// Get completed maintenance
+$completedMaintenance = getCompletedMaintenance(10);
 
 // Get IT staff for assignment (IT staff only, not admins)
 $itStaff = $pdo->query("SELECT id, full_name, email FROM users WHERE role = 'it_staff' ORDER BY full_name")->fetchAll();
@@ -849,6 +864,57 @@ usort($allMaintenanceMerged, function($a, $b) {
             </table>
         </div>
     </div>
+
+    <!-- Recently Completed Maintenance -->
+    <?php if (!empty($completedMaintenance)): ?>
+    <div class="section-card" style="border-left: 4px solid #10b981; background: #f0fdf4;">
+        <div class="section-card-header">
+            <h3><i class="fas fa-check-circle" style="color: #10b981;"></i> Recently Completed Maintenance (<strong><?php echo count($completedMaintenance); ?></strong>)</h3>
+        </div>
+        <div style="overflow-x:auto;">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Device</th>
+                        <th>Type</th>
+                        <th>Completed By</th>
+                        <th>Completed Date</th>
+                        <th>Notes</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <?php foreach ($completedMaintenance as $maint): ?>
+                    <tr>
+                        <td>
+                            <span style="font-weight:600;color:#1a2332;"><?php echo htmlspecialchars($maint['asset_tag']); ?></span>
+                            <?php if (!empty($maint['model'])): ?>
+                            <br><small style="color:#6b7280;"><?php echo htmlspecialchars($maint['model']); ?></small>
+                            <?php endif; ?>
+                        </td>
+                        <td>
+                            <span class="maint-type-badge type-<?php echo strtolower($maint['maintenance_type']); ?>">
+                                <?php echo str_replace('_', ' ', ucfirst($maint['maintenance_type'])); ?>
+                            </span>
+                        </td>
+                        <td style="color:#374151;"><?php echo htmlspecialchars($maint['completed_by_name'] ?? '—'); ?></td>
+                        <td style="color:#6b7280;">
+                            <?php if (!empty($maint['completed_at'])): ?>
+                                <?php echo date('M d, Y H:i', strtotime($maint['completed_at'])); ?>
+                            <?php else: ?>
+                                —
+                            <?php endif; ?>
+                        </td>
+                        <td style="color:#6b7280;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"
+                            title="<?php echo htmlspecialchars($maint['completion_notes'] ?? ''); ?>">
+                            <?php echo htmlspecialchars(substr($maint['completion_notes'] ?? '', 0, 50)); ?>
+                        </td>
+                    </tr>
+                    <?php endforeach; ?>
+                </tbody>
+            </table>
+        </div>
+    </div>
+    <?php endif; ?>
 
 </div>
 

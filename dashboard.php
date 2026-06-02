@@ -289,34 +289,6 @@ $pendingReqCount = $pdo->query("SELECT COUNT(*) FROM device_requests WHERE statu
 </div>
 <?php endif; ?>
 
-<!-- Recent Activity Log -->
-<div class="card">
-    <div class="card-header">
-        <h3><i class="fas fa-history"></i> Recent Activity</h3>
-        <a href="audit_logs.php" class="btn btn-sm btn-outline">View All Logs</a>
-    </div>
-    <div class="card-body">
-        <?php if (empty($recentLogs)): ?>
-        <div class="empty-state">
-            <i class="fas fa-history"></i>
-            <h4>No activity yet</h4>
-        </div>
-        <?php else: ?>
-        <?php foreach ($recentLogs as $log): ?>
-        <div class="activity-item">
-            <div class="activity-icon" style="background: var(--kbmc-red-light); color: var(--kbmc-red);">
-                <i class="fas fa-<?php echo $log['action'] == 'Login' ? 'sign-in-alt' : ($log['action'] == 'Insert' ? 'plus' : ($log['action'] == 'Update' ? 'edit' : 'trash')); ?>"></i>
-            </div>
-            <div class="activity-content">
-                <div class="activity-title"><?php echo sanitize($log['action']); ?> - <?php echo sanitize($log['table_name'] ?? 'System'); ?></div>
-                <div class="activity-time">By <?php echo sanitize($log['full_name'] ?? 'System'); ?> on <?php echo formatDate($log['created_at'], 'M d, Y h:i A'); ?></div>
-            </div>
-        </div>
-        <?php endforeach; ?>
-        <?php endif; ?>
-    </div>
-</div>
-
 <script>
 // Status Distribution Chart
 const statusCtx = document.getElementById('statusChart').getContext('2d');

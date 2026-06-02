@@ -1,1 +1,1 @@
-user_id|i:93;email|s:28:"alfonsoaninias0527@gmail.com";role|s:8:"it_staff";full_name|s:15:"Alfonso Aninias";csrf_token|s:64:"96e32f22d7006f0f41a764ca6d44df4c4f8099c4ee4e94309276b999803a72f1";master_key_verified|b:1;master_key_verified_at|i:1780360181;last_lifespan_sync|i:1780360396;
+user_id|i:1;email|s:14:"admin@kbmc.com";role|s:5:"admin";full_name|s:20:"System Administrator";csrf_token|s:64:"f373d899cac8800bb25b1db37d094e284a48a6c577f9c502f32b7a02eeabd84f";
