@@ -122,11 +122,10 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['submit_repair'])) {
         $pdo->prepare("UPDATE devices SET status = 'under_repair' WHERE id = ?")->execute([$device_id]);
 
         // Get device info for notifications
-        $devStmt = $pdo->prepare("SELECT d.asset_tag, d.model, dt.type_name FROM devices d JOIN device_types dt ON d.device_type_id = dt.id WHERE d.id = ?");
+        $devStmt = $pdo->prepare("SELECT d.asset_tag, dt.type_name FROM devices d JOIN device_types dt ON d.device_type_id = dt.id WHERE d.id = ?");
         $devStmt->execute([$device_id]);
         $device = $devStmt->fetch();
         $assetTag = $device ? $device['asset_tag'] : 'Device';
-        $modelInfo = $device ? $device['model'] : '';
         $deviceType = $device ? $device['type_name'] : 'Unknown';
 
         // Enhanced audit log with device and assignment details
@@ -156,7 +155,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['submit_repair'])) {
                     <p>A new device repair task has been assigned to you.</p>
                     <div style='background: #f8f9fa; padding: 15px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #e74c3c;'>
                         <p><strong>Repair Details:</strong></p>
-                        <p><i class='fas fa-laptop'></i> <strong>Device:</strong> " . sanitize($assetTag) . ($modelInfo ? " (" . sanitize($modelInfo) . ")" : "") . "</p>
+                        <p><i class='fas fa-laptop'></i> <strong>Device:</strong> " . sanitize($assetTag) . "</p>
                         <p><i class='fas fa-tools'></i> <strong>Issue:</strong> " . sanitize($issue_description) . "</p>
                         <p><i class='fas fa-calendar'></i> <strong>Reported:</strong> " . date('F d, Y g:i A') . "</p>
                     </div>
@@ -193,7 +192,7 @@ $itStaff = $pdo->query("SELECT id, full_name, email FROM users WHERE role = 'it_
 
 // Get all non-disposed devices for the searchable picker (with employee info and device type)
 $devices = $pdo->query("
-    SELECT d.id, d.asset_tag, d.model, d.status, dt.type_name, COALESCE(u.full_name, '') as employee_name
+    SELECT d.id, d.asset_tag, dt.type_name, d.status, dt.type_name, COALESCE(u.full_name, '') as employee_name
     FROM devices d
     JOIN device_types dt ON d.device_type_id = dt.id
     LEFT JOIN device_assignments da ON d.id = da.device_id AND da.status = 'active'
@@ -202,7 +201,7 @@ $devices = $pdo->query("
     ORDER BY d.asset_tag
 ")->fetchAll();
 $repairableDevices = $pdo->query("
-    SELECT d.id, d.asset_tag, d.model, dt.type_name, COALESCE(u.full_name, '') as employee_name, CONCAT(d.brand, ' ', d.model) as name
+    SELECT d.id, d.asset_tag, d.vendor, dt.type_name, COALESCE(u.full_name, '') as employee_name, CONCAT(COALESCE(d.vendor, 'Unknown'), ' - ', dt.type_name) as name
     FROM devices d
     JOIN device_types dt ON d.device_type_id = dt.id
     LEFT JOIN device_assignments da ON d.id = da.device_id AND da.status = 'active'
@@ -887,16 +886,10 @@ usort($allMaintenanceMerged, function($a, $b) {
                     <tr>
                         <td>
                             <span style="font-weight:600;color:#1a2332;"><?php echo htmlspecialchars($maint['asset_tag']); ?></span>
-                            <?php if (!empty($maint['model'])): ?>
-                            <br><small style="color:#6b7280;"><?php echo htmlspecialchars($maint['model']); ?></small>
-                            <?php endif; ?>
                         </td>
                         <td>
-                            <span class="maint-type-badge type-<?php echo strtolower($maint['maintenance_type']); ?>">
-                                <?php echo str_replace('_', ' ', ucfirst($maint['maintenance_type'])); ?>
-                            </span>
+                            <span class="maint-type-badge type-<?php echo strtolower($maint['maintenance_type']); ?>"><?php echo str_replace('_', ' ', ucfirst($maint['maintenance_type'])); ?></span>
                         </td>
-                        <td style="color:#374151;"><?php echo htmlspecialchars($maint['completed_by_name'] ?? '—'); ?></td>
                         <td style="color:#6b7280;">
                             <?php if (!empty($maint['completed_at'])): ?>
                                 <?php echo date('M d, Y H:i', strtotime($maint['completed_at'])); ?>
@@ -904,8 +897,7 @@ usort($allMaintenanceMerged, function($a, $b) {
                                 —
                             <?php endif; ?>
                         </td>
-                        <td style="color:#6b7280;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"
-                            title="<?php echo htmlspecialchars($maint['completion_notes'] ?? ''); ?>">
+                        <td style="color:#6b7280;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="<?php echo htmlspecialchars($maint['completion_notes'] ?? ''); ?>">
                             <?php echo htmlspecialchars(substr($maint['completion_notes'] ?? '', 0, 50)); ?>
                         </td>
                     </tr>
@@ -960,7 +952,6 @@ usort($allMaintenanceMerged, function($a, $b) {
                     <tr>
                         <td>
                             <strong><?php echo sanitize($r['asset_tag']); ?></strong>
-                            <div class="text-muted" style="font-size: 12px; margin-top: 4px;"><?php echo sanitize($r['model']); ?></div>
                         </td>
                         <td>
                             <div><?php echo sanitize($issueSnippet); ?></div>
@@ -1039,7 +1030,6 @@ usort($allMaintenanceMerged, function($a, $b) {
                     <tr>
                         <td>
                             <strong><?php echo sanitize($r['asset_tag']); ?></strong>
-                            <div class="text-muted" style="font-size: 12px; margin-top: 4px;"><?php echo sanitize($r['model']); ?></div>
                         </td>
                         <td><?php echo sanitize($r['reporter_name']); ?></td>
                         <td>

@@ -99,8 +99,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['assign_device'])) {
                 <p>A new device has been assigned to you. Please check your dashboard or the deployments page for details.</p>
                 <div style='background: #e3f2fd; padding: 15px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #3498db;'>
                     <p><strong>Device Details:</strong></p>
-                    <p><i class='fas fa-laptop'></i> <strong>Asset Tag:</strong> " . sanitize($device['asset_tag']) . "</p>
-                    <p><i class='fas fa-microchip'></i> <strong>Model:</strong> " . sanitize($device['model'] ?? 'N/A') . "</p>" .
+                    <p><i class='fas fa-laptop'></i> <strong>Asset Tag:</strong> " . sanitize($device['asset_tag']) . "</p>" .
                     (!empty($purpose) ? "<p><i class='fas fa-align-left'></i> <strong>Purpose:</strong> " . sanitize($purpose) . "</p>" : '') .
                 "</div>
                 <p>Please ensure you follow company device policies and keep this device secure. If you have any questions, contact the IT department.</p>",
@@ -126,15 +125,16 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['assign_device'])) {
 $preselectedDevice = $_GET['device'] ?? '';
 
 // Get available devices
-$availableDevices = $pdo->query("SELECT id, asset_tag, CONCAT(brand, ' ', model) as name FROM devices WHERE status = 'in_stock' ORDER BY asset_tag")->fetchAll();
+$availableDevices = $pdo->query("SELECT id, asset_tag, asset_tag as name FROM devices WHERE status = 'in_stock' ORDER BY asset_tag")->fetchAll();
 
 // Get active employees
 $employees = $pdo->query("SELECT id, full_name, CONCAT(department, ' - ', position) as dept FROM users WHERE status = 'active' AND role = 'employee' ORDER BY full_name")->fetchAll();
 
 // Get all assignments
-$stmt = $pdo->query("SELECT da.*, d.asset_tag, d.model, d.brand, u.full_name as employee_name, u.department, ub.full_name as assigned_by_name 
+$stmt = $pdo->query("SELECT da.*, d.asset_tag, d.asset_tag as device_name, dt.type_name, u.full_name as employee_name, u.department, ub.full_name as assigned_by_name 
     FROM device_assignments da 
     JOIN devices d ON da.device_id = d.id 
+    JOIN device_types dt ON d.device_type_id = dt.id 
     JOIN users u ON da.employee_id = u.id 
     LEFT JOIN users ub ON da.assigned_by = ub.id 
     ORDER BY da.created_at DESC");
@@ -206,7 +206,7 @@ $assignments = $stmt->fetchAll();
                     <?php foreach ($assignments as $a): ?>
                     <tr>
                         <td><strong><?php echo sanitize($a['asset_tag']); ?></strong></td>
-                        <td><?php echo sanitize($a['brand'] . ' ' . $a['model']); ?></td>
+                        <td><?php echo sanitize($a['type_name']); ?></td>
                         <td><?php echo sanitize($a['employee_name']); ?></td>
                         <td><?php echo sanitize($a['department']); ?></td>
                         <td><?php echo formatDate($a['assigned_date']); ?></td>

@@ -115,7 +115,7 @@ try {
     $deviceInfo = '';
     if ($relatedDeviceId > 0) {
         $deviceStmt = $pdo->prepare("
-            SELECT d.asset_tag, d.model, dt.type_name, d.status
+            SELECT d.asset_tag, dt.type_name, d.status
             FROM devices d
             LEFT JOIN device_types dt ON d.device_type_id = dt.id
             WHERE d.id = ?

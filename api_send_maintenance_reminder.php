@@ -37,7 +37,7 @@ if (!$maintenanceId) {
 try {
     // Get maintenance schedule details
     $stmt = $pdo->prepare("
-        SELECT ms.*, d.asset_tag, d.model, dt.type_name, u.email, u.full_name, u.id as assigned_user_id
+        SELECT ms.*, d.asset_tag, dt.type_name, u.email, u.full_name, u.id as assigned_user_id
         FROM maintenance_schedules ms
         JOIN devices d ON ms.device_id = d.id
         JOIN device_types dt ON d.device_type_id = dt.id

@@ -139,7 +139,6 @@ $pendingReqCount = $pdo->query("SELECT COUNT(*) FROM device_requests WHERE statu
                         <tr>
                             <td><strong><?php echo sanitize($dev['asset_tag']); ?></strong></td>
                             <td><?php echo sanitize($dev['type_name']); ?></td>
-                            <td><?php echo sanitize($dev['brand'] . ' ' . $dev['model']); ?></td>
                             <td><?php echo getStatusBadge($dev['status']); ?></td>
                             <td><?php echo formatDate($dev['created_at']); ?></td>
                         </tr>

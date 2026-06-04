@@ -11,13 +11,9 @@ $itStaff = $pdo->query("SELECT id, full_name FROM users WHERE role IN ('admin', 
 
 if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     $device_type_id = $_POST['device_type_id'] ?? '';
-    $brand = trim($_POST['brand'] ?? '');
-    $model = trim($_POST['model'] ?? '');
     $serial_number = trim($_POST['serial_number'] ?? '');
     $ip_address = trim($_POST['ip_address'] ?? '');
     $pc_name = trim($_POST['pc_name'] ?? '');
-    $mac_address = trim($_POST['mac_address'] ?? '');
-    $specifications = trim($_POST['specifications'] ?? '');
     $purchase_date = $_POST['purchase_date'] ?? null;
     $vendor = trim($_POST['vendor'] ?? '');
     $warranty_duration = $_POST['warranty_expiry'] ?? null;
@@ -70,11 +66,11 @@ if ($warranty_duration === 'custom') {
             }
 
             $stmt = $pdo->prepare("INSERT INTO devices 
-                (asset_tag, device_type_id, brand, model, serial_number, ip_address, pc_name, mac_address, specifications, 
+                (asset_tag, device_type_id, serial_number, ip_address, pc_name,
                  purchase_date, vendor, warranty_expiry, purchase_price, location, condition_notes, status, created_by) 
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending_inspection', ?)");
-            $stmt->execute([$asset_tag, $device_type_id, $brand, $model, $serial_number, $ip_address, $pc_name, $mac_address,
-                $specifications, $purchase_date, $vendor, $warranty_expiry, $purchase_price, $location, $condition_notes, $_SESSION['user_id']]);
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending_inspection', ?)");
+            $stmt->execute([$asset_tag, $device_type_id, $serial_number, $ip_address, $pc_name,
+                $purchase_date, $vendor, $warranty_expiry, $purchase_price, $location, $condition_notes, $_SESSION['user_id']]);
 
             $deviceId = $pdo->lastInsertId();
 
@@ -173,16 +169,6 @@ if ($warranty_duration === 'custom') {
                 </div>
 
                 <div class="form-group">
-                    <label>Brand</label>
-                    <input type="text" name="brand" class="form-control" placeholder="e.g., Dell, HP, Lenovo" value="<?php echo sanitize($_POST['brand'] ?? ''); ?>">
-                </div>
-
-                <div class="form-group">
-                    <label>Model</label>
-                    <input type="text" name="model" class="form-control" placeholder="e.g., Latitude 5520" value="<?php echo sanitize($_POST['model'] ?? ''); ?>">
-                </div>
-
-                <div class="form-group">
                     <label>Serial Number <span class="required">*</span></label>
                     <input type="text" name="serial_number" class="form-control" placeholder="Enter serial number" value="<?php echo sanitize($_POST['serial_number'] ?? ''); ?>" required>
                 </div>
@@ -195,11 +181,6 @@ if ($warranty_duration === 'custom') {
                 <div class="form-group">
                     <label>PC Name</label>
                     <input type="text" name="pc_name" class="form-control" placeholder="e.g., DESKTOP-1234ABC" value="<?php echo sanitize($_POST['pc_name'] ?? ''); ?>">
-                </div>
-
-                <div class="form-group">
-                    <label>MAC Address <span class="required">*</span></label>
-                    <input type="text" name="mac_address" class="form-control" placeholder="e.g., AA:BB:CC:DD:EE:FF" value="<?php echo sanitize($_POST['mac_address'] ?? ''); ?>" required>
                 </div>
 
                 <div class="form-group">
@@ -238,11 +219,6 @@ if ($warranty_duration === 'custom') {
                 <div class="form-group">
                     <label>Location</label>
                     <input type="text" name="location" class="form-control" value="<?php echo sanitize($_POST['location'] ?? 'IT Stock Room'); ?>">
-                </div>
-
-                <div class="form-group full-width">
-                    <label>Specifications</label>
-                    <textarea name="specifications" class="form-control" placeholder="CPU, RAM, Storage, OS, etc."><?php echo sanitize($_POST['specifications'] ?? ''); ?></textarea>
                 </div>
 
                 <div class="form-group full-width">

@@ -33,7 +33,7 @@ $sql = "SELECT d.*, dt.type_name, u.id AS assigned_user_id, u.full_name as assig
         JOIN device_types dt ON d.device_type_id = dt.id 
         LEFT JOIN device_assignments da ON d.id = da.device_id AND da.status = 'active'
         LEFT JOIN users u ON da.employee_id = u.id
-        WHERE 1=1";
+        WHERE d.status != 'disposed'";
 $params = [];
 
 if ($status) { $sql .= " AND d.status = ?"; $params[] = $status; }

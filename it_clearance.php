@@ -61,9 +61,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             // fetch assignments (all or single)
             if ($singleDevId > 0) {
                 $aStmt = $pdo->prepare("
-                    SELECT da.*, d.asset_tag, d.id AS device_id, d.brand, d.model
+                    SELECT da.*, d.asset_tag, d.id AS device_id, d.vendor, dt.type_name
                     FROM device_assignments da
                     JOIN devices d ON da.device_id = d.id
+                    JOIN device_types dt ON d.device_type_id = dt.id
                     WHERE da.employee_id = ? AND da.status = 'active' AND d.id = ?
                 ");
                 $aStmt->execute([$userId, $singleDevId]);

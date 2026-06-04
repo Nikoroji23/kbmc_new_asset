@@ -286,8 +286,7 @@ $sql = "
     SELECT
         d.id,
         d.asset_tag,
-        d.brand,
-        d.model,
+        d.vendor,
         d.device_type_id,
         dt.type_name,
         d.purchase_date,
@@ -321,9 +320,9 @@ $sql = "
 $params = [];
 
 if ($search) {
-    $sql .= " AND (d.asset_tag LIKE ? OR d.brand LIKE ? OR d.model LIKE ? OR dt.type_name LIKE ? OR u.department LIKE ?)";
+    $sql .= " AND (d.asset_tag LIKE ? OR d.vendor LIKE ? OR dt.type_name LIKE ? OR u.department LIKE ?)";
     $s = "%$search%";
-    $params = array_merge($params, [$s,$s,$s,$s,$s]);
+    $params = array_merge($params, [$s,$s,$s,$s]);
 }
 if ($typeFilter) {
     $sql .= " AND d.device_type_id = ?";
@@ -582,9 +581,6 @@ require_once 'includes/header.php';
                        style="font-weight:700;color:#1e293b;text-decoration:none;display:block;font-size:12px;">
                         <?php echo sanitize($dev['asset_tag']); ?>
                     </a>
-                    <?php $dl = trim($dev['brand'].' '.$dev['model']); if ($dl): ?>
-                    <div style="font-size:10px;color:#9ca3af;margin-top:1px;"><?php echo sanitize($dl); ?></div>
-                    <?php endif; ?>
                 </td>
 
                 <td class="col-type" style="font-size:12px;"><?php echo sanitize($dev['type_name']); ?></td>
@@ -628,7 +624,7 @@ require_once 'includes/header.php';
                         <button class="btn-edit-inline edit-btn"
                                 data-id="<?php echo $dev['id']; ?>"
                                 data-asset="<?php echo sanitize($dev['asset_tag']); ?>"
-                                data-device="<?php echo sanitize(trim($dev['brand'].' '.$dev['model'])); ?>"
+                                data-device="<?php echo sanitize($dev['asset_tag']); ?>"
                                 data-status="<?php echo sanitize($dev['forecast_status']); ?>"
                                 data-remarks="<?php echo htmlspecialchars($dev['remarks'] ?? '', ENT_QUOTES, 'UTF-8'); ?>"
                                 data-lifespan="<?php echo (int)$dev['lifespan_years']; ?>"

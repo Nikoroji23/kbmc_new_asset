@@ -27,7 +27,7 @@ if (!$inspection_id) {
 try {
     // Get inspection details
     $stmt = $pdo->prepare("
-        SELECT di.*, d.asset_tag, d.brand, d.model, dt.type_name, u.full_name as inspector_name
+        SELECT di.*, d.asset_tag, dt.type_name, u.full_name as inspector_name
         FROM device_inspections di
         JOIN devices d ON di.device_id = d.id
         JOIN device_types dt ON d.device_type_id = dt.id

@@ -28,8 +28,6 @@ $sql = "SELECT * FROM (
         u.full_name as staff_name,
         u.employee_id as staff_emp_id,
         d.asset_tag,
-        d.brand,
-        d.model,
         dt.type_name,
         NULL as employee_name,
         NULL as assignment_status
@@ -54,8 +52,6 @@ $sql = "SELECT * FROM (
         u.full_name as staff_name,
         u.employee_id as staff_emp_id,
         d.asset_tag,
-        d.brand,
-        d.model,
         dt.type_name,
         NULL as employee_name,
         NULL as assignment_status
@@ -79,8 +75,6 @@ $sql = "SELECT * FROM (
         u.full_name as staff_name,
         u.employee_id as staff_emp_id,
         d.asset_tag,
-        d.brand,
-        d.model,
         dt.type_name,
         emp.full_name as employee_name,
         da.status as assignment_status
@@ -106,8 +100,6 @@ $sql = "SELECT * FROM (
         u.full_name as staff_name,
         u.employee_id as staff_emp_id,
         d.asset_tag,
-        d.brand,
-        d.model,
         dt.type_name,
         NULL as employee_name,
         NULL as assignment_status
@@ -132,8 +124,6 @@ $sql = "SELECT * FROM (
         u.full_name as staff_name,
         u.employee_id as staff_emp_id,
         d.asset_tag,
-        d.brand,
-        d.model,
         dt.type_name,
         NULL as employee_name,
         d.status as assignment_status
@@ -158,8 +148,6 @@ $sql = "SELECT * FROM (
         u.full_name as staff_name,
         u.employee_id as staff_emp_id,
         NULL as asset_tag,
-        NULL as brand,
-        NULL as model,
         NULL as type_name,
         NULL as employee_name,
         NULL as assignment_status
@@ -182,8 +170,6 @@ $sql = "SELECT * FROM (
         u.full_name as staff_name,
         u.employee_id as staff_emp_id,
         d.asset_tag,
-        d.brand,
-        d.model,
         dt.type_name,
         NULL as employee_name,
         dr.repair_status as assignment_status
@@ -401,9 +387,6 @@ $allITStaff = $pdo->query("
                             <span style="background: #f0f0f0; padding: 4px 8px; border-radius: 4px; font-weight: 600; font-size: 12px;">
                                 <?php echo sanitize($log['asset_tag'] ?? 'N/A'); ?>
                             </span>
-                            <small style="display: block; color: #999; margin-top: 2px;">
-                                <?php echo sanitize($log['brand'] ?? ''); ?> <?php echo sanitize($log['model'] ?? ''); ?>
-                            </small>
                         </td>
                         <td>
                             <div style="font-size: 12px;">

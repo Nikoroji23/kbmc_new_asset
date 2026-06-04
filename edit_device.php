@@ -22,13 +22,9 @@ $itStaff = $pdo->query("SELECT id, full_name FROM users WHERE role IN ('admin', 
 
 if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     $device_type_id = $_POST['device_type_id'] ?? '';
-    $brand = trim($_POST['brand'] ?? '');
-    $model = trim($_POST['model'] ?? '');
     $serial_number = trim($_POST['serial_number'] ?? '');
     $ip_address = trim($_POST['ip_address'] ?? '');
     $pc_name = trim($_POST['pc_name'] ?? '');
-    $mac_address = trim($_POST['mac_address'] ?? '');
-    $specifications = trim($_POST['specifications'] ?? '');
     $purchase_date = $_POST['purchase_date'] ?: null;
     $vendor = trim($_POST['vendor'] ?? '');
     $warranty_expiry = $_POST['warranty_expiry'] ?: null;
@@ -66,11 +62,11 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         
         // Update device
         if ($assetTagChanged) {
-            $stmt = $pdo->prepare("UPDATE devices SET device_type_id=?, brand=?, model=?, serial_number=?, ip_address=?, pc_name=?, mac_address=?, specifications=?, purchase_date=?, vendor=?, warranty_expiry=?, purchase_price=?, location=?, condition_notes=?, status=?, asset_tag=? WHERE id=?");
-            $stmt->execute([$device_type_id, $brand, $model, $serial_number, $ip_address, $pc_name, $mac_address, $specifications, $purchase_date, $vendor, $warranty_expiry, $purchase_price, $location, $condition_notes, $status, $new_asset_tag, $id]);
+            $stmt = $pdo->prepare("UPDATE devices SET device_type_id=?, serial_number=?, ip_address=?, pc_name=?, purchase_date=?, vendor=?, warranty_expiry=?, purchase_price=?, location=?, condition_notes=?, status=?, asset_tag=? WHERE id=?");
+            $stmt->execute([$device_type_id, $serial_number, $ip_address, $pc_name, $purchase_date, $vendor, $warranty_expiry, $purchase_price, $location, $condition_notes, $status, $new_asset_tag, $id]);
         } else {
-            $stmt = $pdo->prepare("UPDATE devices SET device_type_id=?, brand=?, model=?, serial_number=?, ip_address=?, pc_name=?, mac_address=?, specifications=?, purchase_date=?, vendor=?, warranty_expiry=?, purchase_price=?, location=?, condition_notes=?, status=? WHERE id=?");
-            $stmt->execute([$device_type_id, $brand, $model, $serial_number, $ip_address, $pc_name, $mac_address, $specifications, $purchase_date, $vendor, $warranty_expiry, $purchase_price, $location, $condition_notes, $status, $id]);
+            $stmt = $pdo->prepare("UPDATE devices SET device_type_id=?, serial_number=?, ip_address=?, pc_name=?, purchase_date=?, vendor=?, warranty_expiry=?, purchase_price=?, location=?, condition_notes=?, status=? WHERE id=?");
+            $stmt->execute([$device_type_id, $serial_number, $ip_address, $pc_name, $purchase_date, $vendor, $warranty_expiry, $purchase_price, $location, $condition_notes, $status, $id]);
         }
 
         $newData = json_encode(['serial' => $serial_number, 'status' => $status, 'ip' => $ip_address]);
@@ -111,19 +107,15 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             <div class="form-grid">
                 <div class="form-group">
                     <label>Asset Tag</label>
-                    <div style="display: flex; gap: 10px; align-items: flex-start;">
-                        <div style="flex: 1;">
-                            <input type="text" name="asset_tag" class="form-control" placeholder="Leave blank to keep current" value="" maxlength="30" style="text-transform: uppercase;">
-                            <small style="font-size:12px; color:#888; margin-top:4px; display:block;">
-                                Leave blank to keep: <strong><?php echo sanitize($device['asset_tag']); ?></strong><br>
-                                Custom: 3–30 chars, letters/numbers/hyphens/underscores/forward slash (e.g., N/A).
-                            </small>
-                        </div>
-                    </div>
+                    <input type="text" name="asset_tag" class="form-control" placeholder="Leave blank to keep current" value="" maxlength="30" style="text-transform: uppercase;">
+                    <small style="font-size:12px; color:#888; margin-top:4px; display:block;">
+                        Leave blank to keep: <strong><?php echo sanitize($device['asset_tag']); ?></strong><br>
+                        Custom: 3–30 chars (letters/numbers/hyphens/underscores/forward slash)
+                    </small>
                 </div>
                 <div class="form-group">
                     <label>Asset Tag Changed By <span class="required" id="staffRequiredSpan" style="display:none;">*</span>
-                        <span style="font-size: 11px; color: #999;">(Only required if changing asset tag)</span>
+                        <span style="font-size: 11px; color: #999;">(Only if changing)</span>
                     </label>
                     <select name="asset_tag_changed_by" id="assetTagChangedBy" class="form-control">
                         <option value="">Select IT Staff (if changing tag)</option>
@@ -144,28 +136,16 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                     </select>
                 </div>
                 <div class="form-group">
-                    <label>Brand</label>
-                    <input type="text" name="brand" class="form-control" value="<?php echo sanitize($device['brand']); ?>">
-                </div>
-                <div class="form-group">
-                    <label>Model</label>
-                    <input type="text" name="model" class="form-control" value="<?php echo sanitize($device['model']); ?>">
-                </div>
-                <div class="form-group">
-                    <label>Serial Number <span class="required">*</span></label>
-                    <input type="text" name="serial_number" class="form-control" value="<?php echo sanitize($device['serial_number']); ?>" required>
+                    <label>Serial Number</label>
+                    <input type="text" name="serial_number" class="form-control" value="<?php echo sanitize($device['serial_number']); ?>">
                 </div>
                 <div class="form-group">
                     <label>IP Address</label>
                     <input type="text" name="ip_address" class="form-control" value="<?php echo sanitize($device['ip_address']); ?>">
                 </div>
                 <div class="form-group">
-                    <label>PC Name</label>
-                    <input type="text" name="pc_name" class="form-control" value="<?php echo sanitize($device['pc_name'] ?? ''); ?>">
-                </div>
-                <div class="form-group">
-                    <label>MAC Address</label>
-                    <input type="text" name="mac_address" class="form-control" value="<?php echo sanitize($device['mac_address']); ?>">
+                    <label>PC Name / Laptop Name <span class="required">*</span></label>
+                    <input type="text" name="pc_name" class="form-control" value="<?php echo sanitize($device['pc_name'] ?? ''); ?>" required>>
                 </div>
                 <div class="form-group">
                     <label>Status</label>
@@ -196,12 +176,8 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                     <input type="number" name="purchase_price" class="form-control" value="<?php echo $device['purchase_price']; ?>" step="0.01">
                 </div>
                 <div class="form-group">
-                    <label>Location</label>
-                    <input type="text" name="location" class="form-control" value="<?php echo sanitize($device['location']); ?>">
-                </div>
-                <div class="form-group full-width">
-                    <label>Specifications</label>
-                    <textarea name="specifications" class="form-control"><?php echo sanitize($device['specifications']); ?></textarea>
+                    <label>Location <span class="required">*</span></label>
+                    <input type="text" name="location" class="form-control" value="<?php echo sanitize($device['location']); ?>" required>
                 </div>
                 <div class="form-group full-width">
                     <label>Condition Notes</label>

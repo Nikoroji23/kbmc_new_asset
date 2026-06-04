@@ -27,7 +27,7 @@ if (!$repair_id) {
 try {
     // Get repair details
     $stmt = $pdo->prepare("
-        SELECT dr.*, d.asset_tag, d.brand, d.model, dt.type_name, u.full_name as reporter_name
+        SELECT dr.*, d.asset_tag, dt.type_name, u.full_name as reporter_name
         FROM device_repairs dr
         JOIN devices d ON dr.device_id = d.id
         JOIN device_types dt ON d.device_type_id = dt.id

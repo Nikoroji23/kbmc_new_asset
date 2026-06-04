@@ -458,7 +458,7 @@ function sendEmailNotificationToITStaff($type, $title, $message, $related_id, $i
         $stmt = $pdo->prepare("
             SELECT da.id, da.employee_id, da.device_id, 
                    u.full_name, u.email, u.employee_id as emp_id, u.department,
-                   d.asset_tag, d.brand, d.model, dt.type_name
+                   d.asset_tag, d.vendor, dt.type_name
             FROM device_assignments da
             JOIN users u ON da.employee_id = u.id
             JOIN devices d ON da.device_id = d.id
@@ -486,7 +486,7 @@ function sendEmailNotificationToITStaff($type, $title, $message, $related_id, $i
     } elseif ($type === 'device_disposed' && $related_id > 0) {
         // Get device disposal info
         $stmt = $pdo->prepare("
-            SELECT d.id, d.asset_tag, d.brand, d.model, dt.type_name, 
+            SELECT d.id, d.asset_tag, d.vendor, dt.type_name, 
                    d.serial_number, d.disposed_by, u.full_name as disposed_by_name, u.email as disposed_by_email
             FROM devices d
             JOIN device_types dt ON d.device_type_id = dt.id
@@ -506,7 +506,8 @@ function sendEmailNotificationToITStaff($type, $title, $message, $related_id, $i
                     <p><strong>Device Disposal Details:</strong></p>
                     <p><i class='fas fa-laptop'></i> <strong>Asset Tag:</strong> " . $deviceInfo . "</p>
                     <p><i class='fas fa-barcode'></i> <strong>Serial Number:</strong> " . sanitize($device['serial_number']) . "</p>
-                    <p><i class='fas fa-brand'></i> <strong>Brand/Model:</strong> " . sanitize($device['brand'] . ' ' . $device['model']) . "</p>
+                    <p><i class='fas fa-brand'></i> <strong>Device Type:</strong> " . sanitize($device['type_name']) . "</p>
+                    <p><i class='fas fa-building'></i> <strong>Vendor:</strong> " . sanitize($device['vendor'] ?? 'N/A') . "</p>
                     <p><i class='fas fa-user'></i> <strong>Disposed By:</strong> " . $disposedByInfo . "</p>
                     <p><i class='fas fa-calendar'></i> <strong>Disposal Date:</strong> " . date('F d, Y g:i A') . "</p>
                 </div>
@@ -998,7 +999,7 @@ function getAssignedAssets($userId) {
         "SELECT d.asset_tag,
                 d.pc_name,
                 d.ip_address,
-                CONCAT(d.brand, ' ', d.model) AS name,
+                CONCAT(d.vendor, ' - ', dt.type_name) AS name,
                 dt.type_name AS category,
                 d.status,
                 da.assigned_date AS assigned_at
@@ -1748,7 +1749,7 @@ function searchDevicesBySerialOrAsset($searchTerm) {
         SELECT d.*, dt.type_name
         FROM devices d
         JOIN device_types dt ON d.device_type_id = dt.id
-        WHERE d.serial_number LIKE ? OR d.asset_tag LIKE ? OR d.brand LIKE ? OR d.model LIKE ?
+        WHERE d.serial_number LIKE ? OR d.asset_tag LIKE ? OR d.vendor LIKE ? OR dt.type_name LIKE ?
         ORDER BY d.updated_at DESC
         LIMIT 20
     ");
@@ -1908,7 +1909,7 @@ function markRepairAsCompleted($repairId, $completionNotes = '') {
 function getPendingRepairs() {
     global $pdo;
     $sql = "
-        SELECT dr.*, d.asset_tag, d.model, dt.type_name, u.full_name as reporter_name, u.email, 
+        SELECT dr.*, d.asset_tag, dt.type_name, u.full_name as reporter_name, u.email, 
                DATEDIFF(NOW(), dr.started_date) as days_in_repair";
     
     // Include assigned_to info if column exists
@@ -1940,7 +1941,7 @@ function getPendingRepairs() {
 function getCompletedRepairs($limit = 10) {
     global $pdo;
     $sql = "
-        SELECT dr.*, d.asset_tag, d.model, dt.type_name, u.full_name as reporter_name,
+        SELECT dr.*, d.asset_tag, dt.type_name, u.full_name as reporter_name,
                DATEDIFF(dr.completed_date, dr.started_date) as days_to_repair";
     
     // Include assigned_to and completed_by info if columns exist

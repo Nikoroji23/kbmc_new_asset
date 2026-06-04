@@ -38,7 +38,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     }
 }
 
-$pendingDevices = $pdo->query("SELECT id, asset_tag, CONCAT(brand, ' ', model) as name FROM devices WHERE status = 'pending_inspection' ORDER BY asset_tag")->fetchAll();
+$pendingDevices = $pdo->query("SELECT d.id, d.asset_tag, CONCAT(COALESCE(d.vendor, 'Unknown'), ' - ', dt.type_name) as name FROM devices d JOIN device_types dt ON d.device_type_id = dt.id WHERE d.status = 'pending_inspection' ORDER BY d.asset_tag")->fetchAll();
 
 // Get all inspections with device and user details - combined and unified
 $inspections = $pdo->query("
@@ -52,8 +52,7 @@ $inspections = $pdo->query("
         di.notes,
         d.id as device_id,
         d.asset_tag,
-        d.brand,
-        d.model,
+        d.vendor,
         dt.type_name,
         u.full_name as inspector_name
     FROM device_inspections di
@@ -196,7 +195,6 @@ $inspections = $pdo->query("
                     <tr class="inspection-row" data-result="<?php echo $i['result']; ?>" data-inspector="<?php echo $i['inspected_by']; ?>" data-asset-tag="<?php echo strtolower($i['asset_tag']); ?>">
                         <td><?php echo formatDate($i['inspection_date']); ?></td>
                         <td><strong><?php echo sanitize($i['asset_tag']); ?></strong></td>
-                        <td><small style="color: #666;"><?php echo sanitize($i['brand'] . ' ' . $i['model']); ?></small></td>
                         <td><span style="font-size: 11px; background: #e8f4f8; padding: 3px 8px; border-radius: 3px;"><?php echo sanitize($i['type_name'] ?? 'N/A'); ?></span></td>
                         <td><?php echo ucfirst($i['physical_condition']); ?></td>
                         <td><?php echo ucwords(str_replace('_', ' ', $i['functionality_status'])); ?></td>

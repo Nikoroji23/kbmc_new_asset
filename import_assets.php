@@ -55,57 +55,43 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_FILES['csv_file'])) {
             $cleanName = preg_replace('/^\xEF\xBB\xBF/', '', $columnName);
             $cleanName = strtoupper(trim($cleanName));
             $cleanName = preg_replace('/\s+/', ' ', $cleanName);
+            // Handle common spelling variations
             if ($cleanName === 'IP ADRESS') {
                 $cleanName = 'IP ADDRESS';
+            }
+            if ($cleanName === 'ASSIGNED TO') {
+                $cleanName = 'ASSIGNED TO';
             }
             $headerMap[$cleanName] = $index;
         }
 
-        $requiredHeaders = ['NAME', 'DEPARTMENT', 'PC NAME', 'IP ADDRESS'];
-        foreach ($requiredHeaders as $requiredHeader) {
-            if (!array_key_exists($requiredHeader, $headerMap)) {
-                throw new Exception('Missing required CSV column: ' . $requiredHeader);
-            }
+        // Check for required headers (flexible - can work with old format, new format, or hybrid format)
+        $hasOldFormat = isset($headerMap['NAME']) && isset($headerMap['DEPARTMENT']) && !isset($headerMap['ASSET TAG']);
+        $hasNewFormat = isset($headerMap['ASSET TAG']) && isset($headerMap['TYPE']) && !isset($headerMap['MONITOR']);
+        $hasHybridFormat = isset($headerMap['NAME']) && isset($headerMap['DEPARTMENT']) && (isset($headerMap['MONITOR']) || isset($headerMap['LAPTOP']) || isset($headerMap['KEYBOARD']) || isset($headerMap['MOUSE']) || isset($headerMap['SYSTEM UNIT']) || isset($headerMap['UPS']) || isset($headerMap['CHARGER']) || isset($headerMap['PRINTER']) || isset($headerMap['STORAGE']) || isset($headerMap['SWITCH']));
+        
+        if (!$hasOldFormat && !$hasNewFormat && !$hasHybridFormat) {
+            throw new Exception('CSV must contain either (NAME, DEPARTMENT) or (ASSET TAG, TYPE) or hybrid format (NAME with device type columns) columns');
         }
 
-        // Device type mapping
+        // Get device type map
         $deviceTypes = getDeviceTypeMap();
-
-        $assetColumns = [
-            ['name' => 'MONITOR 1', 'type' => 'monitor'],
-            ['name' => 'MONITOR 2', 'type' => 'monitor'],
-            ['name' => 'MOUSE', 'type' => 'mouse'],
-            ['name' => 'KEYBOARD', 'type' => 'keyboard'],
-            ['name' => 'SYSTEM UNIT', 'type' => 'system unit'],
-            ['name' => 'UPS', 'type' => 'ups'],
-            ['name' => 'LAPTOP', 'type' => 'laptop'],
-            ['name' => 'CHARGER', 'type' => 'charger'],
-            ['name' => 'MOUSE 1', 'type' => 'mouse'],
-            ['name' => 'PRINTER 1', 'type' => 'printer'],
-            ['name' => 'PRINTER 2', 'type' => 'printer'],
-            ['name' => 'STORAGE', 'type' => 'storage'],
-            ['name' => 'SWITCH', 'type' => 'switch'],
-        ];
-
-        foreach ($assetColumns as &$asset) {
-            $asset['column_index'] = isset($headerMap[$asset['name']]) ? $headerMap[$asset['name']] : null;
-        }
-        unset($asset);
         
         $usersCreated = 0;
         $devicesCreated = 0;
+        $devicesUpdated = 0;
         $assignmentsCreated = 0;
         $errors = [];
         $lineNumber = 1;
         
         // Get current admin
         $adminId = $_SESSION['user_id'];
-        // Verify the admin user still exists
-$adminCheck = $pdo->prepare("SELECT id FROM users WHERE id = ?");
-$adminCheck->execute([$adminId]);
-if (!$adminCheck->fetch()) {
-    throw new Exception('Your session user no longer exists in the database. Please log out and log back in.');
-}
+        $adminCheck = $pdo->prepare("SELECT id FROM users WHERE id = ?");
+        $adminCheck->execute([$adminId]);
+        if (!$adminCheck->fetch()) {
+            throw new Exception('Your session user no longer exists in the database. Please log out and log back in.');
+        }
+
         foreach ($rows as $row) {
             $lineNumber++;
             
@@ -115,104 +101,253 @@ if (!$adminCheck->fetch()) {
                     continue;
                 }
                 
-                $name = trim($row[$headerMap['NAME']] ?? '');
-                $department = trim($row[$headerMap['DEPARTMENT']] ?? '');
-                $pcName = trim($row[$headerMap['PC NAME']] ?? '');
-                $ipAddress = trim($row[$headerMap['IP ADDRESS']] ?? '');
-                
-                if (empty($name)) {
-                    continue;
-                }
-                
-                // Create user account if not exists
-                $email = generateEmail($name);
-                $employeeId = generateEmployeeId($name);
-                
-                $userCheck = $pdo->prepare("SELECT id FROM users WHERE email = ?");
-                $userCheck->execute([$email]);
-                $existingUser = $userCheck->fetch();
-                
-                if ($existingUser) {
-                    $userId = $existingUser['id'];
-                } else {
-                    $stmt = $pdo->prepare("INSERT INTO users (employee_id, full_name, email, password, role, department, status) VALUES (?, ?, ?, ?, ?, ?, ?)");
-                    $stmt->execute([
-                        $employeeId,
-                        $name,
-                        $email,
-                        password_hash('password', PASSWORD_BCRYPT),
-                        'employee',
-                        $department,
-                        'active'
-                    ]);
-                    $userId = $pdo->lastInsertId();
-                    $usersCreated++;
-                }
-                
-                // Process devices assigned to this user
-                foreach ($assetColumns as $asset) {
-                    if ($asset['column_index'] === null) {
+                // Handle hybrid format (NAME with device type columns)
+                if ($hasHybridFormat) {
+                    // Hybrid format: one user per row with device asset tags in type-specific columns
+                    $name = trim($row[$headerMap['NAME']] ?? '');
+                    $department = emptyToNA($row[$headerMap['DEPARTMENT']] ?? '');
+                    $pcName = emptyToNA($row[$headerMap['PC NAME']] ?? '');
+                    $ipAddress = emptyToNA($row[$headerMap['IP ADDRESS']] ?? '');
+                    
+                    if (empty($name)) {
                         continue;
                     }
                     
-                    $assetTagRaw = trim($row[$asset['column_index']] ?? '');
-                    if (empty($assetTagRaw) || strcasecmp($assetTagRaw, 'N/A') === 0 || strcasecmp($assetTagRaw, 'KBM-IT-00') === 0) {
+                    // Create user if not exists
+                    $email = generateEmail($name);
+                    $employeeId = generateEmployeeId($name);
+                    
+                    $userCheck = $pdo->prepare("SELECT id FROM users WHERE email = ?");
+                    $userCheck->execute([$email]);
+                    $existingUser = $userCheck->fetch();
+                    
+                    if ($existingUser) {
+                        $userId = $existingUser['id'];
+                    } else {
+                        $stmt = $pdo->prepare("INSERT INTO users (employee_id, full_name, email, password, role, department, status) VALUES (?, ?, ?, ?, ?, ?, ?)");
+                        $stmt->execute([$employeeId, $name, $email, password_hash('password', PASSWORD_BCRYPT), 'employee', $department, 'active']);
+                        $userId = $pdo->lastInsertId();
+                        $usersCreated++;
+                    }
+                    
+                    // Process each device type column
+                    $deviceTypeColumns = ['MONITOR', 'LAPTOP', 'KEYBOARD', 'MOUSE', 'SYSTEM UNIT', 'UPS', 'CHARGER', 'PRINTER', 'STORAGE', 'SWITCH'];
+                    
+                    // Collect all device columns (including numbered ones like MONITOR 1, MONITOR 2, PRINTER 1, etc.)
+                    $deviceColumnsToProcess = [];
+                    foreach ($headerMap as $columnName => $columnIndex) {
+                        foreach ($deviceTypeColumns as $baseType) {
+                            // Match exact column name or numbered column (e.g., "MONITOR", "MONITOR 1", "MONITOR 2")
+                            if ($columnName === $baseType || preg_match('/^' . preg_quote($baseType) . '\s+\d+$/i', $columnName)) {
+                                $deviceColumnsToProcess[] = [
+                                    'name' => $columnName,
+                                    'index' => $columnIndex,
+                                    'type' => preg_replace('/\s+\d+$/i', '', $columnName) // Remove number suffix for type
+                                ];
+                            }
+                        }
+                    }
+                    
+                    // Process each collected device column
+                    foreach ($deviceColumnsToProcess as $deviceColumn) {
+                        $columnName = $deviceColumn['name'];
+                        $columnIndex = $deviceColumn['index'];
+                        $deviceType = $deviceColumn['type'];
+                        
+                        $assetTag = trim($row[$columnIndex] ?? '');
+                        
+                        // Check if asset tag is incomplete (e.g., "KBM-IT-00" or ends with -00)
+                            if (empty($assetTag) || (preg_match('/^KBM-[A-Z]+-00$/i', $assetTag) || preg_match('/-00$/i', $assetTag))) {
+                                // Skip incomplete asset tags - user doesn't have this device
+                                continue;
+                            }
+                            
+                            // Handle N/A - create device with NO asset tag (null)
+                            $finalAssetTag = null;
+                            $serialNumber = null;
+                            
+                            if (strtoupper($assetTag) === 'N/A') {
+                                // N/A means device exists but no asset tag number - always create new device
+                                $finalAssetTag = null;
+                                $serialNumber = generateUniqueSerialNumber();
+                            } else {
+                                // Valid asset tag provided - allow duplicates across device types
+                                $finalAssetTag = $assetTag;
+                                $serialNumber = generateUniqueSerialNumber(); // Always generate unique serial to avoid constraint violations
+                            }
+                            
+                            // Get device type ID
+                            $typeStmt = $pdo->prepare("SELECT id FROM device_types WHERE LOWER(type_name) = LOWER(?)");
+                            $typeStmt->execute([$deviceType]);
+                            $typeResult = $typeStmt->fetch();
+                            $typeId = $typeResult['id'] ?? null;
+                            
+                            if (!$typeId) {
+                                // Create device type if not exists
+                                $deviceTypeName = $deviceType === 'SYSTEM UNIT' ? 'System Unit' : 
+                                                   ($deviceType === 'STORAGE' ? 'Storage Device' : 
+                                                   ($deviceType === 'SWITCH' ? 'Network Switch' : ucfirst(strtolower($deviceType))));
+                                $insertTypeStmt = $pdo->prepare("INSERT INTO device_types (type_name) VALUES (?)");
+                                $insertTypeStmt->execute([$deviceTypeName]);
+                                $typeId = $pdo->lastInsertId();
+                            }
+                            
+                            // Always create a new device for this device type column entry
+                            // This allows multiple devices with the same asset tag but different device types
+                            $createStmt = $pdo->prepare("INSERT INTO devices (asset_tag, device_type_id, serial_number, pc_name, ip_address, status, created_by) VALUES (?, ?, ?, ?, ?, ?, ?)");
+                            $createStmt->execute([$finalAssetTag, $typeId, $serialNumber, ($pcName === 'N/A' ? null : $pcName), ($ipAddress === 'N/A' ? null : $ipAddress), 'deployed', $adminId]);
+                            $deviceId = $pdo->lastInsertId();
+                            $devicesCreated++;
+                            
+                            // Create assignment to user
+                            $assignCheck = $pdo->prepare("SELECT id FROM device_assignments WHERE device_id = ? AND employee_id = ? AND status = 'active'");
+                            $assignCheck->execute([$deviceId, $userId]);
+                            
+                            if (!$assignCheck->fetch()) {
+                                // Create assignment
+                                $assignStmt = $pdo->prepare("INSERT INTO device_assignments (device_id, employee_id, assigned_by, assigned_date, status) VALUES (?, ?, ?, ?, ?)");
+                                $assignStmt->execute([$deviceId, $userId, $adminId, date('Y-m-d'), 'active']);
+                                $assignmentsCreated++;
+                            }
+                        }
+                } elseif ($hasOldFormat) {
+                    // Old format: multiple asset types per user (for backward compatibility)
+                    $name = trim($row[$headerMap['NAME']] ?? '');
+                    $department = emptyToNA($row[$headerMap['DEPARTMENT']] ?? '');
+                    $pcName = emptyToNA($row[$headerMap['PC NAME']] ?? '');
+                    $ipAddress = emptyToNA($row[$headerMap['IP ADDRESS']] ?? '');
+                    
+                    if (empty($name)) {
                         continue;
                     }
                     
-                    $typeId = $deviceTypes[$asset['type']] ?? null;
+                    // Create user if not exists
+                    $email = generateEmail($name);
+                    $employeeId = generateEmployeeId($name);
+                    
+                    $userCheck = $pdo->prepare("SELECT id FROM users WHERE email = ?");
+                    $userCheck->execute([$email]);
+                    $existingUser = $userCheck->fetch();
+                    
+                    if ($existingUser) {
+                        $userId = $existingUser['id'];
+                    } else {
+                        $stmt = $pdo->prepare("INSERT INTO users (employee_id, full_name, email, password, role, department, status) VALUES (?, ?, ?, ?, ?, ?, ?)");
+                        $stmt->execute([$employeeId, $name, $email, password_hash('password', PASSWORD_BCRYPT), 'employee', $department, 'active']);
+                        $userId = $pdo->lastInsertId();
+                        $usersCreated++;
+                    }
+                    
+                } elseif ($hasNewFormat) {
+                    // New format: individual device records
+                    $assetTag = trim($row[$headerMap['ASSET TAG']] ?? '');
+                    $pcName = emptyToNA($row[$headerMap['PC NAME']] ?? '');
+                    $type = trim($row[$headerMap['TYPE']] ?? '');
+                    $ipAddress = emptyToNA($row[$headerMap['IP ADDRESS']] ?? '');
+                    $status = trim($row[$headerMap['STATUS']] ?? 'deployed');
+                    $assignedTo = emptyToNA($row[$headerMap['ASSIGNED TO']] ?? '');
+                    
+                    if (empty($type)) {
+                        throw new Exception('Device type is required');
+                    }
+                    
+                    // Get device type ID
+                    $typeStmt = $pdo->prepare("SELECT id FROM device_types WHERE LOWER(type_name) = LOWER(?)");
+                    $typeStmt->execute([$type]);
+                    $typeResult = $typeStmt->fetch();
+                    $typeId = $typeResult['id'] ?? null;
+                    
                     if (!$typeId) {
-                        continue;
+                        // Try to create device type
+                        $insertTypeStmt = $pdo->prepare("INSERT INTO device_types (type_name) VALUES (?)");
+                        $insertTypeStmt->execute([$type]);
+                        $typeId = $pdo->lastInsertId();
                     }
                     
-                    $assetTag = normalizeImportAssetTag($assetTagRaw, $typeId);
+                    // Generate asset tag if not provided or N/A
+                    if (empty($assetTag) || strtoupper($assetTag) === 'N/A') {
+                        $assetTag = null;
+                    }
                     
-                    // Check if device exists
-                    $deviceCheck = $pdo->prepare("SELECT id, pc_name FROM devices WHERE asset_tag = ?");
-                    $deviceCheck->execute([$assetTag]);
-                    $existingDevice = $deviceCheck->fetch();
-                    
-                    if ($existingDevice) {
-                        $deviceId = $existingDevice['id'];
-                        if (!empty($pcName) && empty($existingDevice['pc_name'])) {
-                            $updatePcName = $pdo->prepare("UPDATE devices SET pc_name = ? WHERE id = ?");
-                            $updatePcName->execute([$pcName, $deviceId]);
+                    // Check if device with this asset tag already exists
+                    if ($assetTag) {
+                        $deviceCheck = $pdo->prepare("SELECT id FROM devices WHERE asset_tag = ?");
+                        $deviceCheck->execute([$assetTag]);
+                        $existingDevice = $deviceCheck->fetch();
+                        
+                        // If PC NAME is N/A and user is assigned, try to get their laptop asset tag
+                        $finalPcName = $pcName;
+                        if (($pcName === 'N/A' || empty($pcName)) && !empty($assignedTo) && $assignedTo !== 'Unassigned' && $assignedTo !== 'N/A') {
+                            $userStmt = $pdo->prepare("SELECT id FROM users WHERE LOWER(full_name) = LOWER(?)");
+                            $userStmt->execute([$assignedTo]);
+                            $userResult = $userStmt->fetch();
+                            if ($userResult) {
+                                $userLaptopTag = getUserLaptopAssetTag($userResult['id'], $pdo);
+                                if ($userLaptopTag) {
+                                    $finalPcName = $userLaptopTag;
+                                }
+                            }
+                        }
+                        
+                        if ($existingDevice) {
+                            // Update existing device
+                            $updateStmt = $pdo->prepare("UPDATE devices SET device_type_id=?, pc_name=?, ip_address=?, status=? WHERE asset_tag=?");
+                            $updateStmt->execute([$typeId, ($finalPcName === 'N/A' ? null : $finalPcName), ($ipAddress === 'N/A' ? null : $ipAddress), $status, $assetTag]);
+                            $devicesUpdated++;
+                            $deviceId = $existingDevice['id'];
+                        } else {
+                            // Create new device
+                            $createStmt = $pdo->prepare("INSERT INTO devices (asset_tag, device_type_id, serial_number, pc_name, ip_address, status, created_by) VALUES (?, ?, ?, ?, ?, ?, ?)");
+                            $createStmt->execute([$assetTag, $typeId, $assetTag, ($finalPcName === 'N/A' ? null : $finalPcName), ($ipAddress === 'N/A' ? null : $ipAddress), $status, $adminId]);
+                            $deviceId = $pdo->lastInsertId();
+                            $devicesCreated++;
                         }
                     } else {
-                        // Create device
-                        $stmt = $pdo->prepare("INSERT INTO devices (asset_tag, device_type_id, serial_number, ip_address, pc_name, status, created_by) VALUES (?, ?, ?, ?, ?, ?, ?)");
-                        $stmt->execute([
-                            $assetTag,
-                            $typeId,
-                            $assetTag,
-                            (!empty($ipAddress) && $asset['name'] === 'SYSTEM UNIT') ? $ipAddress : null,
-                            $pcName ?: null,
-                            'deployed',
-                            $adminId
-                        ]);
+                        // Create device without asset tag - generate unique serial number
+                        $finalPcName = $pcName;
+                        if (($pcName === 'N/A' || empty($pcName)) && !empty($assignedTo) && $assignedTo !== 'Unassigned' && $assignedTo !== 'N/A') {
+                            $userStmt = $pdo->prepare("SELECT id FROM users WHERE LOWER(full_name) = LOWER(?)");
+                            $userStmt->execute([$assignedTo]);
+                            $userResult = $userStmt->fetch();
+                            if ($userResult) {
+                                $userLaptopTag = getUserLaptopAssetTag($userResult['id'], $pdo);
+                                if ($userLaptopTag) {
+                                    $finalPcName = $userLaptopTag;
+                                }
+                            }
+                        }
+                        
+                        // Generate unique serial number since serial_number is NOT NULL and UNIQUE
+                        $uniqueSerial = generateUniqueSerialNumber();
+                        
+                        $createStmt = $pdo->prepare("INSERT INTO devices (asset_tag, device_type_id, serial_number, pc_name, ip_address, status, created_by) VALUES (?, ?, ?, ?, ?, ?, ?)");
+                        $createStmt->execute([null, $typeId, $uniqueSerial, ($finalPcName === 'N/A' ? null : $finalPcName), ($ipAddress === 'N/A' ? null : $ipAddress), $status, $adminId]);
                         $deviceId = $pdo->lastInsertId();
                         $devicesCreated++;
                     }
                     
-                    // Check if assignment exists
-                    $assignmentCheck = $pdo->prepare("SELECT id FROM device_assignments WHERE device_id = ? AND employee_id = ? AND status = 'active'");
-                    $assignmentCheck->execute([$deviceId, $userId]);
-                    $existingAssignment = $assignmentCheck->fetch();
-                    
-                    if (!$existingAssignment) {
-                        // Create assignment
-                        $stmt = $pdo->prepare("INSERT INTO device_assignments (device_id, employee_id, assigned_by, assigned_date, status) VALUES (?, ?, ?, ?, ?)");
-                        $stmt->execute([
-                            $deviceId,
-                            $userId,
-                            $adminId,
-                            date('Y-m-d'),
-                            'active'
-                        ]);
-                        $assignmentsCreated++;
+                    // Create assignment if assigned to a user
+                    if (!empty($assignedTo) && $assignedTo !== 'Unassigned' && $assignedTo !== 'N/A') {
+                        // Find or create user by name
+                        $userStmt = $pdo->prepare("SELECT id FROM users WHERE LOWER(full_name) = LOWER(?)");
+                        $userStmt->execute([$assignedTo]);
+                        $userResult = $userStmt->fetch();
+                        
+                        if ($userResult) {
+                            $userId = $userResult['id'];
+                            // Check if assignment exists
+                            $assignCheck = $pdo->prepare("SELECT id FROM device_assignments WHERE device_id = ? AND employee_id = ? AND status = 'active'");
+                            $assignCheck->execute([$deviceId, $userId]);
+                            
+                            if (!$assignCheck->fetch()) {
+                                // Create assignment
+                                $assignStmt = $pdo->prepare("INSERT INTO device_assignments (device_id, employee_id, assigned_by, assigned_date, status) VALUES (?, ?, ?, ?, ?)");
+                                $assignStmt->execute([$deviceId, $userId, $adminId, date('Y-m-d'), 'active']);
+                                $assignmentsCreated++;
+                            }
+                        }
                     }
                 }
-                
             } catch (Exception $e) {
                 $errors[] = "Line $lineNumber: " . $e->getMessage();
             }
@@ -221,6 +356,7 @@ if (!$adminCheck->fetch()) {
         $importSummary = [
             'users_created' => $usersCreated,
             'devices_created' => $devicesCreated,
+            'devices_updated' => $devicesUpdated,
             'assignments_created' => $assignmentsCreated,
             'errors' => $errors
         ];
@@ -240,6 +376,49 @@ function readImportRows($filePath, $extension) {
         return readXlsxRows($filePath);
     }
     throw new Exception('Unsupported import file type.');
+}
+
+/**
+ * Convert empty string or whitespace to "N/A"
+ */
+function emptyToNA($value) {
+    $trimmed = trim($value ?? '');
+    return empty($trimmed) ? 'N/A' : $trimmed;
+}
+
+/**
+ * Get user's laptop asset tag if they have one assigned
+ */
+function getUserLaptopAssetTag($userId, $pdo) {
+    $stmt = $pdo->prepare("
+        SELECT d.asset_tag
+        FROM device_assignments da
+        JOIN devices d ON da.device_id = d.id
+        JOIN device_types dt ON d.device_type_id = dt.id
+        WHERE da.employee_id = ? AND da.status = 'active' AND LOWER(dt.type_name) = 'laptop'
+        LIMIT 1
+    ");
+    $stmt->execute([$userId]);
+    $result = $stmt->fetch();
+    return $result ? $result['asset_tag'] : null;
+}
+
+/**
+ * Generate unique serial number for devices without asset tags
+ */
+function generateUniqueSerialNumber() {
+    global $pdo;
+    
+    $counter = 1;
+    while (true) {
+        $serial = 'SN-' . date('Ymd') . '-' . str_pad($counter, 5, '0', STR_PAD_LEFT);
+        $check = $pdo->prepare("SELECT id FROM devices WHERE serial_number = ?");
+        $check->execute([$serial]);
+        if (!$check->fetch()) {
+            return $serial;
+        }
+        $counter++;
+    }
 }
 
 function readCsvRows($filePath) {
@@ -440,6 +619,12 @@ function getDeviceTypeMap() {
                 <div style="font-size: 24px; font-weight: bold; color: #27ae60;"><?php echo $importSummary['devices_created']; ?></div>
                 <div style="font-size: 12px; color: #7f8c8d;">Devices Created</div>
             </div>
+            <?php if ($importSummary['devices_updated'] > 0): ?>
+            <div style="background: #ecf0f1; padding: 15px; border-radius: 5px; text-align: center;">
+                <div style="font-size: 24px; font-weight: bold; color: #f39c12;"><?php echo $importSummary['devices_updated']; ?></div>
+                <div style="font-size: 12px; color: #7f8c8d;">Devices Updated</div>
+            </div>
+            <?php endif; ?>
             <div style="background: #ecf0f1; padding: 15px; border-radius: 5px; text-align: center;">
                 <div style="font-size: 24px; font-weight: bold; color: #e74c3c;"><?php echo $importSummary['assignments_created']; ?></div>
                 <div style="font-size: 12px; color: #7f8c8d;">Assignments Created</div>
@@ -479,19 +664,51 @@ function getDeviceTypeMap() {
         <div style="margin-top: 30px; padding: 15px; background: #ecf0f1; border-radius: 5px;">
             <h4><i class="fas fa-info-circle"></i> Import Instructions</h4>
             <ul style="font-size: 13px; line-height: 1.8;">
-                <li><strong>Upload Format:</strong> The file can be a CSV or Excel (.xlsx) workbook</li>
-                <li><strong>User Creation:</strong> Each unique NAME will create a user account with:
+                <li><strong>Upload Format:</strong> CSV or Excel (.xlsx) file</li>
+                <li><strong>Supported Formats:</strong>
                     <ul>
-                        <li>Default password: <code>password</code></li>
-                        <li>Generated email: firstname.lastname@kbmc.com</li>
-                        <li>Generated Employee ID: Auto-incremented 5-digit number</li>
+                        <li><strong>Hybrid Format (RECOMMENDED - One User + Multiple Devices):</strong> NAME, DEPARTMENT, PC NAME, IP ADDRESS, MONITOR, LAPTOP, KEYBOARD, MOUSE, SYSTEM UNIT, UPS, CHARGER, PRINTER, STORAGE, SWITCH
+                            <ul style="margin-top: 5px;">
+                                <li>One row per employee with asset tags in device type columns</li>
+                                <li>Each device column contains the asset tag (e.g., "KBM-LAP-2024-001" in LAPTOP column)</li>
+                                <li>Devices are automatically created and assigned to the user</li>
+                                <li>Leave device columns empty or use N/A if employee doesn't have that device type</li>
+                            </ul>
+                        </li>
+                        <li><strong>Old Format (Multiple Asset Types):</strong> NAME, DEPARTMENT, PC NAME, IP ADDRESS, MONITOR 1, MONITOR 2, MOUSE, KEYBOARD, SYSTEM UNIT, UPS, LAPTOP, CHARGER, PRINTER 1, etc.</li>
+                        <li><strong>New Format (Individual Devices):</strong> ASSET TAG, PC NAME, TYPE, IP ADDRESS, STATUS, ASSIGNED TO</li>
                     </ul>
                 </li>
-                <li><strong>Device Creation:</strong> All asset columns will create device records and link them to the user</li>
-                <li><strong>Asset Tag Generation:</strong> If a cell does not contain a standard asset tag, the system generates a valid KBM-IT asset tag for that device type</li>
-                <li><strong>Valid Assets:</strong> Assets marked as "N/A" or "KBM-IT-00" will be skipped</li>
-                <li><strong>Device Status:</strong> All imported devices are set to "deployed" status</li>
-                <li><strong>Duplicate Prevention:</strong> Existing users and devices will not be duplicated</li>
+                <li><strong>Hybrid Format Features:</strong>
+                    <ul>
+                        <li>Automatically creates/updates user from NAME field</li>
+                        <li>Creates devices from asset tags in device type columns</li>
+                        <li><strong>Asset Tag Rules:</strong>
+                            <ul>
+                                <li><strong>Valid asset tag</strong> (e.g., "KBM-LAP-001856"): Creates device with that asset tag</li>
+                                <li><strong>N/A</strong>: Creates device with NO asset tag (null) - device exists but asset tag unknown, auto-generates unique serial</li>
+                                <li><strong>Incomplete tag</strong> (e.g., "KBM-IT-00" or ends in -00): Skipped - user doesn't have this device</li>
+                                <li><strong>Empty/Blank</strong>: Skipped - user doesn't have this device</li>
+                                <li><strong>Duplicate asset tags are allowed</strong> (e.g., LAPTOP="KBM-IT-001856" AND CHARGER="KBM-IT-001856"): Both create separate devices with same asset tag</li>
+                            </ul>
+                        </li>
+                        <li>Automatically assigns devices to the user</li>
+                        <li>Devices are marked as "deployed" status</li>
+                        <li>Supports: Monitor, Laptop, Keyboard, Mouse, System Unit, UPS, Charger, Printer, Storage Device, Network Switch</li>
+                    </ul>
+                </li>
+                <li><strong>New Format Features:</strong>
+                    <ul>
+                        <li>Each row is an individual device</li>
+                        <li>Asset Tag can be blank or N/A (allows duplicates)</li>
+                        <li>Type field supports: Monitor, Laptop, Mouse, Keyboard, System Unit, UPS, Charger, Printer, Storage Device, Network Switch</li>
+                        <li>IP Address is optional (use N/A for devices without IP)</li>
+                        <li>Status options: in_stock, deployed, under_repair, retired, disposed, pending_inspection</li>
+                        <li>Assigned To: Use employee full name or leave blank for unassigned devices</li>
+                    </ul>
+                </li>
+                <li><strong>User Creation:</strong> Users are created if they don't exist (all formats create users from NAME field)</li>
+                <li><strong>Duplicate Prevention:</strong> Existing users and devices will be updated, not duplicated</li>
             </ul>
         </div>
     </div>

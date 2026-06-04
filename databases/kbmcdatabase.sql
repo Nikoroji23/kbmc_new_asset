@@ -19,6 +19,9 @@ CREATE TABLE users (
     phone VARCHAR(20),
     profile_image VARCHAR(255),
     status ENUM('active', 'inactive') DEFAULT 'active',
+    failed_logins INT DEFAULT 0,
+    last_failed_attempt TIMESTAMP NULL,
+    locked_until TIMESTAMP NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 );
@@ -34,15 +37,11 @@ CREATE TABLE device_types (
 -- Devices Table
 CREATE TABLE devices (
     id INT AUTO_INCREMENT PRIMARY KEY,
-    asset_tag VARCHAR(100) UNIQUE NOT NULL,
+    asset_tag VARCHAR(100) NULL DEFAULT NULL,
     device_type_id INT NOT NULL,
-    brand VARCHAR(100),
-    model VARCHAR(100),
     serial_number VARCHAR(100) UNIQUE NOT NULL,
     ip_address VARCHAR(50),
     pc_name VARCHAR(100),
-    mac_address VARCHAR(50),
-    specifications TEXT,
     purchase_date DATE,
     vendor VARCHAR(100),
     warranty_expiry DATE,
@@ -147,6 +146,7 @@ CREATE TABLE audit_logs (
     action VARCHAR(100) NOT NULL,
     table_name VARCHAR(50),
     record_id INT,
+    activity_type VARCHAR(50),
     old_values TEXT,
     new_values TEXT,
     ip_address VARCHAR(50),
@@ -202,12 +202,12 @@ INSERT INTO users (employee_id, full_name, email, password, role, department, po
 ('KBMC-EMP-001', 'Sample Employee', 'employee@kbmc.com', '$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', 'employee', 'Sales Department', 'Sales Associate', 'active');
 
 -- Insert Sample Devices
-INSERT INTO devices (asset_tag, device_type_id, brand, model, serial_number, ip_address, specifications, purchase_date, vendor, warranty_expiry, purchase_price, status, location, created_by) VALUES
-('KBMC-LAP-001', 1, 'Dell', 'Latitude 5520', 'SN123456789', '192.168.1.101', 'Intel i5, 16GB RAM, 512GB SSD, Windows 11', '2024-01-15', 'Dell Philippines', '2027-01-15', 45000.00, 'in_stock', 'IT Stock Room', 1),
-('KBMC-DESK-001', 2, 'HP', 'EliteDesk 800 G9', 'SN987654321', '192.168.1.102', 'Intel i7, 32GB RAM, 1TB SSD, Windows 11 Pro', '2024-02-20', 'HP Philippines', '2027-02-20', 55000.00, 'in_stock', 'IT Stock Room', 1),
-('KBMC-PRT-001', 3, 'HP', 'LaserJet Pro M404n', 'SN456789123', '192.168.1.103', 'Monochrome Laser, Network Ready', '2024-03-10', 'HP Philippines', '2027-03-10', 18000.00, 'deployed', 'Sales Department', 1),
-('KBMC-MON-001', 5, 'Samsung', '27" FHD Monitor', 'SN789123456', NULL, '27-inch, Full HD, IPS Panel', '2024-01-25', 'Samsung Philippines', '2027-01-25', 12000.00, 'deployed', 'Sales Department', 1),
-('KBMC-LAP-002', 1, 'Lenovo', 'ThinkPad X1 Carbon', 'SN321654987', '192.168.1.104', 'Intel i7, 16GB RAM, 512GB SSD, Windows 11 Pro', '2024-04-05', 'Lenovo Philippines', '2027-04-05', 68000.00, 'under_repair', 'IT Stock Room', 1);
+INSERT INTO devices (asset_tag, device_type_id, serial_number, ip_address, purchase_date, vendor, warranty_expiry, purchase_price, status, condition_notes, location, created_by) VALUES
+('KBMC-LAP-001', 1, 'SN123456789', '192.168.1.101', '2024-01-15', 'Dell Philippines', '2027-01-15', 45000.00, 'in_stock', 'Intel i5, 16GB RAM, 512GB SSD, Windows 11', 'IT Stock Room', 1),
+('KBMC-DESK-001', 2, 'SN987654321', '192.168.1.102', '2024-02-20', 'HP Philippines', '2027-02-20', 55000.00, 'in_stock', 'Intel i7, 32GB RAM, 1TB SSD, Windows 11 Pro', 'IT Stock Room', 1),
+('KBMC-PRT-001', 3, 'SN456789123', '192.168.1.103', '2024-03-10', 'HP Philippines', '2027-03-10', 18000.00, 'deployed', 'Monochrome Laser, Network Ready', 'Sales Department', 1),
+('KBMC-MON-001', 5, 'SN789123456', NULL, '2024-01-25', 'Samsung Philippines', '2027-01-25', 12000.00, 'deployed', '27-inch, Full HD, IPS Panel', 'Sales Department', 1),
+('KBMC-LAP-002', 1, 'SN321654987', '192.168.1.104', '2024-04-05', 'Lenovo Philippines', '2027-04-05', 68000.00, 'under_repair', 'Intel i7, 16GB RAM, 512GB SSD, Windows 11 Pro', 'IT Stock Room', 1);
 
 -- Insert Sample Assignment
 INSERT INTO device_assignments (device_id, employee_id, assigned_by, assigned_date, purpose, accountability_form_signed, status) VALUES

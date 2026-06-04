@@ -84,7 +84,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
 }
 
 // Get assigned devices
-$stmt = $pdo->prepare("SELECT da.*, d.asset_tag, d.model, d.brand, d.status as device_status FROM device_assignments da JOIN devices d ON da.device_id = d.id WHERE da.employee_id = ? AND da.status = 'active'");
+$stmt = $pdo->prepare("SELECT da.*, d.asset_tag, d.vendor, d.status as device_status FROM device_assignments da JOIN devices d ON da.device_id = d.id JOIN device_types dt ON d.device_type_id = dt.id WHERE da.employee_id = ? AND da.status = 'active'");
 $stmt->execute([$_SESSION['user_id']]);
 $myDevices = $stmt->fetchAll();
 ?>
