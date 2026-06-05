@@ -182,7 +182,7 @@ function getAdminNotificationLabel(string $type): string {
                     $color = getAdminNotificationColor($notif['type']);
                     $label = getAdminNotificationLabel($notif['type']);
                     $unreadClass = !$notif['is_read'] ? 'background-color: rgba(52, 152, 219, 0.08);' : '';
-                    $notifUrl = htmlspecialchars(getNotificationUrl($notif['type'], $notif), ENT_QUOTES);
+                    $notifUrl = htmlspecialchars(getNotificationUrl($notif), ENT_QUOTES);
                 ?>
                 <div class="notification-item" data-read="<?= $notif['is_read'] ? 1 : 0 ?>" style="<?= $unreadClass ?>padding: 16px 20px; border-bottom: 1px solid #eee; display: flex; gap: 12px; align-items: flex-start; cursor: pointer; transition: background 0.2s; position: relative;" onclick="handleNotificationClick(<?= $notif['id'] ?>, '<?= $notifUrl ?>')">
                     <?php if (!$notif['is_read']): ?>
@@ -247,7 +247,7 @@ function getAdminNotificationLabel(string $type): string {
                     $icon = getAdminNotificationIcon($notif['type']);
                     $color = getAdminNotificationColor($notif['type']);
                     $label = getAdminNotificationLabel($notif['type']);
-                    $notifUrl = htmlspecialchars(getNotificationUrl($notif['type'], $notif), ENT_QUOTES);
+                    $notifUrl = htmlspecialchars(getNotificationUrl($notif), ENT_QUOTES);
                 ?>
                 <div class="notification-item" data-read="<?= $notif['is_read'] ? 1 : 0 ?>" style="padding: 16px 20px; border-bottom: 1px solid #eee; display: flex; gap: 12px; align-items: flex-start; cursor: pointer; transition: background 0.2s; position: relative;" onclick="handleNotificationClick(<?= $notif['id'] ?>, '<?= $notifUrl ?>')">
                     <div style="width: 4px; height: 4px; background: transparent; margin-top: 8px; flex-shrink: 0;"></div>
@@ -300,7 +300,7 @@ function getAdminNotificationLabel(string $type): string {
                     $icon = getAdminNotificationIcon($notif['type']);
                     $color = getAdminNotificationColor($notif['type']);
                     $label = getAdminNotificationLabel($notif['type']);
-                    $notifUrl = htmlspecialchars(getNotificationUrl($notif['type'], $notif), ENT_QUOTES);
+                    $notifUrl = htmlspecialchars(getNotificationUrl($notif), ENT_QUOTES);
                 ?>
                 <div class="notification-item" data-read="<?= $notif['is_read'] ? 1 : 0 ?>" style="padding: 16px 20px; border-bottom: 1px solid #eee; display: flex; gap: 12px; align-items: flex-start; cursor: pointer; transition: background 0.2s; position: relative;" onclick="handleNotificationClick(<?= $notif['id'] ?>, '<?= $notifUrl ?>')">
                     <div style="width: 4px; height: 4px; background: transparent; margin-top: 8px; flex-shrink: 0;"></div>
@@ -353,7 +353,7 @@ function getAdminNotificationLabel(string $type): string {
                     $icon = getAdminNotificationIcon($notif['type']);
                     $color = getAdminNotificationColor($notif['type']);
                     $label = getAdminNotificationLabel($notif['type']);
-                    $notifUrl = htmlspecialchars(getNotificationUrl($notif['type'], $notif), ENT_QUOTES);
+                    $notifUrl = htmlspecialchars(getNotificationUrl($notif), ENT_QUOTES);
                 ?>
                 <div class="notification-item" data-read="<?= $notif['is_read'] ? 1 : 0 ?>" style="padding: 16px 20px; border-bottom: 1px solid #eee; display: flex; gap: 12px; align-items: flex-start; cursor: pointer; transition: background 0.2s; position: relative;" onclick="handleNotificationClick(<?= $notif['id'] ?>, '<?= $notifUrl ?>')">
                     <div style="width: 4px; height: 4px; background: transparent; margin-top: 8px; flex-shrink: 0;"></div>

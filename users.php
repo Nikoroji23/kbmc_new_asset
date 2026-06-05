@@ -87,8 +87,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             header("Location: users.php?error=Invalid+role+selected");
             exit;
         }
-        $email = filter_var(trim($_POST['email'] ?? ''), FILTER_VALIDATE_EMAIL);
-        if (!$email) {
+        $email = trim($_POST['email'] ?? '');
+        if (!isValidEmail($email)) {
             header("Location: users.php?error=Invalid+email+address");
             exit;
         }
@@ -160,8 +160,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             header("Location: users.php?error=Invalid+role+selected");
             exit;
         }
-        $email = filter_var(trim($_POST['email'] ?? ''), FILTER_VALIDATE_EMAIL);
-        if (!$email) {
+        $email = trim($_POST['email'] ?? '');
+        if (!isValidEmail($email)) {
             header("Location: users.php?error=Invalid+email+address");
             exit;
         }

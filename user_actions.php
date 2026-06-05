@@ -52,7 +52,7 @@ function handleAddUser() {
         redirect('users.php');
     }
 
-    if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+    if (!isValidEmail($email)) {
         setFlashMessage('error', 'Please enter a valid email address.');
         redirect('users.php');
     }

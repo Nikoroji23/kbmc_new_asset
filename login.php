@@ -130,7 +130,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             <form method="POST" class="login-form">
                 <div class="form-group">
                     <label for="email">Email Address</label>
-                    <input type="email" name="email" id="email" class="form-control" placeholder="Enter your email" required
+                    <input type="text" name="email" id="email" class="form-control" placeholder="Enter your email" required
                            value="<?php echo isset($_POST['email']) ? htmlspecialchars($_POST['email']) : ''; ?>">
                 </div>
                 <div class="form-group">

@@ -70,9 +70,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                 $aStmt->execute([$userId, $singleDevId]);
             } else {
                 $aStmt = $pdo->prepare("
-                    SELECT da.*, d.asset_tag, d.id AS device_id, d.brand, d.model
+                    SELECT da.*, d.asset_tag, d.id AS device_id, d.vendor, dt.type_name
                     FROM device_assignments da
                     JOIN devices d ON da.device_id = d.id
+                    JOIN device_types dt ON d.device_type_id = dt.id
                     WHERE da.employee_id = ? AND da.status = 'active'
                 ");
                 $aStmt->execute([$userId]);
@@ -776,12 +777,10 @@ require_once 'includes/header.php';
 
                         <!-- Supervisor Signature Box -->
                         <div style="border:1px solid #ddd;border-radius:6px;padding:16px;background:#fafbfc;">
-                            <div style="font-size:10px;color:#666;font-weight:700;text-transform:uppercase;letter-spacing:.4px;margin-bottom:4px;">Supervisor / Manager</div>
-                            <div style="border-bottom:2px solid #333;height:70px;margin-bottom:12px;"></div>
+                            <div style="font-size:10px;color:#999;font-weight:700;text-transform:uppercase;letter-spacing:.4px;margin-bottom:8px;">Name (Please print):</div>
+                            <div style="border-bottom:1px solid #ccc;height:16px;margin-bottom:12px;"></div>
                             <div style="margin-bottom:10px;">
-                                <div style="font-size:12px;font-weight:700;color:#222;">&nbsp;</div>
-                                <div style="font-size:11px;color:#666;margin-top:2px;">&nbsp;</div>
-                                <div style="font-size:11px;color:#666;">&nbsp;</div>
+                                <div style="font-size:10px;color:#999;font-weight:600;">Signature:</div>
                             </div>
                             <div style="font-size:10px;color:#999;margin-top:8px;">
                                 <div style="font-weight:600;color:#666;">Date:</div>
@@ -1098,8 +1097,8 @@ require_once 'includes/header.php';
                         <div style="font-size:9px;color:#9b59b6;font-weight:800;text-transform:uppercase;letter-spacing:.5px;">Supervisor Authorization</div>
                     </div>
                     <div class="sig-info" style="margin-bottom:20px;padding-bottom:14px;border-bottom:1px solid #e0e6ed;">
-                        <div style="font-size:12px;font-weight:700;color:#2c3e50;margin-bottom:6px;">Supervisor / Manager</div>
-                        <div style="font-size:10px;color:#7f8c8d;">ID: ___________________</div>
+                        <div style="font-size:10px;color:#7f8c8d;font-weight:600;">Name (Please print):</div>
+                        <div style="border-bottom:1px solid #bdc3c7;height:18px;margin-top:4px;"></div>
                     </div>
                     <div class="sig-area" style="margin-bottom:16px;">
                         <div style="font-size:9px;color:#666;font-weight:600;margin-bottom:8px;">Signature:</div>
