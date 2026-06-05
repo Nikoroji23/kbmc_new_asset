@@ -24,7 +24,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             $updateValues[] = $full_name;
         }
         
-        if ($email && filter_var($email, FILTER_VALIDATE_EMAIL)) {
+        if ($email && isValidEmail($email)) {
             // Check if email is unique (excluding current user)
             $emailCheck = $pdo->prepare("SELECT id FROM users WHERE email = ? AND id != ?");
             $emailCheck->execute([$email, $_SESSION['user_id']]);
@@ -33,7 +33,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             }
             $updateFields[] = "email = ?";
             $updateValues[] = $email;
-        } elseif ($email && !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+        } elseif ($email && !isValidEmail($email)) {
             throw new Exception('Invalid email address format.');
         }
         
@@ -83,8 +83,8 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     }
 }
 
-// Get assigned devices
-$stmt = $pdo->prepare("SELECT da.*, d.asset_tag, d.vendor, d.status as device_status FROM device_assignments da JOIN devices d ON da.device_id = d.id JOIN device_types dt ON d.device_type_id = dt.id WHERE da.employee_id = ? AND da.status = 'active'");
+// Get assigned devices (include device type name)
+$stmt = $pdo->prepare("SELECT da.*, d.asset_tag, d.vendor, d.status as device_status, dt.type_name FROM device_assignments da JOIN devices d ON da.device_id = d.id JOIN device_types dt ON d.device_type_id = dt.id WHERE da.employee_id = ? AND da.status = 'active'");
 $stmt->execute([$_SESSION['user_id']]);
 $myDevices = $stmt->fetchAll();
 ?>
@@ -112,7 +112,7 @@ $myDevices = $stmt->fetchAll();
                     </div>
                     <div class="form-group">
                         <label>Email</label>
-                        <input type="email" name="email" class="form-control" value="<?php echo sanitize($user['email']); ?>">
+                        <input type="text" name="email" class="form-control" value="<?php echo sanitize($user['email']); ?>">
                     </div>
                     <div class="form-group">
                         <label>Department</label>
@@ -158,7 +158,7 @@ $myDevices = $stmt->fetchAll();
                     <i class="fas fa-laptop"></i>
                 </div>
                 <div style="flex: 1;">
-                    <div style="font-weight: 600; font-size: 14px;"><?php echo sanitize($md['asset_tag']); ?> - <?php echo sanitize($md['brand'] . ' ' . $md['model']); ?></div>
+                    <div style="font-weight: 600; font-size: 14px;"><?php echo sanitize($md['asset_tag']); ?> - <?php echo sanitize($md['type_name']); ?></div>
                     <div style="font-size: 12px; color: #666; margin-top: 2px;">Assigned: <?php echo formatDate($md['assigned_date']); ?></div>
                     <div style="font-size: 12px; color: #888; margin-top: 1px;">Purpose: <?php echo sanitize($md['purpose']); ?></div>
                 </div>

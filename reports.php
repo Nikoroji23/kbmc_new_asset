@@ -11,7 +11,7 @@ $inStock = getDeviceCountByStatus('in_stock');
 $deployed = getDeviceCountByStatus('deployed');
 $underRepair = getDeviceCountByStatus('under_repair');
 $retired = getDeviceCountByStatus('retired') + getDeviceCountByStatus('disposed');
-$totalValue = $pdo->query("SELECT COALESCE(SUM(purchase_price), 0) FROM devices")->fetchColumn();
+$totalValue = $pdo->query("SELECT COALESCE(SUM(purchase_price), 0) FROM devices WHERE status NOT IN ('retired', 'disposed')")->fetchColumn();
 
 // Status distribution
 $statusDist = $pdo->query("SELECT status, COUNT(*) as count FROM devices GROUP BY status")->fetchAll();

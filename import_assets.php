@@ -264,67 +264,44 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_FILES['csv_file'])) {
                         $typeId = $pdo->lastInsertId();
                     }
                     
-                    // Generate asset tag if not provided or N/A
+                    // Skip incomplete tags like KBM-IT-00 or anything ending in -00
+                    if (preg_match('/^KBM-[A-Z]+-00$/i', $assetTag) || preg_match('/-00$/i', $assetTag)) {
+                        continue;
+                    }
+
+                    // Convert blank or N/A asset tags into a null tag record
                     if (empty($assetTag) || strtoupper($assetTag) === 'N/A') {
                         $assetTag = null;
                     }
-                    
-                    // Check if device with this asset tag already exists
-                    if ($assetTag) {
-                        $deviceCheck = $pdo->prepare("SELECT id FROM devices WHERE asset_tag = ?");
-                        $deviceCheck->execute([$assetTag]);
-                        $existingDevice = $deviceCheck->fetch();
-                        
-                        // If PC NAME is N/A and user is assigned, try to get their laptop asset tag
-                        $finalPcName = $pcName;
-                        if (($pcName === 'N/A' || empty($pcName)) && !empty($assignedTo) && $assignedTo !== 'Unassigned' && $assignedTo !== 'N/A') {
-                            $userStmt = $pdo->prepare("SELECT id FROM users WHERE LOWER(full_name) = LOWER(?)");
-                            $userStmt->execute([$assignedTo]);
-                            $userResult = $userStmt->fetch();
-                            if ($userResult) {
-                                $userLaptopTag = getUserLaptopAssetTag($userResult['id'], $pdo);
-                                if ($userLaptopTag) {
-                                    $finalPcName = $userLaptopTag;
-                                }
+
+                    // Determine final PC name when missing and the device is assigned to a user
+                    $finalPcName = $pcName;
+                    if (($pcName === 'N/A' || empty($pcName)) && !empty($assignedTo) && $assignedTo !== 'Unassigned' && $assignedTo !== 'N/A') {
+                        $userStmt = $pdo->prepare("SELECT id FROM users WHERE LOWER(full_name) = LOWER(?)");
+                        $userStmt->execute([$assignedTo]);
+                        $userResult = $userStmt->fetch();
+                        if ($userResult) {
+                            $userLaptopTag = getUserLaptopAssetTag($userResult['id'], $pdo);
+                            if ($userLaptopTag) {
+                                $finalPcName = $userLaptopTag;
                             }
                         }
-                        
-                        if ($existingDevice) {
-                            // Update existing device
-                            $updateStmt = $pdo->prepare("UPDATE devices SET device_type_id=?, pc_name=?, ip_address=?, status=? WHERE asset_tag=?");
-                            $updateStmt->execute([$typeId, ($finalPcName === 'N/A' ? null : $finalPcName), ($ipAddress === 'N/A' ? null : $ipAddress), $status, $assetTag]);
-                            $devicesUpdated++;
-                            $deviceId = $existingDevice['id'];
-                        } else {
-                            // Create new device
-                            $createStmt = $pdo->prepare("INSERT INTO devices (asset_tag, device_type_id, serial_number, pc_name, ip_address, status, created_by) VALUES (?, ?, ?, ?, ?, ?, ?)");
-                            $createStmt->execute([$assetTag, $typeId, $assetTag, ($finalPcName === 'N/A' ? null : $finalPcName), ($ipAddress === 'N/A' ? null : $ipAddress), $status, $adminId]);
-                            $deviceId = $pdo->lastInsertId();
-                            $devicesCreated++;
-                        }
-                    } else {
-                        // Create device without asset tag - generate unique serial number
-                        $finalPcName = $pcName;
-                        if (($pcName === 'N/A' || empty($pcName)) && !empty($assignedTo) && $assignedTo !== 'Unassigned' && $assignedTo !== 'N/A') {
-                            $userStmt = $pdo->prepare("SELECT id FROM users WHERE LOWER(full_name) = LOWER(?)");
-                            $userStmt->execute([$assignedTo]);
-                            $userResult = $userStmt->fetch();
-                            if ($userResult) {
-                                $userLaptopTag = getUserLaptopAssetTag($userResult['id'], $pdo);
-                                if ($userLaptopTag) {
-                                    $finalPcName = $userLaptopTag;
-                                }
-                            }
-                        }
-                        
-                        // Generate unique serial number since serial_number is NOT NULL and UNIQUE
-                        $uniqueSerial = generateUniqueSerialNumber();
-                        
-                        $createStmt = $pdo->prepare("INSERT INTO devices (asset_tag, device_type_id, serial_number, pc_name, ip_address, status, created_by) VALUES (?, ?, ?, ?, ?, ?, ?)");
-                        $createStmt->execute([null, $typeId, $uniqueSerial, ($finalPcName === 'N/A' ? null : $finalPcName), ($ipAddress === 'N/A' ? null : $ipAddress), $status, $adminId]);
-                        $deviceId = $pdo->lastInsertId();
-                        $devicesCreated++;
                     }
+
+                    // Always create a new device record to allow duplicate asset tags
+                    $uniqueSerial = generateUniqueSerialNumber();
+                    $createStmt = $pdo->prepare("INSERT INTO devices (asset_tag, device_type_id, serial_number, pc_name, ip_address, status, created_by) VALUES (?, ?, ?, ?, ?, ?, ?)");
+                    $createStmt->execute([
+                        $assetTag,
+                        $typeId,
+                        $uniqueSerial,
+                        ($finalPcName === 'N/A' ? null : $finalPcName),
+                        ($ipAddress === 'N/A' ? null : $ipAddress),
+                        $status,
+                        $adminId
+                    ]);
+                    $deviceId = $pdo->lastInsertId();
+                    $devicesCreated++;
                     
                     // Create assignment if assigned to a user
                     if (!empty($assignedTo) && $assignedTo !== 'Unassigned' && $assignedTo !== 'N/A') {

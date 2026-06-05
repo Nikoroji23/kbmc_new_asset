@@ -39,8 +39,8 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         // Check if asset tag is being changed
         $assetTagChanged = false;
         if (!empty($new_asset_tag) && $new_asset_tag !== $device['asset_tag']) {
-            if (!preg_match('/^[A-Za-z0-9\-_\/]{3,30}$/', $new_asset_tag)) {
-                throw new Exception('Invalid asset tag format. Use 3–30 characters: letters, numbers, hyphens, underscores, or forward slash (e.g., N/A) only.');
+            if (!preg_match('/^[\x20-\x7E]{3,30}$/', $new_asset_tag)) {
+                throw new Exception('Invalid asset tag format. Use 3–30 printable ASCII characters only.');
             }
             if (empty($asset_tag_changed_by)) {
                 throw new Exception('Asset tag change requires IT staff member selection. Please select who is making this change.');
@@ -89,6 +89,8 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         exit();
     } catch (PDOException $e) {
         setFlashMessage('error', 'Error updating device: ' . $e->getMessage());
+    } catch (Exception $e) {
+        setFlashMessage('error', $e->getMessage());
     }
 }
 ?>
@@ -110,7 +112,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                     <input type="text" name="asset_tag" class="form-control" placeholder="Leave blank to keep current" value="" maxlength="30" style="text-transform: uppercase;">
                     <small style="font-size:12px; color:#888; margin-top:4px; display:block;">
                         Leave blank to keep: <strong><?php echo sanitize($device['asset_tag']); ?></strong><br>
-                        Custom: 3–30 chars (letters/numbers/hyphens/underscores/forward slash)
+                        Custom: 3–30 printable characters, including N/A and special symbols.
                     </small>
                 </div>
                 <div class="form-group">

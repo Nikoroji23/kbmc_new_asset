@@ -2,7 +2,7 @@
 /**
  * KBMC Asset Management - Delete Device (IMPROVED)
  * Marks device as disposed and records who disposed it
- * With better error handling, transaction support, and logging
+ * With better error handling and logging
  */
 require_once 'includes/functions.php';
 requireITStaff();
@@ -61,7 +61,7 @@ try {
     
     $rowsAffected = $updateStmt->rowCount();
     if ($rowsAffected === 0) {
-        throw new Exception("No rows were updated. Device may not exist or ID mismatch.");
+        throw new Exception("No rows were updated. Device may not exist or ID mismatch");
     }
     
     // Verify the update was successful
@@ -120,3 +120,4 @@ try {
 
 header('Location: devices.php');
 exit();
+?>

@@ -71,6 +71,51 @@ function getAllowedRoles() {
     return ['admin', 'it_staff', 'employee'];
 }
 
+function isValidEmail($email) {
+    // Permissive email validation that allows special characters
+    // Checks for: local@domain format with basic validation
+    if (empty($email)) {
+        return false;
+    }
+    
+    // Basic structure check: must have @ symbol and domain
+    if (strpos($email, '@') === false) {
+        return false;
+    }
+    
+    list($local, $domain) = explode('@', $email, 2);
+    
+    // Local part must not be empty
+    if (empty($local)) {
+        return false;
+    }
+    
+    // Domain part must have at least one dot
+    if (strpos($domain, '.') === false) {
+        return false;
+    }
+    
+    // Domain must have valid structure
+    $domainParts = explode('.', $domain);
+    if (count($domainParts) < 2) {
+        return false;
+    }
+    
+    // Last part (TLD) must be at least 2 characters
+    $tld = end($domainParts);
+    if (strlen($tld) < 2) {
+        return false;
+    }
+    
+    // Check for valid characters using regex (allows special chars like +, -, ., parentheses)
+    // Local part: alphanumeric, dots, hyphens, underscores, plus signs, parentheses
+    if (!preg_match('/^[a-zA-Z0-9._+%()\-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/', $email)) {
+        return false;
+    }
+    
+    return true;
+}
+
 function getUserInfo($userId) {
     global $pdo;
     $stmt = $pdo->prepare("SELECT * FROM users WHERE id = ?");
@@ -246,11 +291,11 @@ function filterUniqueEmails(array $recipients) {
     $seen = [];
     $unique = [];
     foreach ($recipients as $recipient) {
-        $email = filter_var($recipient['email'] ?? '', FILTER_VALIDATE_EMAIL);
-        if (!$email || isset($seen[$email])) {
+        $email = trim($recipient['email'] ?? '');
+        if (!isValidEmail($email) || isset($seen[strtolower($email)])) {
             continue;
         }
-        $seen[$email] = true;
+        $seen[strtolower($email)] = true;
         $recipient['email'] = $email;
         $unique[] = $recipient;
     }
@@ -299,6 +344,7 @@ function ensureDeviceSchema() {
         }
         if (!columnExists('devices', 'disposed_by')) {
             $GLOBALS['pdo']->exec("ALTER TABLE devices ADD COLUMN disposed_by INT DEFAULT NULL");
+            $GLOBALS['pdo']->exec("ALTER TABLE devices ADD CONSTRAINT fk_disposed_by FOREIGN KEY (disposed_by) REFERENCES users(id) ON DELETE SET NULL");
         }
         if (!columnExists('devices', 'disposed_at')) {
             $GLOBALS['pdo']->exec("ALTER TABLE devices ADD COLUMN disposed_at TIMESTAMP NULL");
@@ -483,6 +529,30 @@ function sendEmailNotificationToITStaff($type, $title, $message, $related_id, $i
                 </div>
             ";
         }
+    } elseif ($type === 'user_clearance_completed' && $related_id > 0) {
+        // Get user and their assigned devices info
+        $stmt = $pdo->prepare("
+            SELECT u.id, u.full_name, u.employee_id, u.department
+            FROM users u
+            WHERE u.id = ?
+            LIMIT 1
+        ");
+        $stmt->execute([$related_id]);
+        $user = $stmt->fetch(PDO::FETCH_ASSOC);
+        
+        if ($user) {
+            $employeeInfo = $user['full_name'] . " (ID: " . $user['employee_id'] . ", Dept: " . $user['department'] . ")";
+            $actionUrl = 'it_clearance.php?user_id=' . $user['id'] . '&done=1';
+            
+            $context = "
+                <div style='background: #d4edda; padding: 15px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #27ae60;'>
+                    <p><strong>Clearance Completion Details:</strong></p>
+                    <p><i class='fas fa-user'></i> <strong>Employee:</strong> " . sanitize($employeeInfo) . "</p>
+                    <p><i class='fas fa-check-circle' style='color: #27ae60;'></i> <strong>Status:</strong> <span style='color: #27ae60;'>Clearance Completed</span></p>
+                    <p><i class='fas fa-calendar'></i> <strong>Completion Date:</strong> " . date('F d, Y g:i A') . "</p>
+                </div>
+            ";
+        }
     } elseif ($type === 'device_disposed' && $related_id > 0) {
         // Get device disposal info
         $stmt = $pdo->prepare("
@@ -568,7 +638,7 @@ function sendEmailNotificationToUser($userId, $type, $title, $message, $relatedI
     if ($relatedId) {
         switch ($type) {
             case 'device_deployed':
-                $stmt = $pdo->prepare("SELECT asset_tag, brand, model, dt.type_name FROM devices d JOIN device_types dt ON d.device_type_id = dt.id WHERE d.id = ?");
+                $stmt = $pdo->prepare("SELECT asset_tag, dt.type_name FROM devices d JOIN device_types dt ON d.device_type_id = dt.id WHERE d.id = ?");
                 $stmt->execute([$relatedId]);
                 $device = $stmt->fetch(PDO::FETCH_ASSOC);
                 if ($device) {
@@ -607,6 +677,18 @@ function sendEmailNotificationToUser($userId, $type, $title, $message, $relatedI
             case 'maintenance_due':
             case 'maintenance_completed':
                 $actionUrl = 'maintenance_reminders.php';
+                break;
+
+            case 'user_clearance_completed':
+                $context = "
+                    <div style='background: #d4edda; padding: 15px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #27ae60;'>
+                        <p><i class='fas fa-check-circle' style='color: #27ae60;'></i> <strong>Your IT clearance has been successfully completed.</strong></p>
+                        <p>All your assigned devices have been processed and returned to stock. You're all set!</p>
+                        <p><i class='fas fa-calendar'></i> <strong>Completion Date:</strong> " . date('F d, Y g:i A') . "</p>
+                    </div>
+                ";
+                // Link directly to the clearance summary so user can view/print details
+                $actionUrl = $relatedId ? 'it_clearance.php?user_id=' . $relatedId . '&done=1' : 'it_clearance.php';
                 break;
         }
     }
@@ -658,11 +740,38 @@ function resolveClearanceAssignment(int $refId): array {
 
 function getNotificationUrl(array $notif): string
 {
-    $type  = $notif['type']         ?? '';
+    $rawType = $notif['type'] ?? '';
+    $type  = strtolower(trim($rawType));
+    $title = strtolower(trim($notif['title'] ?? ''));
     $refId = (int)($notif['related_id'] ?? 0);
     $role  = $_SESSION['role'] ?? 'employee';
     $isAdmin = $role === 'admin';
     $isIT  = $role === 'it_staff';
+    
+    // Normalize notification type and detect legacy clearance completion variants.
+    $isClearanceCompleted = str_contains($type, 'clearance_completed')
+        || str_contains($type, 'clearance complete')
+        || str_contains($title, 'clearance completed')
+        || str_contains($title, 'clearance complete');
+
+    // Log all notification URL requests (include raw vs normalized type)
+    error_log("[NOTIF_URL_FLOW] Processing rawType='$rawType', normalizedType='$type', title='$title', refId=$refId, role='$role', isAdmin=$isAdmin, isIT=$isIT");
+    
+    // Log all user_clearance_completed notifications
+    if ($isClearanceCompleted) {
+        error_log("[NOTIF_URL_SELECTOR] user_clearance_completed detected - type='$type', title='$title', refId=$refId, role='$role', isIT=" . ($isIT ? 'true' : 'false') . ", isAdmin=" . ($isAdmin ? 'true' : 'false'));
+    }
+    
+    // Log all user_creation_approved notifications
+    if ($type === 'user_creation_approved') {
+        error_log("[NOTIF_URL_SELECTOR] user_creation_approved detected - type='$type', refId=$refId, role='$role', isIT=" . ($isIT ? 'true' : 'false') . ", isAdmin=" . ($isAdmin ? 'true' : 'false'));
+    }
+
+    // Always link completed clearances to the IT clearance details page
+    if ($isClearanceCompleted) {
+        $targetUserId = $refId ?: (int)($notif['user_id'] ?? 0);
+        return $targetUserId ? 'it_clearance.php?user_id=' . $targetUserId . '&done=1' : 'it_clearance.php?done=1';
+    }
 
     // ADMIN-SPECIFIC NOTIFICATIONS
     if ($isAdmin) {
@@ -697,6 +806,14 @@ function getNotificationUrl(array $notif): string
             case 'admin_alert_system_alert':
             case 'admin_alert_custom':
                 return 'admin_dashboard.php';
+
+            case 'user_clearance_completed':
+                return $refId ? 'it_clearance.php?user_id=' . $refId . '&done=1' : 'it_clearance.php';
+
+            case 'user_creation_approved':
+            case 'user_creation_rejected':
+            case 'user_approval_requested':
+                return 'users.php?tab=approvals';
 
             default:
                 return 'admin_dashboard.php';
@@ -740,7 +857,9 @@ function getNotificationUrl(array $notif): string
                     : 'devices.php';
 
             case 'user_clearance_completed':
-                return $refId ? 'it_clearance.php?user_id=' . $refId . '&done=1' : 'it_clearance.php';
+                $url = $refId ? 'it_clearance.php?user_id=' . $refId . '&done=1' : 'it_clearance.php';
+                error_log("[CLEARANCE_URL_IT] user_clearance_completed: refId=$refId, isIT=true, returning URL: $url");
+                return $url;
 
             case 'user_clearance_required':
                 error_log("[CLEARANCE_DEBUG] user_clearance_required: refId=$refId, isIT=" . ($isIT ? 'true' : 'false'));
@@ -774,6 +893,13 @@ function getNotificationUrl(array $notif): string
             case 'account_recovery_rejected':
                 return 'recovery_requests.php';
 
+            case 'user_creation_approved':
+            case 'user_creation_rejected':
+            case 'user_approval_requested':
+                $url = 'assign_security_it.php';
+                error_log("[ACCOUNT_APPROVED_IT] user_creation_approved/rejected: refId=$refId, returning URL: $url");
+                return $url;
+
             case 'device_request':
                 return 'requests.php';
 
@@ -786,7 +912,11 @@ function getNotificationUrl(array $notif): string
                     : 'devices.php';
 
             default:
-                return 'notifications.php';
+                // Fallback: if there is a related_id, direct to device view; otherwise go to dashboard
+                if ($refId) {
+                    return 'view_device.php?id=' . $refId;
+                }
+                return 'dashboard.php';
         }
     }
 
@@ -807,8 +937,18 @@ function getNotificationUrl(array $notif): string
         case 'account_recovery_rejected':
             return 'dashboard.php';
 
+        case 'user_creation_approved':
+        case 'user_creation_rejected':
+        case 'user_approval_requested':
+            return 'dashboard.php';
+
+        case 'new_user_account_created':
+            return 'admin_accounts.php';
+
         case 'user_clearance_completed':
-            return $refId ? 'it_clearance.php?user_id=' . $refId . '&done=1' : 'dashboard.php';
+            $url = $refId ? 'it_clearance.php?user_id=' . $refId . '&done=1' : 'it_clearance.php?done=1';
+            error_log("[CLEARANCE_URL_EMPLOYEE] user_clearance_completed: refId=$refId, role=$role, returning URL: $url");
+            return $url;
 
         case 'user_clearance_required':
             error_log("[CLEARANCE_DEBUG] user_clearance_required (employee view): refId=$refId");
@@ -848,7 +988,11 @@ function getNotificationUrl(array $notif): string
                 : 'dashboard.php';
 
         default:
-            return 'notifications.php';
+            // Fallback for non-IT/admin users: if related_id looks like a device, link to view_device, else dashboard
+            if ($refId) {
+                return 'view_device.php?id=' . $refId;
+            }
+            return 'dashboard.php';
     }
 }
 
@@ -901,9 +1045,35 @@ function logAudit($userId, $action, $tableName = null, $recordId = null, $oldVal
             $activityType = 'Device';
         }
     }
-    
-    $stmt = $pdo->prepare("INSERT INTO audit_logs (user_id, action, table_name, record_id, activity_type, old_values, new_values, ip_address) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
-    $stmt->execute([$userId, $action, $tableName, $recordId, $activityType, $oldValues, $newValues, $ipAddress]);
+
+    $columns = ['user_id', 'action', 'table_name', 'record_id', 'old_values', 'new_values', 'ip_address'];
+    $values = [$userId, $action, $tableName, $recordId, $oldValues, $newValues, $ipAddress];
+
+    if ($activityType !== null && auditLogsHasActivityTypeColumn()) {
+        array_splice($columns, 4, 0, 'activity_type');
+        array_splice($values, 4, 0, $activityType);
+    }
+
+    $placeholders = implode(', ', array_fill(0, count($columns), '?'));
+    $stmt = $pdo->prepare('INSERT INTO audit_logs (' . implode(', ', $columns) . ') VALUES (' . $placeholders . ')');
+    $stmt->execute($values);
+}
+
+function auditLogsHasActivityTypeColumn() {
+    static $hasColumn = null;
+    if ($hasColumn !== null) {
+        return $hasColumn;
+    }
+
+    global $pdo;
+    try {
+        $stmt = $pdo->query("SHOW COLUMNS FROM audit_logs LIKE 'activity_type'");
+        $hasColumn = (bool)$stmt->fetch();
+    } catch (Exception $e) {
+        $hasColumn = false;
+    }
+
+    return $hasColumn;
 }
 
 function getStatusBadge($status) {
@@ -922,7 +1092,7 @@ function getDeviceCountByStatus($status) {
 
 function getTotalDeviceCount() {
     global $pdo;
-    return $pdo->query("SELECT COUNT(*) FROM devices")->fetchColumn();
+    return $pdo->query("SELECT COUNT(*) FROM devices WHERE status NOT IN ('retired', 'disposed')")->fetchColumn();
 }
 
 function getActiveAssignmentCount() {
@@ -1458,8 +1628,8 @@ function getPendingRecoveryRequests() {
 
 function queueEmailNotification($userId, $recipientEmail, $notificationType, $subject, $body, $relatedDeviceId = null, $relatedRepairId = null) {
     global $pdo;
-    $recipientEmail = filter_var($recipientEmail, FILTER_VALIDATE_EMAIL);
-    if (!$recipientEmail) {
+    $recipientEmail = trim($recipientEmail ?? '');
+    if (!isValidEmail($recipientEmail)) {
         return false;
     }
 

@@ -28,7 +28,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['signup'])) {
         $error = 'Employee ID is required.';
     } elseif (empty($full_name)) {
         $error = 'Full name is required.';
-    } elseif (empty($email) || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+    } elseif (empty($email) || !isValidEmail($email)) {
         $error = 'Valid email address is required.';
     } elseif (empty($password) || strlen($password) < 8) {
         $error = 'Password must be at least 8 characters long.';
@@ -184,7 +184,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['signup'])) {
 
                 <div class="form-group">
                     <label for="email">Email Address *</label>
-                    <input type="email" name="email" id="email" class="form-control" placeholder="Enter your email" required
+                    <input type="text" name="email" id="email" class="form-control" placeholder="Enter your email" required
                            value="<?php echo isset($_POST['email']) ? htmlspecialchars($_POST['email']) : ''; ?>">
                 </div>
 
