@@ -658,20 +658,87 @@ textarea.form-control { resize: vertical; min-height: 100px; }
     display: flex;
     gap: 10px;
     flex-wrap: wrap;
+    align-items: center;
 }
 
-.search-box input {
+.search-box .form-control {
     flex: 1;
-    min-width: 200px;
-    padding: 10px 14px;
-    border: 1.5px solid #e0e0e0;
-    border-radius: var(--radius);
+    min-width: 220px;
+}
+
+.search-box .btn {
+    white-space: nowrap;
+}
+
+.empty-state {
+    text-align: center;
+    padding: 50px 30px;
+    background: linear-gradient(to bottom, #fafafa, #f5f5f5);
+}
+
+.empty-state-icon {
+    width: 88px;
+    height: 88px;
+    margin: 0 auto 18px;
+    border-radius: 50%;
+    background: #eef2f7;
+    display: grid;
+    place-items: center;
+    color: #9aa5b1;
+    font-size: 30px;
+}
+
+.empty-state h4 {
+    font-size: 20px;
+    color: #2c3e50;
+    margin-bottom: 12px;
+}
+
+.empty-state p {
+    color: #6d7180;
+    font-size: 14px;
+    line-height: 1.6;
+    margin: 0 auto 18px;
+    max-width: 560px;
+}
+
+.empty-state .secondary-text {
+    color: #9aa5b1;
     font-size: 13px;
 }
 
-.search-box input:focus {
-    outline: none;
-    border-color: var(--kbmc-red);
+.search-guidance-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 15px;
+    margin-top: 25px;
+}
+
+.search-tip-card {
+    padding: 20px;
+    background: white;
+    border-radius: 12px;
+    box-shadow: 0 8px 25px rgba(0,0,0,0.05);
+    text-align: left;
+    min-height: 130px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.search-tip-card i {
+    font-size: 22px;
+    color: #3498db;
+}
+
+.search-tip-card strong {
+    display: block;
+    margin-top: 4px;
+    color: #2c3e50;
+}
+
+.search-tip-card small {
+    color: #7f8c8d;
 }
 
 /* Filter Row */

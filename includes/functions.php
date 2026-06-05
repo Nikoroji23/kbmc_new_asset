@@ -104,7 +104,17 @@ function getUnreadNotificationCount($userId) {
             'account_recovery_approved',
             'account_recovery_rejected',
             'it_user_created',
-            'it_user_security_granted'
+            'it_user_security_granted',
+            'new_user_account_created',
+            'user_creation_approved',
+            'user_creation_rejected',
+            'admin_alert_device_critical',
+            'admin_alert_maintenance_overdue',
+            'admin_alert_device_issue',
+            'admin_alert_failed_logins',
+            'admin_alert_security_warning',
+            'admin_alert_system_alert',
+            'admin_alert_custom'
         ];
         $placeholders = implode(',', array_fill(0, count($adminTypes), '?'));
         $stmt = $pdo->prepare("SELECT COUNT(*) FROM notifications WHERE user_id = ? AND is_read = 0 AND type IN ($placeholders)");
@@ -148,7 +158,17 @@ function getNotifications($userId, $limit = 5) {
             'account_recovery_approved',
             'account_recovery_rejected',
             'it_user_created',
-            'it_user_security_granted'
+            'it_user_security_granted',
+            'new_user_account_created',
+            'user_creation_approved',
+            'user_creation_rejected',
+            'admin_alert_device_critical',
+            'admin_alert_maintenance_overdue',
+            'admin_alert_device_issue',
+            'admin_alert_failed_logins',
+            'admin_alert_security_warning',
+            'admin_alert_system_alert',
+            'admin_alert_custom'
         ];
         $placeholders = implode(',', array_fill(0, count($adminTypes), '?'));
         $stmt = $pdo->prepare("SELECT * FROM notifications WHERE user_id = ? AND type IN ($placeholders) ORDER BY created_at DESC LIMIT ?");
@@ -179,7 +199,17 @@ function isAdminRelevantNotification($type) {
         'account_recovery_approved',
         'account_recovery_rejected',
         'it_user_created',
-        'it_user_security_granted'
+        'it_user_security_granted',
+        'new_user_account_created',
+        'user_creation_approved',
+        'user_creation_rejected',
+        'admin_alert_device_critical',
+        'admin_alert_maintenance_overdue',
+        'admin_alert_device_issue',
+        'admin_alert_failed_logins',
+        'admin_alert_security_warning',
+        'admin_alert_system_alert',
+        'admin_alert_custom'
     ];
     return in_array($type, $adminTypes);
 }
@@ -1182,7 +1212,8 @@ function generateMasterKey($length = 32) {
 function setMasterKey($userId, $masterKey) {
     global $pdo;
     $hashedKey = password_hash($masterKey, PASSWORD_BCRYPT);
-    $stmt = $pdo->prepare("UPDATE users SET master_key_hash = ?, is_security_admin = 1 WHERE id = ? AND role = 'it_staff'");
+    // Allow setting master key hash for any user (admins or it_staff)
+    $stmt = $pdo->prepare("UPDATE users SET master_key_hash = ?, is_security_admin = 1 WHERE id = ?");
     $stmt->execute([$hashedKey, $userId]);
     return $stmt->rowCount() > 0;
 }
@@ -1642,7 +1673,7 @@ function getUpcomingMaintenanceReminders($daysAhead = 7) {
     global $pdo;
     $futureDate = date('Y-m-d', strtotime("+$daysAhead days"));
     $selectFields = [
-        'ms.*', 'd.asset_tag', 'dt.type_name',
+        'ms.*', 'd.asset_tag', 'dt.type_name AS device_type',
         "a.email AS assigned_to_email", "a.full_name AS assigned_to_name"
     ];
     $joins = [
@@ -1931,7 +1962,12 @@ function markRepairAsCompleted($repairId, $completionNotes = '') {
         (defined('BASE_URL') ? rtrim(BASE_URL, '/') : 'http://' . $_SERVER['HTTP_HOST'] . dirname($_SERVER['PHP_SELF'])) . '/view_device.php?id=' . $repair['device_id']
     );
 
-    // Queue email notification (will be sent by caller via sendPendingEmailNotifications())
+    // Queue email notification
+    if (isEmailConfigured()) {
+        sendEmail($repair['email'], $subject, $emailBody);
+    }
+
+    return ['success' => true, 'message' => 'Repair marked as complete and employee notified'];
 }
 
 /**
@@ -2558,7 +2594,7 @@ function getCompletedMaintenance($limit = 10) {
     $hasRequestedBy = columnExists('maintenance_schedules', 'requested_by');
     
     // Build SELECT clause
-    $selectCols = "ms.id, ms.device_id, ms.maintenance_type, ms.description, ms.assigned_to, ms.last_performed_date, d.asset_tag, dt.type_name";
+    $selectCols = "ms.id, ms.device_id, ms.maintenance_type, ms.description, ms.assigned_to, ms.last_performed_date, d.asset_tag, dt.type_name AS device_type";
     
     // Add optional columns
     if ($hasCompletedAt) {
