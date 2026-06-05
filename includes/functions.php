@@ -1773,7 +1773,7 @@ function getUpcomingMaintenanceReminders($daysAhead = 7) {
     global $pdo;
     $futureDate = date('Y-m-d', strtotime("+$daysAhead days"));
     $selectFields = [
-        'ms.*', 'd.asset_tag', 'd.model', 'dt.type_name',
+        'ms.*', 'd.asset_tag', 'dt.type_name AS device_type',
         "a.email AS assigned_to_email", "a.full_name AS assigned_to_name"
     ];
     $joins = [
@@ -2009,7 +2009,7 @@ function markRepairAsCompleted($repairId, $completionNotes = '') {
     global $pdo;
 
     $stmt = $pdo->prepare("
-        SELECT dr.*, d.asset_tag, d.model, dt.type_name, u.email, u.full_name as reporter_name, u.id as reported_by_id
+        SELECT dr.*, d.asset_tag, dt.type_name AS device_type, u.email, u.full_name as reporter_name, u.id as reported_by_id
         FROM device_repairs dr
         JOIN devices d ON dr.device_id = d.id
         JOIN device_types dt ON d.device_type_id = dt.id
@@ -2158,7 +2158,7 @@ function getCompletedMaintenance($limit = 10) {
     $hasRequestedBy = columnExists('maintenance_schedules', 'requested_by');
     
     // Build SELECT clause
-    $selectCols = "ms.id, ms.device_id, ms.maintenance_type, ms.description, ms.assigned_to, ms.last_performed_date, d.asset_tag, d.model, dt.type_name";
+    $selectCols = "ms.id, ms.device_id, ms.maintenance_type, ms.description, ms.assigned_to, ms.last_performed_date, d.asset_tag, dt.type_name AS device_type";
     
     // Add optional columns
     if ($hasCompletedAt) {

@@ -59,7 +59,7 @@ $upcomingMaintenance = getUpcomingMaintenanceReminders(30);
 $select = [
     'ms.*',
     'd.asset_tag',
-    'd.model',
+    'dt.type_name AS device_type',
     "a.full_name AS assigned_to_name",
     "a.email AS assigned_to_email",
 ];
@@ -67,6 +67,7 @@ $select = [
 $joins = [
     'FROM maintenance_schedules ms',
     'JOIN devices d ON ms.device_id = d.id',
+    'JOIN device_types dt ON d.device_type_id = dt.id',
     'LEFT JOIN users a ON ms.assigned_to = a.id',
 ];
 
@@ -813,8 +814,8 @@ usort($allMaintenanceMerged, function($a, $b) {
                         <td><?php echo $statusBadge; ?></td>
                         <td>
                             <span style="font-weight:600;color:#1a2332;"><?php echo htmlspecialchars($maint['asset_tag']); ?></span>
-                            <?php if (!empty($maint['model'])): ?>
-                            <br><small style="color:#6b7280;"><?php echo htmlspecialchars($maint['model']); ?></small>
+                            <?php if (!empty($maint['device_type'])): ?>
+                            <br><small style="color:#6b7280;"><?php echo htmlspecialchars($maint['device_type']); ?></small>
                             <?php endif; ?>
                         </td>
                         <td>
@@ -1512,7 +1513,7 @@ document.getElementById('createMaintenanceForm')?.addEventListener('submit', fun
 
 document.getElementById('deviceSearch')?.addEventListener('input', function() {
     this.classList.remove('error');
-    this.placeholder = 'Search by asset tag or model name…';
+    this.placeholder = 'Search by asset tag or device type…';
 });
 
 function filterTable(tableId, query) {
