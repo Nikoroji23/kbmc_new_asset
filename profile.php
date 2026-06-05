@@ -24,7 +24,11 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             $updateValues[] = $full_name;
         }
         
-        if ($email && filter_var($email, FILTER_VALIDATE_EMAIL)) {
+        if ($email) {
+            // Permissive email validation (allows special characters like parentheses, brackets)
+            if (!preg_match('/^[a-zA-Z0-9._\-+()\[\]@]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$/', $email)) {
+                throw new Exception('Invalid email address format.');
+            }
             // Check if email is unique (excluding current user)
             $emailCheck = $pdo->prepare("SELECT id FROM users WHERE email = ? AND id != ?");
             $emailCheck->execute([$email, $_SESSION['user_id']]);
@@ -33,8 +37,6 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             }
             $updateFields[] = "email = ?";
             $updateValues[] = $email;
-        } elseif ($email && !filter_var($email, FILTER_VALIDATE_EMAIL)) {
-            throw new Exception('Invalid email address format.');
         }
         
         if ($employee_id) {
@@ -112,7 +114,7 @@ $myDevices = $stmt->fetchAll();
                     </div>
                     <div class="form-group">
                         <label>Email</label>
-                        <input type="email" name="email" class="form-control" value="<?php echo sanitize($user['email']); ?>">
+                        <input type="text" name="email" class="form-control" value="<?php echo sanitize($user['email']); ?>">
                     </div>
                     <div class="form-group">
                         <label>Department</label>
@@ -158,7 +160,7 @@ $myDevices = $stmt->fetchAll();
                     <i class="fas fa-laptop"></i>
                 </div>
                 <div style="flex: 1;">
-                    <div style="font-weight: 600; font-size: 14px;"><?php echo sanitize($md['asset_tag']); ?> - <?php echo sanitize($md['brand'] . ' ' . $md['model']); ?></div>
+                    <div style="font-weight: 600; font-size: 14px;"><?php echo sanitize($md['asset_tag']); ?> - <?php echo sanitize($md['vendor'] ?? 'Unknown Device'); ?></div>
                     <div style="font-size: 12px; color: #666; margin-top: 2px;">Assigned: <?php echo formatDate($md['assigned_date']); ?></div>
                     <div style="font-size: 12px; color: #888; margin-top: 1px;">Purpose: <?php echo sanitize($md['purpose']); ?></div>
                 </div>

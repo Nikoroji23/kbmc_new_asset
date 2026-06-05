@@ -87,8 +87,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             header("Location: users.php?error=Invalid+role+selected");
             exit;
         }
-        $email = filter_var(trim($_POST['email'] ?? ''), FILTER_VALIDATE_EMAIL);
-        if (!$email) {
+        $email = trim($_POST['email'] ?? '');
+        if (!$email || !preg_match('/^[a-zA-Z0-9._\-+()[\]@]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$/', $email)) {
             header("Location: users.php?error=Invalid+email+address");
             exit;
         }
@@ -112,9 +112,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
         $masterKey = strtoupper(bin2hex(random_bytes(4)));
         $hashedPw  = password_hash($password, PASSWORD_DEFAULT);
+        
+        // IT staff users must be approved by master IT before activation
+        $initialStatus = ($role === 'it_staff') ? 'inactive' : 'active';
+        
         $ins = $pdo->prepare("INSERT INTO users
             (employee_id, full_name, email, role, department, position, password, master_key, status, created_at)
-            VALUES (:eid, :full_name, :email, :role, :dept, :pos, :pw, :mk, 'active', NOW())");
+            VALUES (:eid, :full_name, :email, :role, :dept, :pos, :pw, :mk, :status, NOW())");
         $ins->execute([
             ':eid'       => $employee_id,
             ':full_name' => $full_name,
@@ -124,8 +128,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             ':pos'       => trim($_POST['position'] ?? ''),
             ':pw'        => $hashedPw,
             ':mk'        => $masterKey,
+            ':status'    => $initialStatus,
         ]);
         $newUserId = $pdo->lastInsertId();
+        
+        // Log audit for IT user creation
+        if ($role === 'it_staff') {
+            logAudit($_SESSION['user_id'], 'IT User Created', 'users', $newUserId, null, json_encode(['status' => 'inactive', 'role' => 'it_staff']), 'User Management');
+        }
         
         // Send notifications if IT user or admin was created
         if (in_array($role, ['it_staff', 'admin'])) {
@@ -149,7 +159,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
         }
         
-        header("Location: users.php?success=User+added+successfully");
+        // If IT user was created, notify master IT of pending approval
+        if ($role === 'it_staff') {
+            notifyMasterITOfPendingApproval($newUserId);
+            header("Location: users.php?success=IT+user+created+and+pending+master+IT+approval");
+        } else {
+            header("Location: users.php?success=User+added+successfully");
+        }
         exit;
     }
 
@@ -160,8 +176,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             header("Location: users.php?error=Invalid+role+selected");
             exit;
         }
-        $email = filter_var(trim($_POST['email'] ?? ''), FILTER_VALIDATE_EMAIL);
-        if (!$email) {
+        $email = trim($_POST['email'] ?? '');
+        if (!$email || !preg_match('/^[a-zA-Z0-9._\-+()[\]@]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$/', $email)) {
             header("Location: users.php?error=Invalid+email+address");
             exit;
         }
@@ -652,7 +668,7 @@ $recoveryCount = (int)$pdo->query("SELECT COUNT(*) FROM account_recovery_request
                 </div>
                 <div class="form-group full">
                     <label>Email Address</label>
-                    <input type="email" name="email" required placeholder="user@kbmc.com">
+                    <input type="text" name="email" required placeholder="user@kbmc.com">
                 </div>
                 <div class="form-group">
                     <label>Role</label>
@@ -714,7 +730,7 @@ $recoveryCount = (int)$pdo->query("SELECT COUNT(*) FROM account_recovery_request
                 </div>
                 <div class="form-group full">
                     <label>Email Address</label>
-                    <input type="email" name="email" id="editEmail" required placeholder="user@kbmc.com">
+                    <input type="text" name="email" id="editEmail" required placeholder="user@kbmc.com">
                 </div>
                 <div class="form-group">
                     <label>Role</label>

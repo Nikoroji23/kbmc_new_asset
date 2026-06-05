@@ -246,8 +246,9 @@ function filterUniqueEmails(array $recipients) {
     $seen = [];
     $unique = [];
     foreach ($recipients as $recipient) {
-        $email = filter_var($recipient['email'] ?? '', FILTER_VALIDATE_EMAIL);
-        if (!$email || isset($seen[$email])) {
+        $email = trim($recipient['email'] ?? '');
+        // Permissive email validation (allows special characters)
+        if (!$email || !preg_match('/^[a-zA-Z0-9._\-+()[\]@]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$/', $email) || isset($seen[$email])) {
             continue;
         }
         $seen[$email] = true;
@@ -568,7 +569,7 @@ function sendEmailNotificationToUser($userId, $type, $title, $message, $relatedI
     if ($relatedId) {
         switch ($type) {
             case 'device_deployed':
-                $stmt = $pdo->prepare("SELECT asset_tag, brand, model, dt.type_name FROM devices d JOIN device_types dt ON d.device_type_id = dt.id WHERE d.id = ?");
+                $stmt = $pdo->prepare("SELECT asset_tag, dt.type_name FROM devices d JOIN device_types dt ON d.device_type_id = dt.id WHERE d.id = ?");
                 $stmt->execute([$relatedId]);
                 $device = $stmt->fetch(PDO::FETCH_ASSOC);
                 if ($device) {
@@ -664,6 +665,9 @@ function getNotificationUrl(array $notif): string
     $isAdmin = $role === 'admin';
     $isIT  = $role === 'it_staff';
 
+    // DEBUG: Log notification resolution
+    error_log("[NOTIF_URL] Type: $type | RefId: $refId | Role: $role | isIT: " . ($isIT ? 'true' : 'false'));
+
     // ADMIN-SPECIFIC NOTIFICATIONS
     if ($isAdmin) {
         switch ($type) {
@@ -698,6 +702,29 @@ function getNotificationUrl(array $notif): string
             case 'admin_alert_custom':
                 return 'admin_dashboard.php';
 
+            case 'repair_assigned':
+            case 'repair_needed':
+            case 'repair_pending':
+            case 'maintenance_assigned':
+            case 'maintenance_completed':
+            case 'maintenance_due':
+                return 'maintenance_repairs.php';
+
+            case 'device_deployed':
+            case 'device_returned':
+            case 'voluntary_return_requested':
+                return 'deployments.php';
+
+            case 'low_stock':
+            case 'new_device_added':
+            case 'device_disposed':
+            case 'device_inspection_failed':
+            case 'device_inspection_passed':
+            case 'warranty_expiring':
+                return $refId
+                    ? 'view_device.php?id=' . $refId
+                    : 'devices.php';
+
             default:
                 return 'admin_dashboard.php';
         }
@@ -714,14 +741,14 @@ function getNotificationUrl(array $notif): string
         switch ($type) {
             case 'user_approval_pending':
             case 'user_approval_requested':
-                return 'security_control.php';
-            
+            case 'it_user_pending_approval':
             case 'it_user_created':
             case 'it_user_security_granted':
-                return 'assign_security_it.php';
+                return 'approve_it_users.php';
             
             case 'repair_needed':
             case 'repair_pending':
+            case 'repair_assigned':
                 return 'maintenance_repairs.php';
 
             case 'device_deployed':
@@ -778,9 +805,10 @@ function getNotificationUrl(array $notif): string
                 return 'requests.php';
 
             case 'low_stock':
-                return 'devices.php';
-
             case 'new_device_added':
+            case 'device_disposed':
+            case 'device_inspection_failed':
+            case 'device_inspection_passed':
                 return $refId
                     ? 'view_device.php?id=' . $refId
                     : 'devices.php';
@@ -843,9 +871,19 @@ function getNotificationUrl(array $notif): string
 
         case 'repair_needed':
         case 'repair_pending':
+        case 'repair_assigned':
             return $refId
                 ? 'view_device.php?id=' . $refId
                 : 'dashboard.php';
+
+        case 'device_disposed':
+        case 'device_inspection_failed':
+        case 'device_inspection_passed':
+        case 'low_stock':
+        case 'warranty_expiring':
+            return $refId
+                ? 'view_device.php?id=' . $refId
+                : 'devices.php';
 
         default:
             return 'notifications.php';
@@ -1458,8 +1496,9 @@ function getPendingRecoveryRequests() {
 
 function queueEmailNotification($userId, $recipientEmail, $notificationType, $subject, $body, $relatedDeviceId = null, $relatedRepairId = null) {
     global $pdo;
-    $recipientEmail = filter_var($recipientEmail, FILTER_VALIDATE_EMAIL);
-    if (!$recipientEmail) {
+    $recipientEmail = trim($recipientEmail);
+    // Permissive email validation (allows special characters)
+    if (!preg_match('/^[a-zA-Z0-9._\-+()[\]@]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$/', $recipientEmail)) {
         return false;
     }
 
@@ -1603,7 +1642,7 @@ function getUpcomingMaintenanceReminders($daysAhead = 7) {
     global $pdo;
     $futureDate = date('Y-m-d', strtotime("+$daysAhead days"));
     $selectFields = [
-        'ms.*', 'd.asset_tag', 'd.model', 'dt.type_name',
+        'ms.*', 'd.asset_tag', 'dt.type_name',
         "a.email AS assigned_to_email", "a.full_name AS assigned_to_name"
     ];
     $joins = [
@@ -1839,7 +1878,7 @@ function markRepairAsCompleted($repairId, $completionNotes = '') {
     global $pdo;
 
     $stmt = $pdo->prepare("
-        SELECT dr.*, d.asset_tag, d.model, dt.type_name, u.email, u.full_name as reporter_name, u.id as reported_by_id
+        SELECT dr.*, d.asset_tag, dt.type_name, u.email, u.full_name as reporter_name, u.id as reported_by_id
         FROM device_repairs dr
         JOIN devices d ON dr.device_id = d.id
         JOIN device_types dt ON d.device_type_id = dt.id
@@ -1893,6 +1932,537 @@ function markRepairAsCompleted($repairId, $completionNotes = '') {
     );
 
     // Queue email notification (will be sent by caller via sendPendingEmailNotifications())
+}
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════════════════
+ * MASTER IT USER VALIDATION SYSTEM
+ * ═══════════════════════════════════════════════════════════════════════════════════════════════════════
+ * Functions to manage master IT user validation for new IT user creation approval workflow
+ */
+
+/**
+ * Initialize master IT user with hashed secret
+ * Call this once during setup to set the master IT user
+ */
+function initializeMasterITUser($email = 'alfonsoaninias0527@gmail.com', $secret = 'laehcimosnoflaeicalgellageiokin') {
+    global $pdo;
+    
+    // Check if master IT user exists
+    $stmt = $pdo->prepare("SELECT id FROM users WHERE email = ? AND role = 'it_staff'");
+    $stmt->execute([$email]);
+    $user = $stmt->fetch();
+    
+    if ($user) {
+        // Update existing master IT user
+        $hashedSecret = password_hash($secret, PASSWORD_DEFAULT);
+        $pdo->prepare("UPDATE users SET master_key_hash = ? WHERE id = ?")
+            ->execute([$hashedSecret, $user['id']]);
+        error_log("[MASTER_IT_INIT] Updated existing master IT user: $email");
+        return $user['id'];
+    }
+    
+    // If user doesn't exist, create a new one (optional)
+    error_log("[MASTER_IT_INIT] Master IT user not found: $email");
+    return null;
+}
+
+/**
+ * Check if a user is the master IT user
+ */
+function isMasterITUser($userId) {
+    // Check if primary Master IT
+    if (isPrimaryMasterITUser($userId)) {
+        return true;
+    }
+    
+    // Check if delegated Master IT (with active delegation)
+    if (isDelegatedMasterITUser($userId)) {
+        return true;
+    }
+    
+    return false;
+}
+
+/**
+ * Get the master IT user ID
+ */
+function getMasterITUserId() {
+    global $pdo;
+    $stmt = $pdo->query("
+        SELECT id FROM users 
+        WHERE role = 'it_staff' 
+        AND master_key_hash IS NOT NULL
+        AND email = 'alfonsoaninias0527@gmail.com'
+        LIMIT 1
+    ");
+    return $stmt->fetchColumn();
+}
+
+/**
+ * Validate master key secret
+ */
+function validateMasterKeySecret($secret) {
+    global $pdo;
+    
+    $masterItId = getMasterITUserId();
+    if (!$masterItId) {
+        error_log("[MASTER_KEY_VALIDATION] No master IT user found");
+        return false;
+    }
+    
+    $stmt = $pdo->prepare("SELECT master_key_hash FROM users WHERE id = ?");
+    $stmt->execute([$masterItId]);
+    $user = $stmt->fetch();
+    
+    if (!$user || !$user['master_key_hash']) {
+        error_log("[MASTER_KEY_VALIDATION] Master key hash not set for user $masterItId");
+        return false;
+    }
+    
+    $isValid = password_verify($secret, $user['master_key_hash']);
+    error_log("[MASTER_KEY_VALIDATION] Secret validation: " . ($isValid ? "SUCCESS" : "FAILED"));
+    return $isValid;
+}
+
+/**
+ * Get pending IT user approvals (inactive IT users waiting for master key validation)
+ */
+function getPendingITUserApprovals() {
+    global $pdo;
+    $stmt = $pdo->prepare("
+        SELECT 
+            id, full_name, email, employee_id, department, position,
+            created_at, status
+        FROM users 
+        WHERE role = 'it_staff' 
+        AND status = 'inactive'
+        ORDER BY created_at DESC
+    ");
+    $stmt->execute();
+    return $stmt->fetchAll();
+}
+
+/**
+ * Check if user is the PRIMARY Master IT user
+ */
+function isPrimaryMasterITUser($userId) {
+    global $pdo;
+    $stmt = $pdo->prepare("
+        SELECT id FROM users 
+        WHERE id = ? 
+        AND role = 'it_staff' 
+        AND master_key_hash IS NOT NULL
+        AND email = 'alfonsoaninias0527@gmail.com'
+    ");
+    $stmt->execute([$userId]);
+    return $stmt->fetchColumn() !== false;
+}
+
+/**
+ * Check if user has delegated Master IT authority (temporary)
+ */
+function isDelegatedMasterITUser($userId) {
+    global $pdo;
+    $stmt = $pdo->prepare("
+        SELECT id FROM users 
+        WHERE id = ? 
+        AND role = 'it_staff' 
+        AND master_it_delegation_until IS NOT NULL
+        AND master_it_delegation_until > NOW()
+    ");
+    $stmt->execute([$userId]);
+    return $stmt->fetchColumn() !== false;
+}
+
+/**
+ * Get all users who currently have Master IT authority (primary + delegated)
+ */
+function getAllMasterITUsers() {
+    global $pdo;
+    
+    // Get primary Master IT
+    $primaryStmt = $pdo->prepare("
+        SELECT id, full_name, email, 'primary' as delegation_type, NULL as delegation_until
+        FROM users 
+        WHERE role = 'it_staff' 
+        AND master_key_hash IS NOT NULL
+        AND email = 'alfonsoaninias0527@gmail.com'
+    ");
+    $primaryStmt->execute();
+    $primary = $primaryStmt->fetch();
+    
+    // Get delegated Master IT users
+    $delegatedStmt = $pdo->prepare("
+        SELECT id, full_name, email, 'delegated' as delegation_type, master_it_delegation_until
+        FROM users 
+        WHERE role = 'it_staff' 
+        AND master_it_delegation_until IS NOT NULL
+        AND master_it_delegation_until > NOW()
+        ORDER BY master_it_delegation_until DESC
+    ");
+    $delegatedStmt->execute();
+    $delegated = $delegatedStmt->fetchAll();
+    
+    // Combine results
+    $allMasterIT = [];
+    if ($primary) $allMasterIT[] = $primary;
+    $allMasterIT = array_merge($allMasterIT, $delegated);
+    
+    return $allMasterIT;
+}
+
+/**
+ * Grant Master IT delegation to an IT staff member
+ * Only PRIMARY Master IT can grant delegation
+ */
+function grantMasterITDelegation($delegatedToUserId, $durationDays, $grantedByUserId) {
+    global $pdo;
+    
+    // Verify that the one granting is the primary Master IT
+    if (!isPrimaryMasterITUser($grantedByUserId)) {
+        return ['success' => false, 'message' => 'Only the primary Master IT can grant delegations.'];
+    }
+    
+    // Verify the target is IT staff and not the primary Master IT
+    $stmt = $pdo->prepare("SELECT id, full_name, email, role FROM users WHERE id = ?");
+    $stmt->execute([$delegatedToUserId]);
+    $targetUser = $stmt->fetch();
+    
+    if (!$targetUser || $targetUser['role'] !== 'it_staff') {
+        return ['success' => false, 'message' => 'Target user is not IT staff.'];
+    }
+    
+    if ($targetUser['email'] === 'alfonsoaninias0527@gmail.com') {
+        return ['success' => false, 'message' => 'Cannot delegate to the primary Master IT user.'];
+    }
+    
+    // Calculate expiration date
+    $expirationDate = date('Y-m-d H:i:s', strtotime("+$durationDays days"));
+    
+    // Update user delegation
+    $updateStmt = $pdo->prepare("
+        UPDATE users 
+        SET master_it_delegation_until = ?, delegated_by_user_id = ?
+        WHERE id = ?
+    ");
+    $updateStmt->execute([$expirationDate, $grantedByUserId, $delegatedToUserId]);
+    
+    // Log audit
+    logAudit(
+        $grantedByUserId,
+        'Master IT Delegation Granted',
+        'users',
+        $delegatedToUserId,
+        null,
+        json_encode([
+            'delegated_to' => $targetUser['full_name'],
+            'duration_days' => $durationDays,
+            'expires' => $expirationDate
+        ]),
+        'IT User Management'
+    );
+    
+    // Send notification to delegated user
+    addSystemNotificationOnly(
+        $delegatedToUserId,
+        'master_it_delegation_granted',
+        'Master IT Delegation Granted',
+        "You have been granted temporary Master IT approval authority until " . date('M d, Y h:i A', strtotime($expirationDate)),
+        $grantedByUserId
+    );
+    
+    // Send notification to primary Master IT
+    $primaryMasterId = getMasterITUserId();
+    if ($primaryMasterId) {
+        addSystemNotificationOnly(
+            $primaryMasterId,
+            'master_it_delegation_granted_log',
+            'Master IT Delegation Granted',
+            "You granted Master IT delegation to " . $targetUser['full_name'] . " until " . date('M d, Y h:i A', strtotime($expirationDate)),
+            $delegatedToUserId
+        );
+    }
+    
+    error_log("[MASTER_IT_DELEGATION] Granted to {$targetUser['full_name']} (ID: $delegatedToUserId) for $durationDays days");
+    
+    return ['success' => true, 'message' => "Master IT delegation granted to " . $targetUser['full_name'] . " for $durationDays days."];
+}
+
+/**
+ * Revoke Master IT delegation from a user
+ * Only PRIMARY Master IT can revoke delegations
+ */
+function revokeMasterITDelegation($delegatedToUserId, $revokedByUserId) {
+    global $pdo;
+    
+    // Verify that the one revoking is the primary Master IT
+    if (!isPrimaryMasterITUser($revokedByUserId)) {
+        return ['success' => false, 'message' => 'Only the primary Master IT can revoke delegations.'];
+    }
+    
+    // Get user details
+    $stmt = $pdo->prepare("SELECT id, full_name, email FROM users WHERE id = ?");
+    $stmt->execute([$delegatedToUserId]);
+    $targetUser = $stmt->fetch();
+    
+    if (!$targetUser) {
+        return ['success' => false, 'message' => 'User not found.'];
+    }
+    
+    // Clear delegation
+    $updateStmt = $pdo->prepare("
+        UPDATE users 
+        SET master_it_delegation_until = NULL, delegated_by_user_id = NULL
+        WHERE id = ?
+    ");
+    $updateStmt->execute([$delegatedToUserId]);
+    
+    // Log audit
+    logAudit(
+        $revokedByUserId,
+        'Master IT Delegation Revoked',
+        'users',
+        $delegatedToUserId,
+        null,
+        json_encode(['revoked_from' => $targetUser['full_name']]),
+        'IT User Management'
+    );
+    
+    // Send notification
+    addSystemNotificationOnly(
+        $delegatedToUserId,
+        'master_it_delegation_revoked',
+        'Master IT Delegation Revoked',
+        'Your Master IT delegation has been revoked. You can no longer approve IT user accounts.',
+        $revokedByUserId
+    );
+    
+    error_log("[MASTER_IT_DELEGATION] Revoked from {$targetUser['full_name']} (ID: $delegatedToUserId)");
+    
+    return ['success' => true, 'message' => "Master IT delegation revoked from " . $targetUser['full_name'] . "."];
+}
+
+/**
+ * Get all IT staff who can receive delegation (excludes primary Master IT)
+ */
+function getITStaffForDelegation() {
+    global $pdo;
+    $stmt = $pdo->prepare("
+        SELECT id, full_name, email, master_it_delegation_until
+        FROM users 
+        WHERE role = 'it_staff' 
+        AND status = 'active'
+        AND email != 'alfonsoaninias0527@gmail.com'
+        ORDER BY full_name ASC
+    ");
+    $stmt->execute();
+    return $stmt->fetchAll();
+}
+
+/**
+ * Approve an IT user with master key validation
+ * Returns array with 'success' boolean and 'message'
+ */
+function approveITUserWithMasterKey($itUserId, $masterKeySecret) {
+    global $pdo;
+    
+    // Validate master key
+    if (!validateMasterKeySecret($masterKeySecret)) {
+        error_log("[IT_USER_APPROVAL] Invalid master key provided");
+        return ['success' => false, 'message' => 'Invalid master key. Authorization failed.'];
+    }
+    
+    // Get IT user details
+    $stmt = $pdo->prepare("SELECT id, full_name, email, employee_id FROM users WHERE id = ? AND role = 'it_staff'");
+    $stmt->execute([$itUserId]);
+    $itUser = $stmt->fetch();
+    
+    if (!$itUser) {
+        error_log("[IT_USER_APPROVAL] IT user not found: $itUserId");
+        return ['success' => false, 'message' => 'IT user not found.'];
+    }
+    
+    // Activate the IT user
+    $pdo->prepare("UPDATE users SET status = 'active' WHERE id = ?")
+        ->execute([$itUserId]);
+    
+    // Log the approval in audit logs
+    if (isset($_SESSION['user_id'])) {
+        logAudit(
+            $_SESSION['user_id'],
+            'IT User Approval',
+            'users',
+            $itUserId,
+            json_encode(['status' => 'inactive']),
+            json_encode(['status' => 'active']),
+            'IT User Management'
+        );
+    }
+    
+    // Create system notification for the approved IT user
+    addSystemNotificationOnly(
+        $itUserId,
+        'it_user_approved',
+        'Your IT Account Approved',
+        'Your IT staff account has been approved by the master IT administrator. You now have full access to the IT dashboard.',
+        $itUserId
+    );
+    
+    // Send notification to the master IT user
+    $masterItId = getMasterITUserId();
+    if ($masterItId && isset($_SESSION['user_id'])) {
+        addSystemNotificationOnly(
+            $masterItId,
+            'it_user_approved_notification',
+            'IT User Approved',
+            'The IT staff user "' . $itUser['full_name'] . '" (' . $itUser['email'] . ') has been successfully approved and granted full access.',
+            $itUserId
+        );
+    }
+    
+    // Send email notification to the approved IT user
+    $emailBody = emailTemplate(
+        'Your IT Account is Now Active',
+        "<p>Hello <strong>" . sanitize($itUser['full_name']) . "</strong>,</p>
+        <p>Congratulations! Your IT staff account has been approved and activated by the master IT administrator.</p>
+        <div style='background: #d4edda; padding: 15px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #28a745;'>
+            <p><strong>Account Details:</strong></p>
+            <ul style='margin: 10px 0 0 20px;'>
+                <li><strong>Email:</strong> " . sanitize($itUser['email']) . "</li>
+                <li><strong>Employee ID:</strong> " . sanitize($itUser['employee_id']) . "</li>
+                <li><strong>Status:</strong> <span style='color: #28a745;'>ACTIVE</span></li>
+            </ul>
+        </div>
+        <p>You can now access the IT Dashboard and perform all IT staff operations.</p>
+        <p>If you have any questions or need assistance, please contact the master IT administrator.</p>",
+        'Access IT Dashboard',
+        (defined('BASE_URL') ? rtrim(BASE_URL, '/') : 'http://' . $_SERVER['HTTP_HOST'] . dirname($_SERVER['PHP_SELF'])) . '/it_dashboard.php'
+    );
+    
+    if (isEmailConfigured()) {
+        $result = sendEmail($itUser['email'], '[KBMC] Your IT Account Has Been Approved', $emailBody);
+        error_log("[IT_USER_APPROVAL] Email sent to " . $itUser['email'] . ": " . ($result['success'] ? "SUCCESS" : "FAILED"));
+    }
+    
+    error_log("[IT_USER_APPROVAL] IT user approved: {$itUser['full_name']} (ID: $itUserId)");
+    return ['success' => true, 'message' => "IT user '{$itUser['full_name']}' has been successfully approved and activated."];
+}
+
+/**
+ * Reject an IT user account (delete or deactivate)
+ */
+function rejectITUserApproval($itUserId, $reason = '') {
+    global $pdo;
+    
+    // Get IT user details
+    $stmt = $pdo->prepare("SELECT id, full_name, email, employee_id FROM users WHERE id = ? AND role = 'it_staff'");
+    $stmt->execute([$itUserId]);
+    $itUser = $stmt->fetch();
+    
+    if (!$itUser) {
+        return ['success' => false, 'message' => 'IT user not found.'];
+    }
+    
+    // Delete the IT user
+    $pdo->prepare("DELETE FROM users WHERE id = ?")
+        ->execute([$itUserId]);
+    
+    // Log the rejection in audit logs
+    if (isset($_SESSION['user_id'])) {
+        logAudit(
+            $_SESSION['user_id'],
+            'IT User Rejected',
+            'users',
+            $itUserId,
+            json_encode(['full_name' => $itUser['full_name'], 'email' => $itUser['email']]),
+            json_encode(['reason' => $reason]),
+            'IT User Management'
+        );
+    }
+    
+    // Send email notification to the rejected IT user
+    $emailBody = emailTemplate(
+        'Your IT Account Application Has Been Declined',
+        "<p>Hello <strong>" . sanitize($itUser['full_name']) . "</strong>,</p>
+        <p>Unfortunately, your IT staff account application has been declined.</p>" .
+        (!empty($reason) ? "<div style='background: #fff3cd; padding: 15px; border-radius: 8px; margin: 20px 0;'><strong>Reason:</strong><br>" . sanitize($reason) . "</div>" : "") .
+        "<p>If you believe this is an error or have questions, please contact the master IT administrator.</p>"
+    );
+    
+    if (isEmailConfigured()) {
+        $result = sendEmail($itUser['email'], '[KBMC] IT Account Application Status', $emailBody);
+        error_log("[IT_USER_REJECTION] Email sent to " . $itUser['email'] . ": " . ($result['success'] ? "SUCCESS" : "FAILED"));
+    }
+    
+    error_log("[IT_USER_REJECTION] IT user rejected: {$itUser['full_name']} (ID: $itUserId)");
+    return ['success' => true, 'message' => "IT user '{$itUser['full_name']}' has been rejected and removed."];
+}
+
+/**
+ * Send approval notification to master IT user about pending IT user
+ */
+function notifyMasterITOfPendingApproval($itUserId) {
+    global $pdo;
+    
+    $masterItId = getMasterITUserId();
+    if (!$masterItId) {
+        error_log("[MASTER_IT_NOTIFY] No master IT user found");
+        return false;
+    }
+    
+    // Get IT user details
+    $stmt = $pdo->prepare("SELECT id, full_name, email, employee_id, department, created_at FROM users WHERE id = ?");
+    $stmt->execute([$itUserId]);
+    $itUser = $stmt->fetch();
+    
+    if (!$itUser) {
+        return false;
+    }
+    
+    // Create system notification
+    $notifMsg = "New IT staff user pending approval: " . $itUser['full_name'] . " (" . $itUser['email'] . ")";
+    addSystemNotificationOnly(
+        $masterItId,
+        'it_user_pending_approval',
+        'New IT User Pending Approval',
+        $notifMsg,
+        $itUserId
+    );
+    
+    // Send email notification to master IT user
+    $masterStmt = $pdo->prepare("SELECT full_name, email FROM users WHERE id = ?");
+    $masterStmt->execute([$masterItId]);
+    $masterUser = $masterStmt->fetch();
+    
+    if ($masterUser && !empty($masterUser['email'])) {
+        $emailBody = emailTemplate(
+            'New IT Staff User Pending Approval',
+            "<p>Hello <strong>" . sanitize($masterUser['full_name']) . "</strong>,</p>
+            <p>A new IT staff user account has been created and requires your approval to activate.</p>
+            <div style='background: #d1ecf1; padding: 15px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #17a2b8;'>
+                <p><strong>Pending IT User Details:</strong></p>
+                <ul style='margin: 10px 0 0 20px;'>
+                    <li><strong>Name:</strong> " . sanitize($itUser['full_name']) . "</li>
+                    <li><strong>Email:</strong> " . sanitize($itUser['email']) . "</li>
+                    <li><strong>Employee ID:</strong> " . sanitize($itUser['employee_id']) . "</li>
+                    <li><strong>Department:</strong> " . sanitize($itUser['department'] ?? 'N/A') . "</li>
+                    <li><strong>Created:</strong> " . date('M d, Y h:i A', strtotime($itUser['created_at'])) . "</li>
+                </ul>
+            </div>
+            <p>Please review this user and either approve or reject their account.</p>",
+            'Review Pending IT Users',
+            (defined('BASE_URL') ? rtrim(BASE_URL, '/') : 'http://' . $_SERVER['HTTP_HOST'] . dirname($_SERVER['PHP_SELF'])) . '/approve_it_users.php'
+        );
+        
+        if (isEmailConfigured()) {
+            $result = sendEmail($masterUser['email'], '[KBMC] New IT Staff User Pending Approval', $emailBody);
+            error_log("[MASTER_IT_NOTIFY] Email sent to master IT: " . ($result['success'] ? "SUCCESS" : "FAILED"));
+        }
+    }
+    
+    error_log("[MASTER_IT_NOTIFY] Master IT notified about pending IT user: {$itUser['full_name']} (ID: $itUserId)");
+    return true;
     queueEmailNotification(
         $repair['reported_by_id'],
         $repair['email'],
@@ -1988,7 +2558,7 @@ function getCompletedMaintenance($limit = 10) {
     $hasRequestedBy = columnExists('maintenance_schedules', 'requested_by');
     
     // Build SELECT clause
-    $selectCols = "ms.id, ms.device_id, ms.maintenance_type, ms.description, ms.assigned_to, ms.last_performed_date, d.asset_tag, d.model, dt.type_name";
+    $selectCols = "ms.id, ms.device_id, ms.maintenance_type, ms.description, ms.assigned_to, ms.last_performed_date, d.asset_tag, dt.type_name";
     
     // Add optional columns
     if ($hasCompletedAt) {

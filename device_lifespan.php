@@ -480,7 +480,7 @@ require_once 'includes/header.php';
         <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;">
             <input type="text" name="search"
                    value="<?php echo sanitize($search); ?>"
-                   placeholder="Search asset tag, brand, model, type, department…"
+                   placeholder="Search asset tag, type, department…"
                    style="flex:1;min-width:220px;padding:10px 12px;border:1px solid #d6d8db;border-radius:8px;">
 
             <select name="type" style="min-width:160px;padding:10px 12px;border:1px solid #d6d8db;border-radius:8px;">

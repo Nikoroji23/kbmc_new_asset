@@ -181,6 +181,20 @@ CREATE TABLE audit_details (
     FOREIGN KEY (device_id) REFERENCES devices(id)
 );
 
+-- Account Recovery Requests
+CREATE TABLE account_recovery_requests (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    user_id INT NOT NULL,
+    request_reason TEXT NOT NULL,
+    status ENUM('pending', 'approved', 'rejected') DEFAULT 'pending',
+    reviewed_by INT,
+    review_notes TEXT,
+    requested_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    reviewed_at TIMESTAMP NULL,
+    FOREIGN KEY (user_id) REFERENCES users(id),
+    FOREIGN KEY (reviewed_by) REFERENCES users(id)
+);
+
 -- Insert Default Device Types
 INSERT INTO device_types (type_name, description) VALUES
 ('Laptop', 'Portable computers for mobile work'),

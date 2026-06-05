@@ -19,6 +19,13 @@ $pendingInspectionCount = $pdo->query("SELECT COUNT(*) FROM devices WHERE status
 $activeAssignments = getActiveAssignmentCount();
 $pendingReqCount = $pdo->query("SELECT COUNT(*) FROM device_requests WHERE status = 'pending'")->fetchColumn();
 
+// Check if this is the master IT user and get pending IT user approvals
+$isMasterIT = isMasterITUser($_SESSION['user_id']);
+$pendingITUsersCount = 0;
+if ($isMasterIT) {
+    $pendingITUsersCount = $pdo->query("SELECT COUNT(*) FROM users WHERE role = 'it_staff' AND status = 'inactive'")->fetchColumn();
+}
+
 // Get recent repairs
 $stmt = $pdo->query("SELECT dr.*, u.full_name, d.asset_tag FROM device_repairs dr JOIN users u ON dr.reported_by = u.id JOIN devices d ON dr.device_id = d.id WHERE dr.repair_status = 'pending' ORDER BY dr.created_at DESC LIMIT 5");
 $pendingRepairs = $stmt->fetchAll();
@@ -55,9 +62,31 @@ $auditLogs = $stmt->fetchAll();
                 <i class="fas fa-key"></i> Security IT
             </div>
             <?php endif; ?>
+            <?php if ($isMasterIT): ?>
+            <div style="margin-top: 5px; background: rgba(255,255,255,0.2); padding: 3px 8px; border-radius: 3px; display: inline-block; font-size: 11px;">
+                <i class="fas fa-crown"></i> Master IT Admin
+            </div>
+            <?php endif; ?>
         </div>
     </div>
 </div>
+
+<?php if ($isMasterIT && $pendingITUsersCount > 0): ?>
+<!-- Pending IT User Approvals Alert -->
+<div style="margin-bottom: 20px; padding: 15px 20px; background: #fff3cd; border-left: 4px solid #ffc107; border-radius: 4px; display: flex; justify-content: space-between; align-items: center;">
+    <div>
+        <h4 style="margin: 0 0 5px 0; color: #856404;">
+            <i class="fas fa-exclamation-circle"></i> Pending IT User Approvals
+        </h4>
+        <p style="margin: 0; color: #666; font-size: 13px;">
+            You have <strong><?php echo $pendingITUsersCount; ?></strong> new IT staff user<?php echo $pendingITUsersCount !== 1 ? 's' : ''; ?> waiting for approval.
+        </p>
+    </div>
+    <a href="approve_it_users.php" class="btn btn-warning" style="margin-left: 20px; white-space: nowrap;">
+        <i class="fas fa-check"></i> Review & Approve
+    </a>
+</div>
+<?php endif; ?>
 
 <!-- IT-Specific Metrics -->
 <div class="stats-grid">
@@ -103,6 +132,15 @@ $auditLogs = $stmt->fetchAll();
             <span>In Stock</span>
         </div>
     </div>
+    <?php if ($isMasterIT && $pendingITUsersCount > 0): ?>
+    <div class="stat-card" style="background: linear-gradient(135deg, #fff3cd 0%, #ffe8a8 100%); border-left: 4px solid #ffc107;">
+        <div class="stat-icon" style="background: #ffc107; color: white;"><i class="fas fa-user-shield"></i></div>
+        <div class="stat-info">
+            <h3 style="color: #ff9800;"><?php echo $pendingITUsersCount; ?></h3>
+            <span style="color: #333;">Pending IT Approvals</span>
+        </div>
+    </div>
+    <?php endif; ?>
 </div>
 
 
@@ -137,32 +175,18 @@ $auditLogs = $stmt->fetchAll();
         <a href="requests.php" class="btn btn-outline" style="flex: 1; min-width: 150px;">
             <i class="fas fa-tasks"></i> Device Requests
         </a>
+        <?php if ($isMasterIT): ?>
+        <a href="approve_it_users.php" class="btn btn-warning" style="flex: 1; min-width: 150px; font-weight: bold; cursor: pointer;">
+            <i class="fas fa-user-shield"></i> Approve IT Users
+        </a>
+        <?php endif; ?>
         <?php if ($isSecurityAdmin): ?>
         <a href="assign_security_it.php" class="btn btn-secondary" style="flex: 1; min-width: 150px;">
             <i class="fas fa-user-shield"></i> Manage Security IT
         </a>
-        <a href="security_control.php" class="btn btn-danger" style="flex: 1; min-width: 150px;">
-            <i class="fas fa-shield-alt"></i> Security Control
-        </a>
-        <?php else: ?>
-        <button type="button" class="btn btn-outline" style="flex: 1; min-width: 150px; opacity: 0.6; cursor: not-allowed;" title="Ask your admin to assign Security IT approval privileges.">
-            <i class="fas fa-shield-alt"></i> Security Control
-        </button>
         <?php endif; ?>
     </div>
 </div>
-
-<?php if (!$isSecurityAdmin): ?>
-<div class="card" style="margin-top: 20px; border: 1px solid #f0ad4e; background: #fff8e1;">
-    <div class="card-body">
-        <h3 style="margin-top: 0;"><i class="fas fa-exclamation-triangle"></i> Security IT Access Required</h3>
-        <p style="margin: 0; color: #555;">
-            If you need to approve new IT or admin user requests, your IT account must be designated as a Security IT approver.
-            Ask your administrator to assign <strong>Security IT</strong> privileges to your account and set your master key.
-        </p>
-    </div>
-</div>
-<?php endif; ?>
 
 <!-- Pending Repairs & Inspections -->
 <div class="grid-2" style="margin-top: 20px;">

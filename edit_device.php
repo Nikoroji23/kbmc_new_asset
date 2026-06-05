@@ -36,38 +36,29 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     $asset_tag_changed_by = $_POST['asset_tag_changed_by'] ?? null;
 
     try {
-        // Check if asset tag is being changed
+        // Asset tag handling - NO VALIDATION (allow empty, N/A, and any duplicates)
         $assetTagChanged = false;
-        if (!empty($new_asset_tag) && $new_asset_tag !== $device['asset_tag']) {
-            if (!preg_match('/^[A-Za-z0-9\-_\/]{3,30}$/', $new_asset_tag)) {
-                throw new Exception('Invalid asset tag format. Use 3–30 characters: letters, numbers, hyphens, underscores, or forward slash (e.g., N/A) only.');
-            }
+        $new_asset_tag = trim($_POST['asset_tag'] ?? '');
+        $current_asset_tag = $device['asset_tag'];
+        
+        // Convert empty or N/A to null
+        if (empty($new_asset_tag) || strtoupper($new_asset_tag) === 'N/A') {
+            $new_asset_tag = null;
+        }
+        
+        // Check if asset tag actually changed (for logging purposes)
+        if ($new_asset_tag !== $current_asset_tag && $new_asset_tag !== null) {
+            $assetTagChanged = true;
             if (empty($asset_tag_changed_by)) {
                 throw new Exception('Asset tag change requires IT staff member selection. Please select who is making this change.');
             }
-            
-            // Allow multiple N/A entries and allow duplicate custom tags (same asset tag for related items like Laptop + Charger)
-            // Preserve the case the user typed - only use uppercase for comparison
-            if (strtoupper($new_asset_tag) === 'N/A') {
-                // Convert N/A to NULL to allow multiple items without asset tags
-                $new_asset_tag = null;
-            } else {
-                // Allow duplicate asset tags - same tag can be used for multiple devices (keep original case)
-                // $new_asset_tag stays as typed
-            }
-            $assetTagChanged = true;
         }
 
         $oldData = json_encode($device);
         
-        // Update device
-        if ($assetTagChanged) {
-            $stmt = $pdo->prepare("UPDATE devices SET device_type_id=?, serial_number=?, ip_address=?, pc_name=?, purchase_date=?, vendor=?, warranty_expiry=?, purchase_price=?, location=?, condition_notes=?, status=?, asset_tag=? WHERE id=?");
-            $stmt->execute([$device_type_id, $serial_number, $ip_address, $pc_name, $purchase_date, $vendor, $warranty_expiry, $purchase_price, $location, $condition_notes, $status, $new_asset_tag, $id]);
-        } else {
-            $stmt = $pdo->prepare("UPDATE devices SET device_type_id=?, serial_number=?, ip_address=?, pc_name=?, purchase_date=?, vendor=?, warranty_expiry=?, purchase_price=?, location=?, condition_notes=?, status=? WHERE id=?");
-            $stmt->execute([$device_type_id, $serial_number, $ip_address, $pc_name, $purchase_date, $vendor, $warranty_expiry, $purchase_price, $location, $condition_notes, $status, $id]);
-        }
+        // Update device - always include asset_tag
+        $stmt = $pdo->prepare("UPDATE devices SET device_type_id=?, serial_number=?, ip_address=?, pc_name=?, purchase_date=?, vendor=?, warranty_expiry=?, purchase_price=?, location=?, condition_notes=?, status=?, asset_tag=? WHERE id=?");
+        $stmt->execute([$device_type_id, $serial_number, $ip_address, $pc_name, $purchase_date, $vendor, $warranty_expiry, $purchase_price, $location, $condition_notes, $status, $new_asset_tag, $id]);
 
         $newData = json_encode(['serial' => $serial_number, 'status' => $status, 'ip' => $ip_address]);
         logAudit($_SESSION['user_id'], 'Update', 'devices', $id, $oldData, $newData);

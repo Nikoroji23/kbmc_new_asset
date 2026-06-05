@@ -178,6 +178,28 @@ $sql = "SELECT * FROM (
     JOIN devices d ON dr.device_id = d.id
     LEFT JOIN device_types dt ON d.device_type_id = dt.id)
 
+    UNION ALL
+
+    (SELECT 
+        'it_user_management' as activity_type,
+        al.id,
+        al.user_id,
+        al.action,
+        'users' as table_name,
+        0 as device_id,
+        al.old_values,
+        al.new_values,
+        al.created_at,
+        u.full_name as staff_name,
+        u.employee_id as staff_emp_id,
+        CONCAT('User ID: ', al.record_id) as asset_tag,
+        'IT User' as type_name,
+        NULL as employee_name,
+        NULL as assignment_status
+    FROM audit_logs al
+    JOIN users u ON al.user_id = u.id
+    WHERE al.table_name = 'users' AND al.activity_type = 'IT User Management')
+
 ) AS combined_activities WHERE 1=1";
 
 $params = [];
@@ -262,6 +284,7 @@ $allITStaff = $pdo->query("
                         <option value="maintenance" <?php echo $activity_type === 'maintenance' ? 'selected' : ''; ?>>Maintenance</option>
                         <option value="repair" <?php echo $activity_type === 'repair' ? 'selected' : ''; ?>>Device Repair</option>
                         <option value="disposal" <?php echo $activity_type === 'disposal' ? 'selected' : ''; ?>>Device Disposal</option>
+                        <option value="it_user_management" <?php echo $activity_type === 'it_user_management' ? 'selected' : ''; ?>>IT User Management</option>
                     </select>
                 </div>
 
@@ -336,7 +359,8 @@ $allITStaff = $pdo->query("
                             'asset_tag_change' => ['icon' => 'fa-edit', 'color' => '#e74c3c', 'label' => 'Asset Tag Changed'],
                             'maintenance' => ['icon' => 'fa-wrench', 'color' => '#f39c12', 'label' => 'Maintenance'],
                             'repair' => ['icon' => 'fa-tools', 'color' => '#e67e22', 'label' => 'Repair'],
-                            'disposal' => ['icon' => 'fa-trash', 'color' => '#95a5a6', 'label' => 'Device Disposed']
+                            'disposal' => ['icon' => 'fa-trash', 'color' => '#95a5a6', 'label' => 'Device Disposed'],
+                            'it_user_management' => ['icon' => 'fa-user-shield', 'color' => '#16a085', 'label' => 'IT User Management']
                         ];
                         
                         $icon = $activityIcons[$log['activity_type']]['icon'] ?? 'fa-info-circle';
@@ -364,6 +388,23 @@ $allITStaff = $pdo->query("
                             $details .= "</small>";
                         } elseif ($log['activity_type'] === 'clearance') {
                             $details = "<small style='color: #666;'><strong>Action:</strong> " . sanitize($log['action']) . "</small>";
+                        } elseif ($log['activity_type'] === 'it_user_management') {
+                            $oldData = json_decode($log['old_values'], true) ?? [];
+                            $newData = json_decode($log['new_values'], true) ?? [];
+                            
+                            // Show status change or action details
+                            if ($log['action'] === 'IT User Created') {
+                                $details = "<small style='color: #666;'><strong>Action:</strong> New IT user account created (pending approval)</small>";
+                            } elseif ($log['action'] === 'IT User Approval') {
+                                $oldStatus = $oldData['status'] ?? 'N/A';
+                                $newStatus = $newData['status'] ?? 'N/A';
+                                $details = "<small style='color: #666;'><strong>Status Change:</strong> " . ucfirst($oldStatus) . " → <span style='color: #27ae60; font-weight: bold;'>" . ucfirst($newStatus) . "</span></small>";
+                            } elseif ($log['action'] === 'IT User Rejected') {
+                                $reason = $newData['reason'] ?? 'No reason provided';
+                                $details = "<small style='color: #666;'><strong>Reason:</strong> " . sanitize(substr($reason, 0, 50)) . (strlen($reason) > 50 ? '...' : '') . "</small>";
+                            } else {
+                                $details = "<small style='color: #666;'><strong>Action:</strong> " . sanitize($log['action']) . "</small>";
+                            }
                         }
                         ?>
                     <tr>
@@ -409,12 +450,16 @@ $allITStaff = $pdo->query("
                             <?php echo $details; ?>
                         </td>
                         <td class="action-btns">
-                            <button onclick="sendAuditNotification(event, <?php echo $log['id']; ?>, '<?php echo sanitize($log['asset_tag'] ?? 'Device'); ?>')" class="btn btn-sm btn-info" title="Send Notification">
+                            <button onclick="sendAuditNotification(event, <?php echo $log['id']; ?>, '<?php echo sanitize($log['asset_tag'] ?? 'Activity'); ?>')" class="btn btn-sm btn-info" title="Send Notification">
                                 <i class="fas fa-bell"></i> Notify
                             </button>
-                            <?php if (!empty($log['device_id'])): ?>
+                            <?php if (!empty($log['device_id']) && $log['activity_type'] !== 'it_user_management'): ?>
                             <a href="view_device.php?id=<?php echo $log['device_id']; ?>" class="btn btn-sm btn-secondary" title="View Device Details">
                                 <i class="fas fa-eye"></i> View
+                            </a>
+                            <?php elseif ($log['activity_type'] === 'it_user_management'): ?>
+                            <a href="users.php" class="btn btn-sm btn-secondary" title="View IT Users">
+                                <i class="fas fa-users"></i> View Users
                             </a>
                             <?php else: ?>
                             <span style="color: #999; font-size: 12px;">Device Deleted</span>

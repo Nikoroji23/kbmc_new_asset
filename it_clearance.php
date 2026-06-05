@@ -70,7 +70,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                 $aStmt->execute([$userId, $singleDevId]);
             } else {
                 $aStmt = $pdo->prepare("
-                    SELECT da.*, d.asset_tag, d.id AS device_id, d.brand, d.model
+                    SELECT da.*, d.asset_tag, d.id AS device_id
                     FROM device_assignments da
                     JOIN devices d ON da.device_id = d.id
                     WHERE da.employee_id = ? AND da.status = 'active'

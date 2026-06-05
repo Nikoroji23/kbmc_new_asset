@@ -114,7 +114,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['search_term'])) {
 <div class="card" style="text-align: center; padding: 60px 20px; background: linear-gradient(135deg, #ecf0f1 0%, #f8f9fa 100%);">
     <i class="fas fa-magnifying-glass" style="font-size: 50px; color: #bdc3c7; margin-bottom: 20px; display: block;"></i>
     <h4 style="color: #7f8c8d; margin-bottom: 10px;">Start Searching</h4>
-    <p style="color: #95a5a6; margin-bottom: 20px;">Enter a device serial number, asset tag, brand, or model name above to find devices in the system.</p>
+    <p style="color: #95a5a6; margin-bottom: 20px;">Enter a device serial number or asset tag above to find devices in the system.</p>
      or asset tag
     <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin-top: 30px;">
         <div style="padding: 15px; background: white; border-radius: 6px; box-shadow: 0 2px 4px rgba(0,0,0,0.05);">

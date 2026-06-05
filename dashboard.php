@@ -44,7 +44,7 @@ $stmt = $pdo->query("SELECT d.*, dt.type_name FROM devices d JOIN device_types d
 $recentDevices = $stmt->fetchAll();
 
 // Recent assignments
-$stmt = $pdo->query("SELECT da.*, d.asset_tag, d.model, u.full_name as employee_name FROM device_assignments da JOIN devices d ON da.device_id = d.id JOIN users u ON da.employee_id = u.id ORDER BY da.created_at DESC LIMIT 5");
+$stmt = $pdo->query("SELECT da.*, d.asset_tag, u.full_name as employee_name FROM device_assignments da JOIN devices d ON da.device_id = d.id JOIN users u ON da.employee_id = u.id ORDER BY da.created_at DESC LIMIT 5");
 $recentAssignments = $stmt->fetchAll();
 
 // Pending requests
@@ -129,7 +129,7 @@ $pendingReqCount = $pdo->query("SELECT COUNT(*) FROM device_requests WHERE statu
                         <tr>
                             <th>Asset Tag</th>
                             <th>Type</th>
-                            <th>Model</th>
+
                             <th>Status</th>
                             <th>Date</th>
                         </tr>
@@ -176,7 +176,7 @@ $pendingReqCount = $pdo->query("SELECT COUNT(*) FROM device_requests WHERE statu
                     <tbody>
                         <?php foreach ($recentAssignments as $asgn): ?>
                         <tr>
-                            <td><strong><?php echo sanitize($asgn['asset_tag']); ?></strong><br><small><?php echo sanitize($asgn['model']); ?></small></td>
+                            <td><strong><?php echo sanitize($asgn['asset_tag']); ?></strong></td>
                             <td><?php echo sanitize($asgn['employee_name']); ?></td>
                             <td><?php echo formatDate($asgn['assigned_date']); ?></td>
                             <td>
