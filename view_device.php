@@ -136,9 +136,9 @@ $isAssignedEmployee = (
             <hr style="margin:15px 0;border:none;border-top:1px solid #eee;">
             <div>
                 <strong style="color:#666;font-size:12px;">Specifications</strong><br>
-                <p><?php echo nl2br(sanitize($device['specifications'])); ?></p>
+                <p><?php echo nl2br(sanitize($device['specifications'] ?? 'N/A')); ?></p>
             </div>
-            <?php if ($device['condition_notes']): ?>
+            <?php if (!empty($device['condition_notes'])): ?>
             <div style="margin-top:10px;">
                 <strong style="color:#666;font-size:12px;">Condition Notes</strong><br>
                 <p><?php echo nl2br(sanitize($device['condition_notes'])); ?></p>

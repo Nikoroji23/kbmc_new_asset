@@ -125,6 +125,34 @@ function getNotificationColor(string $type): string {
         default                                  => '#C0392B',
     };
 }
+
+function getNotificationTypeLabel(string $type): string {
+    return match(true) {
+        $type === 'device_deployed'            => 'Device Deployed',
+        $type === 'device_returned'            => 'Device Returned',
+        $type === 'request_approved'           => 'Request Approved',
+        $type === 'request_rejected'           => 'Request Rejected',
+        $type === 'warranty_expiring'          => 'Warranty Expiring',
+        $type === 'user_clearance_required'    => 'IT Clearance Required',
+        $type === 'user_clearance_completed'   => 'IT Clearance Completed',
+        $type === 'user_approval_pending'      => 'User Approval Pending',
+        $type === 'user_approval_requested'    => 'User Approval Requested',
+        $type === 'it_user_created'            => 'IT User Created',
+        $type === 'it_user_security_granted'   => 'IT Security Granted',
+        $type === 'voluntary_return_requested' => 'Voluntary Return',
+        $type === 'maintenance_assigned'       => 'Maintenance Assigned',
+        $type === 'maintenance_completed'      => 'Maintenance Completed',
+        $type === 'maintenance_due'            => 'Maintenance Due',
+        $type === 'lifespan_monitor'           => 'Lifespan Monitor',
+        $type === 'lifespan_replace_soon'      => 'Lifespan Replace Soon',
+        $type === 'lifespan_overdue'           => 'Lifespan Overdue',
+        $type === 'lifespan_replaced'          => 'Lifespan Replaced',
+        $type === 'lifespan_extended'          => 'Lifespan Extended',
+        $type === 'device_request'             => 'Device Request',
+        $type === 'new_device_added'           => 'New Device Added',
+        default                                => ucwords(str_replace('_', ' ', $type)),
+    };
+}
 ?>
 
 <div class="page-header" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;">
@@ -185,9 +213,15 @@ function getNotificationColor(string $type): string {
             <?php foreach ($notifications as $notif):
                 $type      = $notif['type'] ?? 'unknown';
                 $notifUrl  = getNotificationUrl($notif);
+                $typeLabel = getNotificationTypeLabel($type);
                 $icon      = getNotificationIcon($type);
                 $color     = getNotificationColor($type);
                 $isUnread  = !$notif['is_read'];
+                
+                // Log clearance notifications for debugging
+                if ($type === 'user_clearance_completed') {
+                    error_log("[NOTIF_PAGE] Rendering user_clearance_completed - ID={$notif['id']}, related_id={$notif['related_id']}, URL=$notifUrl");
+                }
             ?>
             <div class="notif-row <?= $isUnread ? 'notif-unread' : '' ?> notif-all-item"
                  data-id="<?= $notif['id'] ?>"
@@ -205,7 +239,12 @@ function getNotificationColor(string $type): string {
 
                 <!-- Content -->
                 <div class="notif-row-content">
-                    <div class="notif-row-title"><?= htmlspecialchars($notif['title']) ?></div>
+                    <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap;">
+                        <div class="notif-row-title"><?= htmlspecialchars($notif['title']) ?></div>
+                        <span class="notif-type-badge" style="background:<?= $color ?>22;color:<?= $color ?>;border:1px solid <?= $color ?>;border-radius:999px;padding:4px 10px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;">
+                            <?= htmlspecialchars($typeLabel) ?>
+                        </span>
+                    </div>
                     <div class="notif-row-message"><?= htmlspecialchars($notif['message']) ?></div>
                     <div class="notif-row-meta">
                         <span><i class="fas fa-clock"></i> <?= date('M d, Y h:i A', strtotime($notif['created_at'])) ?></span>
@@ -245,6 +284,7 @@ function getNotificationColor(string $type): string {
             <?php foreach ($unreadNotifications as $notif):
                 $type      = $notif['type'] ?? 'unknown';
                 $notifUrl  = getNotificationUrl($notif);
+                $typeLabel = getNotificationTypeLabel($type);
                 $icon      = getNotificationIcon($type);
                 $color     = getNotificationColor($type);
             ?>
@@ -264,7 +304,12 @@ function getNotificationColor(string $type): string {
 
                 <!-- Content -->
                 <div class="notif-row-content">
-                    <div class="notif-row-title"><?= htmlspecialchars($notif['title']) ?></div>
+                    <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap;">
+                        <div class="notif-row-title"><?= htmlspecialchars($notif['title']) ?></div>
+                        <span class="notif-type-badge" style="background:<?= $color ?>22;color:<?= $color ?>;border:1px solid <?= $color ?>;border-radius:999px;padding:4px 10px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;">
+                            <?= htmlspecialchars($typeLabel) ?>
+                        </span>
+                    </div>
                     <div class="notif-row-message"><?= htmlspecialchars($notif['message']) ?></div>
                     <div class="notif-row-meta">
                         <span><i class="fas fa-clock"></i> <?= date('M d, Y h:i A', strtotime($notif['created_at'])) ?></span>
@@ -302,6 +347,7 @@ function getNotificationColor(string $type): string {
             <?php foreach ($readNotifications as $notif):
                 $type      = $notif['type'] ?? 'unknown';
                 $notifUrl  = getNotificationUrl($notif);
+                $typeLabel = getNotificationTypeLabel($type);
                 $icon      = getNotificationIcon($type);
                 $color     = getNotificationColor($type);
             ?>
@@ -322,7 +368,12 @@ function getNotificationColor(string $type): string {
 
                 <!-- Content -->
                 <div class="notif-row-content">
-                    <div class="notif-row-title"><?= htmlspecialchars($notif['title']) ?></div>
+                    <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap;">
+                        <div class="notif-row-title"><?= htmlspecialchars($notif['title']) ?></div>
+                        <span class="notif-type-badge" style="background:<?= $color ?>22;color:<?= $color ?>;border:1px solid <?= $color ?>;border-radius:999px;padding:4px 10px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;">
+                            <?= htmlspecialchars($typeLabel) ?>
+                        </span>
+                    </div>
                     <div class="notif-row-message"><?= htmlspecialchars($notif['message']) ?></div>
                     <div class="notif-row-meta">
                         <span><i class="fas fa-clock"></i> <?= date('M d, Y h:i A', strtotime($notif['created_at'])) ?></span>
@@ -357,6 +408,7 @@ function getNotificationColor(string $type): string {
             <?php foreach ($categorizedNotifications['security'] as $notif):
                 $type      = $notif['type'] ?? 'unknown';
                 $notifUrl  = getNotificationUrl($notif);
+                $typeLabel = getNotificationTypeLabel($type);
                 $icon      = getNotificationIcon($type);
                 $color     = getNotificationColor($type);
             ?>
@@ -376,7 +428,12 @@ function getNotificationColor(string $type): string {
 
                 <!-- Content -->
                 <div class="notif-row-content">
-                    <div class="notif-row-title"><?= htmlspecialchars($notif['title']) ?></div>
+                    <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap;">
+                        <div class="notif-row-title"><?= htmlspecialchars($notif['title']) ?></div>
+                        <span class="notif-type-badge" style="background:<?= $color ?>22;color:<?= $color ?>;border:1px solid <?= $color ?>;border-radius:999px;padding:4px 10px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;">
+                            <?= htmlspecialchars($typeLabel) ?>
+                        </span>
+                    </div>
                     <div class="notif-row-message"><?= htmlspecialchars($notif['message']) ?></div>
                     <div class="notif-row-meta">
                         <span><i class="fas fa-clock"></i> <?= date('M d, Y h:i A', strtotime($notif['created_at'])) ?></span>
@@ -405,6 +462,7 @@ function getNotificationColor(string $type): string {
             <?php foreach ($categorizedNotifications['requests'] as $notif):
                 $type      = $notif['type'] ?? 'unknown';
                 $notifUrl  = getNotificationUrl($notif);
+                $typeLabel = getNotificationTypeLabel($type);
                 $icon      = getNotificationIcon($type);
                 $color     = getNotificationColor($type);
             ?>
@@ -424,7 +482,12 @@ function getNotificationColor(string $type): string {
 
                 <!-- Content -->
                 <div class="notif-row-content">
-                    <div class="notif-row-title"><?= htmlspecialchars($notif['title']) ?></div>
+                    <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap;">
+                        <div class="notif-row-title"><?= htmlspecialchars($notif['title']) ?></div>
+                        <span class="notif-type-badge" style="background:<?= $color ?>22;color:<?= $color ?>;border:1px solid <?= $color ?>;border-radius:999px;padding:4px 10px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;">
+                            <?= htmlspecialchars($typeLabel) ?>
+                        </span>
+                    </div>
                     <div class="notif-row-message"><?= htmlspecialchars($notif['message']) ?></div>
                     <div class="notif-row-meta">
                         <span><i class="fas fa-clock"></i> <?= date('M d, Y h:i A', strtotime($notif['created_at'])) ?></span>
@@ -453,6 +516,7 @@ function getNotificationColor(string $type): string {
             <?php foreach ($categorizedNotifications['users'] as $notif):
                 $type      = $notif['type'] ?? 'unknown';
                 $notifUrl  = getNotificationUrl($notif);
+                $typeLabel = getNotificationTypeLabel($type);
                 $icon      = getNotificationIcon($type);
                 $color     = getNotificationColor($type);
             ?>
@@ -472,7 +536,12 @@ function getNotificationColor(string $type): string {
 
                 <!-- Content -->
                 <div class="notif-row-content">
-                    <div class="notif-row-title"><?= htmlspecialchars($notif['title']) ?></div>
+                    <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap;">
+                        <div class="notif-row-title"><?= htmlspecialchars($notif['title']) ?></div>
+                        <span class="notif-type-badge" style="background:<?= $color ?>22;color:<?= $color ?>;border:1px solid <?= $color ?>;border-radius:999px;padding:4px 10px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;">
+                            <?= htmlspecialchars($typeLabel) ?>
+                        </span>
+                    </div>
                     <div class="notif-row-message"><?= htmlspecialchars($notif['message']) ?></div>
                     <div class="notif-row-meta">
                         <span><i class="fas fa-clock"></i> <?= date('M d, Y h:i A', strtotime($notif['created_at'])) ?></span>
@@ -518,6 +587,7 @@ function getNotificationColor(string $type): string {
 }
 .notif-row-content  { flex: 1; min-width: 0; }
 .notif-row-title    { font-weight: 700; font-size: 14px; color: #1e293b; margin-bottom: 3px; }
+.notif-type-badge   { display: inline-flex; align-items: center; justify-content: center; white-space: nowrap; }
 .notif-row-message  { font-size: 13px; color: #4b5563; margin-bottom: 5px; line-height: 1.45; }
 .notif-row-meta     { display: flex; gap: 14px; flex-wrap: wrap; font-size: 11px; color: #9ca3af; }
 .notif-row-meta span, .notif-row-meta a { display: flex; align-items: center; gap: 4px; }

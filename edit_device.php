@@ -36,29 +36,38 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     $asset_tag_changed_by = $_POST['asset_tag_changed_by'] ?? null;
 
     try {
-        // Asset tag handling - NO VALIDATION (allow empty, N/A, and any duplicates)
+        // Check if asset tag is being changed
         $assetTagChanged = false;
-        $new_asset_tag = trim($_POST['asset_tag'] ?? '');
-        $current_asset_tag = $device['asset_tag'];
-        
-        // Convert empty or N/A to null
-        if (empty($new_asset_tag) || strtoupper($new_asset_tag) === 'N/A') {
-            $new_asset_tag = null;
-        }
-        
-        // Check if asset tag actually changed (for logging purposes)
-        if ($new_asset_tag !== $current_asset_tag && $new_asset_tag !== null) {
-            $assetTagChanged = true;
+        if (!empty($new_asset_tag) && $new_asset_tag !== $device['asset_tag']) {
+            if (!preg_match('/^[\x20-\x7E]{3,30}$/', $new_asset_tag)) {
+                throw new Exception('Invalid asset tag format. Use 3–30 printable ASCII characters only.');
+            }
             if (empty($asset_tag_changed_by)) {
                 throw new Exception('Asset tag change requires IT staff member selection. Please select who is making this change.');
             }
+            
+            // Allow multiple N/A entries and allow duplicate custom tags (same asset tag for related items like Laptop + Charger)
+            // Preserve the case the user typed - only use uppercase for comparison
+            if (strtoupper($new_asset_tag) === 'N/A') {
+                // Convert N/A to NULL to allow multiple items without asset tags
+                $new_asset_tag = null;
+            } else {
+                // Allow duplicate asset tags - same tag can be used for multiple devices (keep original case)
+                // $new_asset_tag stays as typed
+            }
+            $assetTagChanged = true;
         }
 
         $oldData = json_encode($device);
         
-        // Update device - always include asset_tag
-        $stmt = $pdo->prepare("UPDATE devices SET device_type_id=?, serial_number=?, ip_address=?, pc_name=?, purchase_date=?, vendor=?, warranty_expiry=?, purchase_price=?, location=?, condition_notes=?, status=?, asset_tag=? WHERE id=?");
-        $stmt->execute([$device_type_id, $serial_number, $ip_address, $pc_name, $purchase_date, $vendor, $warranty_expiry, $purchase_price, $location, $condition_notes, $status, $new_asset_tag, $id]);
+        // Update device
+        if ($assetTagChanged) {
+            $stmt = $pdo->prepare("UPDATE devices SET device_type_id=?, serial_number=?, ip_address=?, pc_name=?, purchase_date=?, vendor=?, warranty_expiry=?, purchase_price=?, location=?, condition_notes=?, status=?, asset_tag=? WHERE id=?");
+            $stmt->execute([$device_type_id, $serial_number, $ip_address, $pc_name, $purchase_date, $vendor, $warranty_expiry, $purchase_price, $location, $condition_notes, $status, $new_asset_tag, $id]);
+        } else {
+            $stmt = $pdo->prepare("UPDATE devices SET device_type_id=?, serial_number=?, ip_address=?, pc_name=?, purchase_date=?, vendor=?, warranty_expiry=?, purchase_price=?, location=?, condition_notes=?, status=? WHERE id=?");
+            $stmt->execute([$device_type_id, $serial_number, $ip_address, $pc_name, $purchase_date, $vendor, $warranty_expiry, $purchase_price, $location, $condition_notes, $status, $id]);
+        }
 
         $newData = json_encode(['serial' => $serial_number, 'status' => $status, 'ip' => $ip_address]);
         logAudit($_SESSION['user_id'], 'Update', 'devices', $id, $oldData, $newData);
@@ -80,6 +89,8 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         exit();
     } catch (PDOException $e) {
         setFlashMessage('error', 'Error updating device: ' . $e->getMessage());
+    } catch (Exception $e) {
+        setFlashMessage('error', $e->getMessage());
     }
 }
 ?>
@@ -101,7 +112,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                     <input type="text" name="asset_tag" class="form-control" placeholder="Leave blank to keep current" value="" maxlength="30" style="text-transform: uppercase;">
                     <small style="font-size:12px; color:#888; margin-top:4px; display:block;">
                         Leave blank to keep: <strong><?php echo sanitize($device['asset_tag']); ?></strong><br>
-                        Custom: 3–30 chars (letters/numbers/hyphens/underscores/forward slash)
+                        Custom: 3–30 printable characters, including N/A and special symbols.
                     </small>
                 </div>
                 <div class="form-group">

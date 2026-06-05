@@ -51,8 +51,8 @@ if ($warranty_duration === 'custom') {
         try {
             if (!empty($custom_asset_tag)) {
                 // Allow standard format (letters, numbers, hyphens, underscores) or special N/A entries
-                if (!preg_match('/^[A-Za-z0-9\-_\/]{3,30}$/', $custom_asset_tag)) {
-                    throw new Exception('Invalid asset tag format. Use 3–30 characters: letters, numbers, hyphens, underscores, or forward slash (e.g., N/A) only.');
+                if (!preg_match('/^[\x20-\x7E]{3,30}$/', $custom_asset_tag)) {
+                    throw new Exception('Invalid asset tag format. Use 3–30 printable ASCII characters only.');
                 }
                 // Convert N/A (case-insensitive) to NULL to allow multiple items without asset tags (NULL bypasses UNIQUE constraint)
                 if (strtoupper($custom_asset_tag) === 'N/A') {
@@ -164,7 +164,7 @@ if ($warranty_duration === 'custom') {
                         </button>
                     </div>
                     <small style="font-size:12px; color:#888; margin-top:4px; display:block;">
-                        Leave blank to auto-generate. Custom: 3–30 chars, letters/numbers/hyphens/underscores/forward slash (e.g., N/A).
+                        Leave blank to auto-generate. Custom: 3–30 printable characters, including N/A and other special symbols.
                     </small>
                 </div>
 
@@ -279,9 +279,7 @@ if ($warranty_duration === 'custom') {
     });
 
     input.addEventListener('input', function () {
-        var pos = this.selectionStart;
-        this.value = this.value.toUpperCase().replace(/[^A-Z0-9\-_\/]/g, '');
-        this.setSelectionRange(pos, pos);
+        this.value = this.value.toUpperCase();
     });
 
     applyState();
@@ -296,12 +294,12 @@ if ($warranty_duration === 'custom') {
                 alert('Please enter a custom asset tag or switch back to auto-generate.');
                 return;
             }
-            var pattern = /^[A-Za-z0-9\-_\/]{3,30}$/;
+            var pattern = /^[\x20-\x7E]{3,30}$/;
             if (!pattern.test(input.value.trim())) {
                 e.preventDefault();
                 input.style.borderColor = '#e74c3c';
                 input.focus();
-                alert('Asset tag must be 3–30 characters: letters, numbers, hyphens, underscores, or forward slash (e.g., N/A) only.');
+                alert('Asset tag must be 3–30 printable ASCII characters, including N/A and special symbols.');
                 return;
             }
             input.style.borderColor = '';

@@ -40,7 +40,7 @@ $roleDisplay = [
 ][$currentRole] ?? 'Unknown';
 
 // Recent devices
-$stmt = $pdo->query("SELECT d.*, dt.type_name FROM devices d JOIN device_types dt ON d.device_type_id = dt.id ORDER BY d.created_at DESC LIMIT 5");
+$stmt = $pdo->query("SELECT d.*, dt.type_name FROM devices d JOIN device_types dt ON d.device_type_id = dt.id WHERE d.status NOT IN ('retired', 'disposed') ORDER BY d.created_at DESC LIMIT 5");
 $recentDevices = $stmt->fetchAll();
 
 // Recent assignments

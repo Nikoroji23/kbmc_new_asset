@@ -33,7 +33,7 @@ $sql = "SELECT d.*, dt.type_name, u.id AS assigned_user_id, u.full_name as assig
         JOIN device_types dt ON d.device_type_id = dt.id 
         LEFT JOIN device_assignments da ON d.id = da.device_id AND da.status = 'active'
         LEFT JOIN users u ON da.employee_id = u.id
-        WHERE d.status != 'disposed'";
+        WHERE d.status NOT IN ('retired', 'disposed')";
 $params = [];
 
 if ($status) { $sql .= " AND d.status = ?"; $params[] = $status; }
@@ -51,10 +51,10 @@ $stmt->execute($params);
 $devices = $stmt->fetchAll();
 
 $types = $pdo->query("SELECT * FROM device_types ORDER BY type_name")->fetchAll();
-$assetTags = $pdo->query("SELECT DISTINCT asset_tag FROM devices ORDER BY asset_tag")->fetchAll(PDO::FETCH_COLUMN);
-$pcNames = $pdo->query("SELECT DISTINCT pc_name FROM devices WHERE pc_name IS NOT NULL AND pc_name <> '' ORDER BY pc_name")->fetchAll(PDO::FETCH_COLUMN);
-$ipAddresses = $pdo->query("SELECT DISTINCT ip_address FROM devices WHERE ip_address IS NOT NULL AND ip_address <> '' ORDER BY ip_address")->fetchAll(PDO::FETCH_COLUMN);
-$assignedUsers = $pdo->query("SELECT DISTINCT u.full_name FROM devices d LEFT JOIN device_assignments da ON d.id = da.device_id AND da.status = 'active' LEFT JOIN users u ON da.employee_id = u.id WHERE u.full_name IS NOT NULL AND u.full_name <> '' ORDER BY u.full_name")->fetchAll(PDO::FETCH_COLUMN);
+$assetTags = $pdo->query("SELECT DISTINCT asset_tag FROM devices WHERE status NOT IN ('retired', 'disposed') ORDER BY asset_tag")->fetchAll(PDO::FETCH_COLUMN);
+$pcNames = $pdo->query("SELECT DISTINCT pc_name FROM devices WHERE status NOT IN ('retired', 'disposed') AND pc_name IS NOT NULL AND pc_name <> '' ORDER BY pc_name")->fetchAll(PDO::FETCH_COLUMN);
+$ipAddresses = $pdo->query("SELECT DISTINCT ip_address FROM devices WHERE status NOT IN ('retired', 'disposed') AND ip_address IS NOT NULL AND ip_address <> '' ORDER BY ip_address")->fetchAll(PDO::FETCH_COLUMN);
+$assignedUsers = $pdo->query("SELECT DISTINCT u.full_name FROM devices d LEFT JOIN device_assignments da ON d.id = da.device_id AND da.status = 'active' LEFT JOIN users u ON da.employee_id = u.id WHERE d.status NOT IN ('retired', 'disposed') AND u.full_name IS NOT NULL AND u.full_name <> '' ORDER BY u.full_name")->fetchAll(PDO::FETCH_COLUMN);
 ?>
 
 <div class="page-header" style="display: flex; justify-content: space-between; align-items: center;">
@@ -194,6 +194,19 @@ $assignedUsers = $pdo->query("SELECT DISTINCT u.full_name FROM devices d LEFT JO
 </div>
 
 <script>
+// Delete confirmation handler
+document.addEventListener('DOMContentLoaded', function() {
+    var deleteLinks = document.querySelectorAll('a.delete-confirm');
+    deleteLinks.forEach(function(link) {
+        link.addEventListener('click', function(e) {
+            if (!confirm('Are you sure you want to dispose this device? This action will move it to the Retired/Disposed section and cannot be undone.')) {
+                e.preventDefault();
+                return false;
+            }
+        });
+    });
+});
+
 function closeAssignedUserModal() {
     document.getElementById('assignedUserModal').style.display = 'none';
 }
