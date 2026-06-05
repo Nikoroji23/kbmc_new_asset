@@ -231,13 +231,16 @@ $offset   = ($page - 1) * $per_page;
 $where  = "WHERE 1=1";
 $params = [];
 if ($search !== '') {
-    $where .= " AND (u.full_name LIKE :search OR u.email LIKE :search
-                     OR u.employee_id LIKE :search OR u.department LIKE :search)";
-    $params[':search'] = "%$search%";
+    $where .= " AND (u.full_name LIKE :search_full OR u.email LIKE :search_email
+                     OR u.employee_id LIKE :search_eid OR u.department LIKE :search_dept)";
+    $params['search_full']  = "%$search%";
+    $params['search_email'] = "%$search%";
+    $params['search_eid']   = "%$search%";
+    $params['search_dept']  = "%$search%";
 }
 if ($dept_filter !== '') {
     $where .= " AND u.department = :dept";
-    $params[':dept'] = $dept_filter;
+    $params['dept'] = $dept_filter;
 }
 
 // ── ORDER BY ──
@@ -263,7 +266,8 @@ $stmt = $pdo->prepare("SELECT u.*, u.employee_id AS emp_id
                         FROM users u $where $order
                         LIMIT :limit OFFSET :offset");
 foreach ($params as $k => $v) {
-    $stmt->bindValue($k, $v);
+    $paramName = str_starts_with($k, ':') ? $k : ':' . $k;
+    $stmt->bindValue($paramName, $v);
 }
 $stmt->bindValue(':limit',  $per_page, PDO::PARAM_INT);
 $stmt->bindValue(':offset', $offset,   PDO::PARAM_INT);

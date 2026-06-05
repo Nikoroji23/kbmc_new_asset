@@ -70,3 +70,7 @@ ehthumbs.db
 .credentials
 secrets.json
 private_key
+ 
+# Local debug tools and sensitive app config
+tools/
+includes/config.php
