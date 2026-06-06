@@ -38,7 +38,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['action'])) {
             setFlashMessage('error', 'Failed to reject request.');
         }
     } elseif ($action === 'verify_master_key') {
-        if (verifyMasterKey($_SESSION['user_id'], $masterKey)) {
+        if (verifyMasterKey($_SESSION['user_id'], trim($masterKey))) {
             setFlashMessage('success', 'Master key verified! Session secured.');
         } else {
             setFlashMessage('error', 'Invalid master key. Please try again.');

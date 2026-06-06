@@ -182,13 +182,6 @@ $pageTitle = $pageTitle ?? 'KBMC Asset Management';
                 <?php endif; ?>
             </a>
 
-            <div class="nav-section">Tools & Search</div>
-            <?php if (!hasRole('employee')): ?>
-            <a href="device_search.php" class="nav-item <?php echo basename($_SERVER['PHP_SELF']) == 'device_search.php' ? 'active' : ''; ?>">
-                <i class="fas fa-search"></i>
-                <span>Search Devices</span>
-            </a>
-            <?php endif; ?>
             <a href="user_asset_dashboard.php" class="nav-item <?php echo basename($_SERVER['PHP_SELF']) == 'user_asset_dashboard.php' ? 'active' : ''; ?>">
                 <i class="fas fa-laptop-house"></i>
                 <span>My Devices</span>

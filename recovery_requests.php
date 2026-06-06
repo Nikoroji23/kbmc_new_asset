@@ -21,18 +21,32 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'] ?? '';
     $recoveryId = (int)($_POST['recovery_id'] ?? 0);
     
-    // For approval, require master key validation
+    // For approval, require the requesting user's unique master key validation
     if ($action === 'approve') {
-        $masterKey = $_POST['master_key'] ?? '';
-        if (empty($masterKey)) {
+        $masterKey = trim($_POST['master_key'] ?? '');
+        if ($masterKey === '') {
             http_response_code(400);
             die('Master key is required to approve recovery requests.');
         }
-        
-        // Validate master key
-        if (!verifyMasterKey($_SESSION['user_id'], $masterKey)) {
+
+        $stmt = $pdo->prepare("SELECT user_id FROM account_recovery_requests WHERE id = ?");
+        $stmt->execute([$recoveryId]);
+        $requestedUserId = $stmt->fetchColumn();
+
+        if (!$requestedUserId) {
+            http_response_code(404);
+            die('Recovery request not found.');
+        }
+
+        // Validate the pending account recovery user's master key
+        if (!verifyMasterKey($requestedUserId, $masterKey)) {
+            $userInfo = getUserInfo($requestedUserId);
+            $hasHash = !empty($userInfo['master_key_hash']) ? 'yes' : 'no';
+            $hasPlain = !empty($userInfo['master_key']) ? 'yes' : 'no';
+            $userEmail = $userInfo['email'] ?? 'unknown';
+            $userRole = $userInfo['role'] ?? 'unknown';
             http_response_code(403);
-            die('Invalid master key. Approval denied.');
+            die('Invalid master key. Approval denied. Recovery user id: ' . $requestedUserId . ', email: ' . $userEmail . ', role: ' . $userRole . ', has_hash: ' . $hasHash . ', has_plain: ' . $hasPlain . ', submitted_length: ' . strlen($masterKey));
         }
     }
     
@@ -57,24 +71,33 @@ $csrf_token = $_SESSION['csrf_token'];
 
 // Get filter parameters
 $status = $_GET['status'] ?? 'pending';
+$search = $_GET['search'] ?? '';
 $sort = $_GET['sort'] ?? 'requested_at DESC';
 
 // Build query
 $allowedStatuses = ['pending', 'approved', 'rejected', 'all'];
 $status = in_array($status, $allowedStatuses) ? $status : 'pending';
 
-$whereClause = '';
+$whereSql = '';
+$params = [];
 if ($status !== 'all') {
-    $whereClause = "WHERE ar.status = '$status'";
+    $whereSql = "WHERE ar.status = ?";
+    $params[] = $status;
 }
 
-$stmt = $pdo->query("
-    SELECT ar.*, u.full_name, u.email, u.department, u.employee_id, u.status as user_status
-    FROM account_recovery_requests ar
-    JOIN users u ON ar.user_id = u.id
-    $whereClause
-    ORDER BY ar.requested_at DESC
-");
+if (!empty($search)) {
+    $like = "%$search%";
+    if ($whereSql === '') {
+        $whereSql = "WHERE (u.full_name LIKE ? OR u.email LIKE ? OR u.employee_id LIKE ? OR ar.request_reason LIKE ?)";
+    } else {
+        $whereSql .= " AND (u.full_name LIKE ? OR u.email LIKE ? OR u.employee_id LIKE ? OR ar.request_reason LIKE ?)";
+    }
+    $params = array_merge($params, [$like, $like, $like, $like]);
+}
+
+$query = "SELECT ar.*, u.full_name, u.email, u.department, u.employee_id, u.status as user_status\n    FROM account_recovery_requests ar\n    JOIN users u ON ar.user_id = u.id\n    $whereSql\n    ORDER BY ar.requested_at DESC";
+$stmt = $pdo->prepare($query);
+$stmt->execute($params);
 $requests = $stmt->fetchAll();
 
 // Count by status
@@ -91,6 +114,21 @@ $countRejected = $pdo->query("SELECT COUNT(*) FROM account_recovery_requests WHE
         </span>
     </div>
 </div>
+
+    <!-- Search / Filter -->
+    <form method="GET" style="margin: 12px 0 20px;">
+        <div style="display: flex; gap: 10px; flex-wrap: wrap; align-items: center;">
+            <input type="hidden" name="status" value="<?php echo htmlspecialchars($status); ?>">
+            <div style="flex: 1; min-width: 220px;">
+                <label for="search" style="display: block; font-size: 12px; font-weight: 600; margin-bottom: 5px;">Search</label>
+                <input type="text" name="search" id="search" class="form-control" placeholder="Name, email, or Employee ID" value="<?php echo htmlspecialchars($search); ?>" style="width:100%; padding: 10px; border: 1px solid #d6d8db; border-radius: 8px;">
+            </div>
+            <button type="submit" class="btn btn-primary" style="white-space: nowrap;">
+                <i class="fas fa-search"></i> Search
+            </button>
+            <a href="recovery_requests.php?status=<?php echo urlencode($status); ?>" class="btn btn-outline">Clear</a>
+        </div>
+    </form>
 
 <!-- Status Tabs -->
 <div class="card" style="margin-bottom: 20px;">
@@ -200,7 +238,7 @@ $countRejected = $pdo->query("SELECT COUNT(*) FROM account_recovery_requests WHE
             Master Key Required
         </h3>
         <p style="color: #666; margin: 15px 0; font-size: 13px;">
-            Approving an account recovery request is a sensitive operation. Please enter your master key to continue.
+            Approving an account recovery request is a sensitive operation. Please enter the requesting user's unique master key to continue.
         </p>
         
         <form id="masterKeyForm" method="POST" style="margin-top: 20px;">

@@ -518,7 +518,7 @@ usort($allMaintenanceMerged, function($a, $b) {
     cursor: pointer;
     border-bottom: 1px solid #f3f4f6;
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     gap: 10px;
     transition: background .12s;
 }
@@ -530,12 +530,23 @@ usort($allMaintenanceMerged, function($a, $b) {
     font-weight: 700;
     font-size: 13px;
     color: #1a2332;
+    flex: 0 0 150px;
     min-width: 120px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 .device-picker-item .dmodel {
     font-size: 12px;
     color: #6b7280;
     flex: 1;
+}
+.device-picker-item .demp {
+    display: block;
+    font-size: 11px;
+    color: #059669;
+    font-weight: 500;
+    margin-top: 2px;
 }
 .device-picker-item .dstatus {
     font-size: 10px;
@@ -1098,7 +1109,7 @@ usort($allMaintenanceMerged, function($a, $b) {
                                 <span class="dtag"><?php echo htmlspecialchars($dev['asset_tag']); ?></span>
                                 <span class="dmodel"><?php echo htmlspecialchars(!empty($dev['type_name']) ? $dev['type_name'] : 'No type info'); ?></span>
                                 <?php if (!empty($dev['employee_name'])): ?>
-                                    <span class="demp" style="font-size:11px;color:#059669;font-weight:500;"><?php echo htmlspecialchars($dev['employee_name']); ?></span>
+                                    <span class="demp"><?php echo htmlspecialchars($dev['employee_name']); ?></span>
                                 <?php endif; ?>
                                 <span class="dstatus"><?php echo htmlspecialchars($dev['status']); ?></span>
                             </div>
@@ -1239,7 +1250,7 @@ usort($allMaintenanceMerged, function($a, $b) {
                                 <span class="dtag"><?php echo htmlspecialchars($rd['asset_tag']); ?></span>
                                 <span class="dmodel"><?php echo htmlspecialchars(!empty($rd['type_name']) ? $rd['type_name'] : 'No type info'); ?></span>
                                 <?php if (!empty($rd['employee_name'])): ?>
-                                    <span class="demp" style="font-size:11px;color:#059669;font-weight:500;"><?php echo htmlspecialchars($rd['employee_name']); ?></span>
+                                    <span class="demp"><?php echo htmlspecialchars($rd['employee_name']); ?></span>
                                 <?php endif; ?>
                                 <span class="dstatus"><?php echo htmlspecialchars($rd['status'] ?? 'in_stock'); ?></span>
                             </div>
@@ -1448,7 +1459,7 @@ function selectDevice(el) {
     const display = document.getElementById('selectedDeviceDisplay');
     display.classList.remove('hidden');
     document.getElementById('selectedDeviceText').innerHTML =
-        '<i class="fas fa-check-circle"></i> <strong>' + tag + '</strong> &mdash; '
+        '<i class="fas fa-check-circle"></i> <strong>Asset Tag:</strong> ' + tag + ' &mdash; '
         + type + ' <span style="font-size:11px;opacity:.7;">(' + status + ')</span>';
 
     closeDeviceDropdown();
@@ -1608,19 +1619,25 @@ function submitRepairCompletion() {
             completion_notes: completionNotes
         })
     })
-    .then(response => response.json())
+    .then(response => response.text().then(text => {
+        try {
+            return JSON.parse(text);
+        } catch (err) {
+            throw new Error('Invalid server response: ' + text);
+        }
+    }))
     .then(data => {
         if (data.success) {
             alert(data.message);
             closeMarkDone();
             location.reload();
         } else {
-            alert('Error: ' + data.message);
+            alert('Error: ' + (data.message || 'Failed to mark repair as complete'));
         }
     })
     .catch(error => {
         console.error('Error:', error);
-        alert('Failed to mark repair as complete');
+        alert('Failed to mark repair as complete: ' + error.message);
     });
 }
 
@@ -1678,7 +1695,7 @@ function selectRepairDevice(el) {
 
     const display = document.getElementById('selectedRepairDeviceDisplay');
     display.classList.remove('hidden');
-    let displayText = '<i class="fas fa-check-circle"></i> <strong>' + tag + '</strong> &mdash; ' + type;
+    let displayText = '<i class="fas fa-check-circle"></i> <strong>Asset Tag:</strong> ' + tag + ' &mdash; ' + type;
     if (employee) {
         displayText += ' <span style="font-size:11px;color:#059669;">(' + employee + ')</span>';
     }

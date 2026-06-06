@@ -146,6 +146,9 @@ try {
         }
     }
     
+    // Ensure the repair table has the required columns before inserting
+    ensureDeviceRepairsSchema();
+
     // Insert repair record
     $stmt = $pdo->prepare("
         INSERT INTO device_repairs 

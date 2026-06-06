@@ -60,72 +60,100 @@ if (isset($_GET['action']) && $_GET['action'] == 'return' && isset($_GET['id']))
 
 // Handle new assignment
 if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['assign_device'])) {
-    $device_id = $_POST['device_id'] ?? '';
+    $device_ids = $_POST['device_id'] ?? [];
     $employee_id = $_POST['employee_id'] ?? '';
     $purpose = trim($_POST['purpose'] ?? '');
 
-    if ($device_id && $employee_id) {
+    if (!is_array($device_ids)) {
+        $device_ids = [$device_ids];
+    }
+    $device_ids = array_filter(array_map('intval', $device_ids));
+    $employee_id = intval($employee_id);
+
+    if (!empty($device_ids) && $employee_id) {
         try {
-            // Verify device exists and is in_stock
-            $deviceCheck = $pdo->query("SELECT id, status FROM devices WHERE id = $device_id")->fetch();
-            if (!$deviceCheck || $deviceCheck['status'] !== 'in_stock') {
-                setFlashMessage('error', 'Device is not available for assignment.');
-                header('Location: deployments.php?action=assign');
-                exit();
+            $pdo->beginTransaction();
+
+            $deviceStmt = $pdo->prepare("SELECT id, status, asset_tag FROM devices WHERE id = ? FOR UPDATE");
+            $assignStmt = $pdo->prepare("INSERT INTO device_assignments (device_id, employee_id, assigned_by, assigned_date, purpose, accountability_form_signed, status) VALUES (?, ?, ?, CURDATE(), ?, 1, 'active')");
+            $updateDeviceStmt = $pdo->prepare("UPDATE devices SET status = 'deployed' WHERE id = ?");
+            $empStmt = $pdo->prepare("SELECT email, full_name, department FROM users WHERE id = ?");
+            $empStmt->execute([$employee_id]);
+            $employee = $empStmt->fetch();
+
+            if (!$employee) {
+                throw new Exception('Selected employee was not found.');
             }
 
-            // Create assignment
-            $stmt = $pdo->prepare("INSERT INTO device_assignments (device_id, employee_id, assigned_by, assigned_date, purpose, accountability_form_signed, status) VALUES (?, ?, ?, CURDATE(), ?, 1, 'active')");
-            $stmt->execute([$device_id, $employee_id, $_SESSION['user_id'], $purpose]);
+            $assignedDevices = [];
+            foreach ($device_ids as $device_id) {
+                $deviceStmt->execute([$device_id]);
+                $deviceCheck = $deviceStmt->fetch();
+                if (!$deviceCheck || $deviceCheck['status'] !== 'in_stock') {
+                    throw new Exception('Device ' . ($deviceCheck['asset_tag'] ?? $device_id) . ' is not available for assignment.');
+                }
 
-            // Update device status ONLY after successful assignment creation
-            $pdo->prepare("UPDATE devices SET status = 'deployed' WHERE id = ?")->execute([$device_id]);
+                $assignStmt->execute([$device_id, $employee_id, $_SESSION['user_id'], $purpose]);
+                $updateDeviceStmt->execute([$device_id]);
+                $assignedDevices[] = $deviceCheck;
+            }
 
-            // Get device info
-            $device = $pdo->query("SELECT asset_tag FROM devices WHERE id = $device_id")->fetch();
+            $pdo->commit();
 
-            // Notify employee
-            addNotification($employee_id, 'device_deployed', 'Device Deployed', "A device ({$device['asset_tag']}) has been assigned to you.", $device_id);
+            // Create a consolidated system notification for the employee (no immediate email)
+            $deviceListPlain = [];
+            foreach ($assignedDevices as $device) {
+                $deviceListPlain[] = $device['asset_tag'];
+            }
+            $deviceListText = implode(', ', $deviceListPlain);
+            // Insert a single system notification (no email) for the employee
+            addSystemNotificationOnly($employee_id, 'device_deployed_bulk', 'Devices Deployed', "The following device(s) have been assigned to you: {$deviceListText}");
 
-        // Send email notification to employee
-        $empStmt = $pdo->prepare("SELECT email, full_name, department FROM users WHERE id = ?");
-        $empStmt->execute([$employee_id]);
-        $employee = $empStmt->fetch();
-        
-        if ($employee && isEmailConfigured()) {
-            $emailBody = emailTemplate(
-                'Device Assigned to You',
-                "<p>Hello <strong>" . sanitize($employee['full_name']) . "</strong>,</p>
-                <p>A new device has been assigned to you. Please check your dashboard or the deployments page for details.</p>
-                <div style='background: #e3f2fd; padding: 15px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #3498db;'>
-                    <p><strong>Device Details:</strong></p>
-                    <p><i class='fas fa-laptop'></i> <strong>Asset Tag:</strong> " . sanitize($device['asset_tag']) . "</p>" .
-                    (!empty($purpose) ? "<p><i class='fas fa-align-left'></i> <strong>Purpose:</strong> " . sanitize($purpose) . "</p>" : '') .
-                "</div>
-                <p>Please ensure you follow company device policies and keep this device secure. If you have any questions, contact the IT department.</p>",
-                'View Deployment',
-                'http://' . $_SERVER['HTTP_HOST'] . dirname($_SERVER['PHP_SELF']) . '/deployments.php'
-            );
-            sendEmail($employee['email'], 'Device Assignment Notification - ' . sanitize($device['asset_tag']), $emailBody);
-        }
+            // Notify IT staff with a single consolidated notification/email
+            $itMessage = "Devices ({$deviceListText}) have been assigned to {$employee['full_name']} ({$employee['department']}).";
+            notifyITStaff('device_deployed_bulk', 'Devices Deployed', $itMessage, 0);
 
-        // Notify IT staff
-        notifyITStaff('device_deployed', 'Device Deployed', "Device {$device['asset_tag']} has been assigned to {$employee['full_name']} ({$employee['department']}).", $device_id);
-            setFlashMessage('success', 'Device assigned successfully.');
+            if ($employee && isEmailConfigured()) {
+                $deviceList = "<ul>";
+                foreach ($assignedDevices as $device) {
+                    $deviceList .= "<li><strong>Asset Tag:</strong> " . sanitize($device['asset_tag']) . "</li>";
+                }
+                $deviceList .= "</ul>";
+
+                $emailBody = emailTemplate(
+                    'Device Assigned to You',
+                    "<p>Hello <strong>" . sanitize($employee['full_name']) . "</strong>,</p>
+                    <p>The following device(s) have been assigned to you:</p>
+                    <div style='background: #e3f2fd; padding: 15px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #3498db;'>
+                        <p><strong>Assigned Device(s):</strong></p>" .
+                        $deviceList .
+                        (!empty($purpose) ? "<p><i class='fas fa-align-left'></i> <strong>Purpose:</strong> " . sanitize($purpose) . "</p>" : '') .
+                    "</div>
+                    <p>Please ensure you follow company device policies and keep these devices secure. If you have any questions, contact the IT department.</p>",
+                    'View Deployment',
+                    'http://' . $_SERVER['HTTP_HOST'] . dirname($_SERVER['PHP_SELF']) . '/deployments.php'
+                );
+                sendEmail($employee['email'], 'Device Assignment Notification', $emailBody);
+            }
+
+            setFlashMessage('success', 'Device assignment completed successfully.');
             header('Location: deployments.php');
             exit();
-        } catch (PDOException $e) {
+        } catch (Exception $e) {
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
             setFlashMessage('error', 'Error: ' . $e->getMessage());
         }
     } else {
-        setFlashMessage('error', 'Please select both device and employee.');
+        setFlashMessage('error', 'Please select at least one device and an employee.');
     }
 }
 
 $preselectedDevice = $_GET['device'] ?? '';
 
 // Get available devices
-$availableDevices = $pdo->query("SELECT id, asset_tag, asset_tag as name FROM devices WHERE status = 'in_stock' ORDER BY asset_tag")->fetchAll();
+$availableDevices = $pdo->query("SELECT d.id, d.asset_tag, dt.type_name FROM devices d JOIN device_types dt ON d.device_type_id = dt.id WHERE d.status = 'in_stock' ORDER BY d.asset_tag")->fetchAll();
 
 // Get active employees
 $employees = $pdo->query("SELECT id, full_name, CONCAT(department, ' - ', position) as dept FROM users WHERE status = 'active' AND role = 'employee' ORDER BY full_name")->fetchAll();
@@ -160,14 +188,43 @@ $assignments = $stmt->fetchAll();
     <div class="card-body">
         <form method="POST">
             <div class="form-grid">
-                <div class="form-group">
-                    <label>Select Device <span class="required">*</span></label>
-                    <select name="device_id" class="form-control" required>
-                        <option value="">Choose a device</option>
-                        <?php foreach ($availableDevices as $dev): ?>
-                        <option value="<?php echo $dev['id']; ?>" <?php echo $preselectedDevice == $dev['id'] ? 'selected' : ''; ?>><?php echo sanitize($dev['asset_tag'] . ' - ' . $dev['name']); ?></option>
-                        <?php endforeach; ?>
-                    </select>
+                <div class="form-group full-width">
+                    <label>Select Device(s) <span class="required">*</span></label>
+                    <?php if (empty($availableDevices)): ?>
+                        <div class="alert alert-warning">No devices are currently available for deployment.</div>
+                    <?php else: ?>
+                        <div class="device-selection-toolbar" style="display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:12px; margin-bottom:12px;">
+                            <div style="flex:1; min-width:260px; display:flex; gap:8px; align-items:center; position:relative;">
+                                <input id="deviceSearch" list="deviceList" class="form-control" placeholder="Search asset tag or device type" style="flex:1; min-width:220px;" onkeydown="handleDeviceSearchKey(event)">
+                                <datalist id="deviceList">
+                                    <?php foreach ($availableDevices as $dev): ?>
+                                    <option value="<?php echo sanitize($dev['asset_tag']); ?>"><?php echo sanitize($dev['type_name']); ?></option>
+                                    <?php endforeach; ?>
+                                </datalist>
+                                <button type="button" class="btn btn-sm btn-outline" onclick="clearDeviceSearch()">Reset</button>
+                            </div>
+                            <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+                                <button type="button" class="btn btn-sm btn-primary" onclick="addDeviceFromSearch()">Add</button>
+                                <span style="font-size:0.95rem; color:#555;">Selected: <span id="selectedDeviceCount">0</span></span>
+                            </div>
+                        </div>
+                        <div id="selectedDevicesContainer" style="margin-bottom:16px; display:none;">
+                            <div style="margin-bottom:10px; font-weight:600; color:#333;">Selected Devices</div>
+                            <table class="data-table" style="width:100%; margin-bottom:8px; border-collapse:collapse;">
+                                <thead>
+                                    <tr>
+                                        <th style="width:1px;">#</th>
+                                        <th>Asset Tag</th>
+                                        <th>Device Type</th>
+                                        <th style="width:1px;"></th>
+                                    </tr>
+                                </thead>
+                                <tbody id="selectedDevicesBody"></tbody>
+                            </table>
+                            <div id="selectedDevicesEmpty" style="color:#555; font-size:0.95rem;">No devices selected yet. Search and select a device from the dropdown.</div>
+                        </div>
+                        <small class="form-text text-muted">Search and select a device from the dropdown to add it to the table.</small>
+                    <?php endif; ?>
                 </div>
                 <div class="form-group">
                     <label>Select Employee <span class="required">*</span></label>
@@ -252,6 +309,113 @@ function exportDeploymentsPDF() {
     });
     exportToPDF('Device Deployment Report', ['Asset Tag', 'Device', 'Employee', 'Department', 'Assigned', 'Returned', 'Status'], rows, 'deployments_<?php echo date('Y-m-d'); ?>.pdf');
 }
+
+const availableDevices = <?php echo json_encode($availableDevices, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP); ?>;
+let selectedDeviceIds = [];
+
+function handleDeviceSearchKey(event) {
+    if (event.key === 'Enter') {
+        event.preventDefault();
+        addDeviceFromSearch();
+    }
+}
+
+function addDeviceFromSearch() {
+    const input = document.getElementById('deviceSearch');
+    const query = input.value.trim();
+    if (!query) return;
+
+    // Try to find exact asset_tag match first, otherwise fallback to contains
+    let device = availableDevices.find(dev => !selectedDeviceIds.includes(dev.id) && dev.asset_tag.toLowerCase() === query.toLowerCase());
+    if (!device) {
+        device = availableDevices.find(dev => !selectedDeviceIds.includes(dev.id) && (dev.asset_tag.toLowerCase().includes(query.toLowerCase()) || dev.type_name.toLowerCase().includes(query.toLowerCase())));
+    }
+    if (device) {
+        addSelectedDevice(device.id);
+        input.value = '';
+    }
+}
+
+function clearDeviceSearch() {
+    document.getElementById('deviceSearch').value = '';
+}
+
+function updateDatalistOptions() {
+    const list = document.getElementById('deviceList');
+    if (!list) return;
+    // Clear existing options
+    list.innerHTML = '';
+    // Rebuild options excluding already selected devices
+    availableDevices.forEach(dev => {
+        if (selectedDeviceIds.includes(dev.id)) return;
+        const opt = document.createElement('option');
+        opt.value = dev.asset_tag;
+        opt.text = dev.type_name;
+        list.appendChild(opt);
+    });
+}
+
+function addSelectedDevice(deviceId) {
+    if (selectedDeviceIds.includes(deviceId)) {
+        return;
+    }
+    selectedDeviceIds.push(deviceId);
+    renderSelectedDevicesTable();
+    updateDatalistOptions();
+}
+
+function removeSelectedDevice(deviceId) {
+    selectedDeviceIds = selectedDeviceIds.filter(id => id !== deviceId);
+    renderSelectedDevicesTable();
+    updateDatalistOptions();
+}
+
+function renderSelectedDevicesTable() {
+    const container = document.getElementById('selectedDevicesContainer');
+    const body = document.getElementById('selectedDevicesBody');
+    const emptyMessage = document.getElementById('selectedDevicesEmpty');
+
+    body.innerHTML = '';
+
+    if (selectedDeviceIds.length === 0) {
+        container.style.display = 'block';
+        emptyMessage.style.display = 'block';
+        document.getElementById('selectedDeviceCount').textContent = '0';
+        return;
+    }
+
+    selectedDeviceIds.forEach((deviceId, index) => {
+        const device = availableDevices.find(dev => dev.id === deviceId);
+        if (!device) return;
+        const row = document.createElement('tr');
+        row.innerHTML = `<td style="padding: 10px;">${index + 1}</td>
+                         <td style="padding: 10px;">${escapeHtml(device.asset_tag)}</td>
+                         <td style="padding: 10px;">${escapeHtml(device.type_name)}</td>
+                         <td style="padding: 10px; text-align:center;">
+                             <button type="button" class="btn btn-sm btn-outline" onclick="removeSelectedDevice(${device.id})">Remove</button>
+                             <input type="hidden" name="device_id[]" value="${device.id}">
+                         </td>`;
+        body.appendChild(row);
+    });
+
+    emptyMessage.style.display = 'none';
+    container.style.display = 'block';
+    document.getElementById('selectedDeviceCount').textContent = selectedDeviceIds.length.toString();
+}
+
+function escapeHtml(value) {
+    return String(value)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+window.addEventListener('DOMContentLoaded', function() {
+    renderSelectedDevicesTable();
+    updateDatalistOptions();
+});
 </script>
 
 <?php require_once 'includes/footer.php'; ?>

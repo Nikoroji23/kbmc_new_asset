@@ -67,8 +67,12 @@ try {
             logAudit($_SESSION['user_id'], 'Mark Repair Complete', 'device_repairs', $repairId);
         }
         
-        // Send pending emails
-        sendPendingEmailNotifications();
+        // Send pending emails as a best-effort operation
+        try {
+            sendPendingEmailNotifications();
+        } catch (Exception $emailException) {
+            error_log('sendPendingEmailNotifications failed: ' . $emailException->getMessage());
+        }
         
         echo json_encode($result);
     } else {

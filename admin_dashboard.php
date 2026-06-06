@@ -72,16 +72,16 @@ if (empty($_SESSION['csrf_token'])) {
 }
 $csrf_token = $_SESSION['csrf_token'];
 
-// Master Key: fetch all users with their keys (searchable)
-$mkSearch = trim($_GET['mk_search'] ?? '');
-$mkWhere  = "WHERE 1=1";
+// Master Key: fetch all users with their keys
+$mk_search = trim($_GET['mk_search'] ?? '');
 $mkParams = [];
-if ($mkSearch !== '') {
-    $mkWhere .= " AND (full_name LIKE :s1 OR employee_id LIKE :s2 OR department LIKE :s3)";
-    $mkParams[':s1'] = "%$mkSearch%";
-    $mkParams[':s2'] = "%$mkSearch%";
-    $mkParams[':s3'] = "%$mkSearch%";
+$mkWhere = '';
+if ($mk_search !== '') {
+    $like = "%$mk_search%";
+    $mkWhere = "WHERE full_name LIKE ? OR email LIKE ? OR employee_id LIKE ? OR department LIKE ? OR role LIKE ?";
+    $mkParams = [$like, $like, $like, $like, $like];
 }
+
 $mkStmt = $pdo->prepare("SELECT id, employee_id, full_name, email, role, department, master_key, status FROM users $mkWhere ORDER BY full_name ASC");
 $mkStmt->execute($mkParams);
 $mkUsers = $mkStmt->fetchAll();
@@ -231,26 +231,6 @@ table.mk-tbl {
     </div>
 </div>
 
-<!-- Admin Quick Actions -->
-<div class="card" style="margin-top: 20px;">
-    <div class="card-header">
-        <h3><i class="fas fa-bolt"></i> Admin Controls</h3>
-    </div>
-    <div class="card-body" style="display: flex; gap: 12px; flex-wrap: wrap;">
-        <a href="users.php" class="btn btn-primary" style="flex: 1; min-width: 150px;">
-            <i class="fas fa-users-cog"></i> Manage Users
-        </a>
-        <a href="admin_accounts.php" class="btn btn-warning" style="flex: 1; min-width: 150px;">
-            <i class="fas fa-user-check"></i> Account Records
-        </a>
-        <?php if ($isSecurityAdmin): ?>
-        <a href="security_control.php" class="btn btn-danger" style="flex: 1; min-width: 150px;">
-            <i class="fas fa-shield-alt"></i> Security Control
-        </a>
-        <?php endif; ?>
-    </div>
-</div>
-
 <!-- Master Key Vault -->
 <?php if (!empty($_GET['mk_msg'])): ?>
 <div class="card" style="margin-top:16px; background:#d4edda; border:1px solid #c3e6cb; padding:12px 18px; border-radius:8px; color:#155724; font-size:13px; display:flex; align-items:center; gap:8px;">
@@ -260,14 +240,17 @@ table.mk-tbl {
 
 <div class="mk-panel">
     <div class="mk-header">
-        <div class="mk-header-text">
-            <h3><i class="fas fa-key"></i> Super Admin — Master Key Vault</h3>
-            <p>Visible to Super Admins only. Use master keys to bypass user passwords for account recovery.</p>
-        </div>
-        <form method="GET" action="admin_dashboard.php" class="mk-search">
-            <input type="text" name="mk_search" value="<?php echo htmlspecialchars($mkSearch); ?>" placeholder="Search name, ID, department…">
-            <button type="submit"><i class="fas fa-search"></i></button>
-        </form>
+            <div class="mk-header-text">
+                <h3><i class="fas fa-key"></i> Super Admin — Master Key Vault</h3>
+                <p>Visible to Super Admins only. Use master keys to bypass user passwords for account recovery.</p>
+            </div>
+            <div class="mk-search">
+                <form method="GET" style="display:flex; align-items:center; gap:8px;">
+                    <input type="text" name="mk_search" placeholder="Search name, email, employee ID, dept or role" value="<?php echo htmlspecialchars($mk_search ?? ''); ?>">
+                    <button type="submit"><i class="fas fa-search"></i> Search</button>
+                    <a href="admin_dashboard.php" class="btn" style="background:transparent;border:none;color:#fff;padding:0 6px;">Clear</a>
+                </form>
+            </div>
     </div>
 
     <div class="mk-table-wrap">
@@ -293,11 +276,15 @@ table.mk-tbl {
                 </tr>
                 <?php else: ?>
                 <?php foreach ($mkUsers as $mu): ?>
-                <tr>
+                <?php $isCurrentAdminRow = isset($_SESSION['user_id']) && $mu['id'] == $_SESSION['user_id']; ?>
+                <tr<?php echo $isCurrentAdminRow ? ' style="background:#eaf4ff; border-left: 4px solid #3498db;"' : ''; ?>>
                     <td style="font-size:12px; color:#888;"><?php echo sanitize($mu['employee_id'] ?? '—'); ?></td>
                     <td>
                         <strong><?php echo sanitize($mu['full_name']); ?></strong>
-                        <div style="font-size:11px; color:#aaa;"><?php echo sanitize($mu['email']); ?></div>
+                        <?php if ($isCurrentAdminRow): ?>
+                            <span style="display:inline-block; margin-top:4px; font-size:11px; color:#fff; background:#3498db; padding:2px 8px; border-radius:12px;">Current Admin</span>
+                        <?php endif; ?>
+                        <div style="font-size:11px; color:#aaa; margin-top:4px;"><?php echo sanitize($mu['email']); ?></div>
                     </td>
                     <td><?php echo sanitize($mu['department'] ?? '—'); ?></td>
                     <td><?php echo sanitize(ucfirst(str_replace('_',' ',$mu['role'] ?? '—'))); ?></td>
